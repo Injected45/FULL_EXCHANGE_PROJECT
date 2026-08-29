@@ -1,0 +1,20 @@
+# مفاتيح توقيع نسخة الإصدار.
+#
+# انسخ هذا الملف إلى android/key.properties واملأه. الملف الحقيقي مُستثنى
+# من git (android/.gitignore) ولا يُرفع أبداً.
+#
+# توليد الـ keystore — مرّة واحدة فقط، ثم لا يُستبدل:
+#
+#   keytool -genkey -v -keystore rhalla-agent-release.jks \
+#           -keyalg RSA -keysize 2048 -validity 10000 -alias rhalla
+#
+# ⚠️ المفتاح لا يُستبدل بعد أول نشر على Google Play. فقدانه — أو فقدان كلمة
+#    سرّه — يعني أن التطبيق لا يُرقّى أبداً، ويجب نشره تحت معرّف جديد يفقد
+#    كل مستخدميه. احفظ الملف وكلمة السر خارج هذا الجهاز، في مكانين مختلفين.
+#
+# لا تضع الـ .jks داخل المستودع. ضعه خارج مجلد المشروع وأشر إليه بمسار مطلق.
+
+storeFile=C:/path/to/rhalla-agent-release.jks
+storePassword=
+keyAlias=rhalla
+keyPassword=

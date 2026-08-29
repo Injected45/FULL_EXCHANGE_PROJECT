@@ -1,0 +1,63 @@
+# =====================================================================================
+# RhallaConfig.ini  —  runtime secrets for ExchangeSystem
+#
+# Copy this file to "RhallaConfig.ini" and place it NEXT TO ExchangeSystem.exe
+# (i.e. ExchangeSystem\bin\Debug\RhallaConfig.ini).
+#
+# This file holds credentials and is EXCLUDED from git. Never commit the filled-in copy.
+# Read at startup by MDD\MD_SECRETS.vb. Only the FIRST '=' splits key from value, so the
+# connection string (which itself contains '=') is preserved intact.
+# =====================================================================================
+
+# =====================================================================================
+#  >>> WHICH DATABASE DOES THE APP USE? Change these lines, then restart the app. <<<
+#
+#  STEP 1 - the ENGINE:
+#       DB_ENGINE=SQLSERVER  -> SQL Server (SQLSERVER_CONN below).      <-- current default
+#       DB_ENGINE=MYSQL      -> MariaDB / MySQL (MYSQL_* keys below).
+#  Anything else (or a missing key) means SQLSERVER.
+#
+#  STEP 2 - the SERVER, for the engine you picked:
+#       SQL Server -> SQLSERVER_CONN.  Leave it BLANK for the local SQL Server Express
+#                     instance (.\SQLEXPRESS, database EXCHANGESYS2026, Windows auth).
+#       MySQL      -> MYSQL_TARGET=LOCAL | PROD.
+#
+#  No rebuild needed for either step. The engine and the chosen MySQL target are both written
+#  to mysql_errors.log at startup, so you can always confirm what the app actually connected to.
+# =====================================================================================
+DB_ENGINE=SQLSERVER
+
+# ---- SQL Server (used when DB_ENGINE=SQLSERVER) -------------------------------------
+# BLANK = the local SQL Server Express instance built into the app:
+#   Data Source=.\SQLEXPRESS;Initial Catalog=EXCHANGESYS2026;Integrated Security=True
+# Fill it in only to reach a different server, e.g.
+#   SQLSERVER_CONN=Data Source=148.251.245.41;Initial Catalog=EXCHANGESYS2026;User ID=sa;Password=<PASSWORD>;Connect Timeout=60;Pooling=True;Max Pool Size=2024
+SQLSERVER_CONN=
+
+# ---- Auto-update --------------------------------------------------------------------
+# ON downloads the VENDOR'S production build over this exe on every launch, which throws away
+# a locally built binary and repoints the app at the production server. Keep OFF unless you
+# are deliberately running the vendor's shipped build.
+AUTO_UPDATE=OFF
+
+# ---- MariaDB / MySQL (used when DB_ENGINE=MYSQL) -------------------------------------
+#   MYSQL_TARGET=LOCAL -> MYSQL_CONN_LOCAL      MYSQL_TARGET=PROD -> MYSQL_CONN_PROD (LIVE DATA)
+# Ignored while DB_ENGINE=SQLSERVER; kept as-is so switching back lands where it did before.
+MYSQL_TARGET=LOCAL
+
+# MariaDB / MySQL connections used when MD_MYSQL.USE_MYSQL = True.
+# Can also be switched in code at runtime: MD_MYSQL.USE_LOCAL_MYSQL() / USE_PRODUCTION_MYSQL().
+#
+# ConvertZeroDateTime=true is REQUIRED: migrated data can contain 0000-00-00 dates, and without
+# it MySqlConnector throws InvalidCastException when a DataAdapter reads such a column.
+# Do NOT also add AllowZeroDateTime — the two conflict.
+MYSQL_CONN_LOCAL=Server=127.0.0.1;Port=3306;Database=EXCHANGESYS2026;User Id=exchange_app;Password=<LOCAL_PASSWORD>;CharacterSet=utf8mb4;ConvertZeroDateTime=true;AllowPublicKeyRetrieval=true;Pooling=true;MaximumPoolSize=200;ConnectionTimeout=60;DefaultCommandTimeout=300
+
+# PRODUCTION — LIVE COMPANY DATA. Fill in host/user/password; leave BLANK to disable the switch
+# (USE_PRODUCTION_MYSQL() then throws instead of silently falling back to local).
+# Long timeouts are intentional: the production server is across a WAN.
+MYSQL_CONN_PROD=Server=<PROD_HOST>;Port=3306;Database=<PROD_DB>;User Id=exchange_app;Password=<PROD_PASSWORD>;CharacterSet=utf8mb4;AllowPublicKeyRetrieval=true;ConvertZeroDateTime=True;Pooling=true;MaximumPoolSize=200;ConnectionTimeout=600;DefaultCommandTimeout=600
+
+# WhatsApp gateway (wa.rhalla.online) — used by OTP login and transfer notifications.
+WA_SESSION_ID=
+WA_API_KEY=

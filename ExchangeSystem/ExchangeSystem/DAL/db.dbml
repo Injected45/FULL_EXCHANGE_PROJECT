@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?><Database Name="EXCHANGESYS" Class="DataClasses1DataContext" xmlns="http://schemas.microsoft.com/linqtosql/dbml/2007">
+  <Connection Mode="AppSettings" ConnectionString="Data Source=ALHALLA\HA;Initial Catalog=EXCHANGESYS;Persist Security Info=True;User ID=sa" SettingsObjectName="ExchangeSystem.My.MySettings" SettingsPropertyName="EXCHANGESYSConnectionString" Provider="System.Data.SqlClient" />
+  <Table Name="dbo.TB_Users" Member="TB_Users">
+    <Type Name="TB_User">
+      <Column Name="USID" Type="System.Int32" DbType="Int NOT NULL IDENTITY" IsPrimaryKey="true" IsDbGenerated="true" CanBeNull="false" />
+      <Column Name="UName" Type="System.String" DbType="NVarChar(MAX)" CanBeNull="true" />
+      <Column Name="UNameLog" Type="System.String" DbType="NVarChar(MAX)" CanBeNull="true" />
+      <Column Name="UPass" Type="System.String" DbType="NVarChar(MAX)" CanBeNull="true" />
+      <Column Name="IsActive" Type="System.Boolean" DbType="Bit" CanBeNull="true" />
+      <Column Name="BranchID" Type="System.Int32" DbType="Int" CanBeNull="true" />
+      <Column Name="ProfileID" Type="System.Int32" DbType="Int" CanBeNull="true" />
+      <Column Name="TypeID" Type="System.Byte" DbType="TinyInt" CanBeNull="true" />
+      <Column Name="AccID" Type="System.Int64" DbType="BigInt" CanBeNull="true" />
+      <Column Name="USettingProfileID" Type="System.Int32" DbType="Int" CanBeNull="true" />
+    </Type>
+  </Table>
+  <Table Name="dbo.UserAccessProfileDetails" Member="UserAccessProfileDetails">
+    <Type Name="UserAccessProfileDetail">
+      <Column Name="ID" Type="System.Int32" DbType="Int NOT NULL IDENTITY" IsPrimaryKey="true" IsDbGenerated="true" CanBeNull="false" />
+      <Column Name="ProfileID" Type="System.Int32" DbType="Int NOT NULL" CanBeNull="false" />
+      <Column Name="ScreenID" Type="System.Int32" DbType="Int NOT NULL" CanBeNull="false" />
+      <Column Name="CanShow" Type="System.Boolean" DbType="Bit NOT NULL" CanBeNull="false" />
+      <Column Name="CanOpen" Type="System.Boolean" DbType="Bit NOT NULL" CanBeNull="false" />
+      <Column Name="CanAdd" Type="System.Boolean" DbType="Bit NOT NULL" CanBeNull="false" />
+      <Column Name="CanEdit" Type="System.Boolean" DbType="Bit NOT NULL" CanBeNull="false" />
+      <Column Name="CanDelete" Type="System.Boolean" DbType="Bit NOT NULL" CanBeNull="false" />
+      <Column Name="CanPrint" Type="System.Boolean" DbType="Bit NOT NULL" CanBeNull="false" />
+    </Type>
+  </Table>
+  <Table Name="dbo.UserAccessProfileName" Member="UserAccessProfileNames">
+    <Type Name="UserAccessProfileName">
+      <Column Name="ID" Type="System.Int32" DbType="Int NOT NULL IDENTITY" IsPrimaryKey="true" IsDbGenerated="true" CanBeNull="false" />
+      <Column Name="Name" Type="System.String" DbType="NVarChar(MAX)" CanBeNull="true" />
+    </Type>
+  </Table>
+</Database>

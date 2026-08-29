@@ -1,0 +1,16 @@
+﻿Imports System.ComponentModel
+Imports DevExpress.XtraReports.UI
+Imports System.IO
+
+Public Class XtraReport4
+    Private Sub XtraReport4_BeforePrint(sender As Object, e As CancelEventArgs) Handles Me.BeforePrint
+        XrLabel16.Text = My.Settings.ARName
+        Dim imageBytes As Byte() = Convert.FromBase64String(My.Settings.Company_Image)
+        Using ms As New MemoryStream(imageBytes)
+            XrPictureBox10.Image = Image.FromStream(ms)
+        End Using
+        ApplyLocalization("en-US")
+        XrLabel1.Text = FRMSalaryCalculationStatment.BranchID.Text
+        XrLabel4.Text = GetUserName
+    End Sub
+End Class

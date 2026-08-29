@@ -1,0 +1,35 @@
+SIMPLE PROCS NEEDING MANUAL WORK
+
+== failed to CREATE ==
+Accounts_LimitedStatment: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'OUTER APPLY (     SELECT cb.BName     FROM CoBranch cb     WHERE cb.CurrentAc...' at line 14
+ACCOUNTSTB_selectmax: Undeclared variable: p_AccType
+activate_oqs_scheduler: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'UNIQUEIDENTIFIER; DECLARE v_Type   SYSNAME; DECLARE v_msg    LONGTEXT; DECLAR...' at line 3
+AddCancelReason_ReseedCounter: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'checkident(AddCancelReason,reseed,v_max); END' at line 5
+BalanceSheet_Statment_Detials: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ';         SELECT         InsertDate,         ID,         ISID,         AccPar...' at line 85
+BenefitDistribution_UPDATE: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '; 		UPDATE 				BenefitDistribution 		SET 				ISID = p_ISID, InsertDate = p_In...' at line 10
+ERROR_PROC: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '; SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='error'; END' at line 9
+GET_Total_Currency_CustomersTb_PROC: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '(p_Type, p_AccBranchID); END' at line 6
+ResedAnyTable: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'CHECKIDENT ('`BranchRatesTb`', RESEED, v_max); END' at line 15
+start_scheduler: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'uniqueidentifier;         SELECT `conversation_handle` INTO v_handle FROM`sys...' at line 3
+stop_scheduler: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'uniqueidentifier;         SELECT `conversation_handle` INTO v_handle FROM`sys...' at line 3
+
+== created but diff FAILED ==
+accacounselecttotaldor: MySQL Unknown column 'a.totatel' in 'field list' differ
+AgentAccountStatement: MySQL The Command Timeout expired before the operation completed. differ
+CalculateEmployeeSalaries1: MySQL FUNCTION exchangesys2026.DATEFROMPARTS does not exist differ
+CurrenciesBuyandsellTB_Update_GET_Vluae: rows(1/1) or OUT differ
+Currency_settingForBancksRet_getUESER: SQL-source errors but MySQL ran
+CurrencyPriceShow: MySQL Unknown column 'CuName' in 'order clause' differ
+DepositSafeStatement: MySQL Result consisted of more than one row differ
+get_sendr_name: SQL-source errors but MySQL ran
+GET_TABLE_FOR_Costof_PROC: rows(5/5) or OUT differ
+Group-main_getdDvg: MySQL You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'Group-main_getdDvg(1)' at line 1 differ
+InternalEx_SearchForCurrentRecorde2025: SQL-source errors but MySQL ran
+InternalExDeleted_Insert: SQL-source errors but MySQL ran
+New_GET_TABLE_FOR_Costof_PROC: rows(42/42) or OUT differ
+RPhone_get_forWatsab_and_CoBranch_Mobile: rows(0/0) or OUT differ
+SalaryCalculation_LoadToBankPortfolio: rows(0/0) or OUT differ
+SELECTALLTB_PROFILE_COMPANY: rows(1/1) or OUT differ
+
+== created, not auto-tested ==
+CMD_INSERT_TB_PROFILE_COMPANY: binary param

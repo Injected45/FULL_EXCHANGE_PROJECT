@@ -1,0 +1,65 @@
+# =========================================================
+# Laravel + W3TC + Apache rewrite configuration
+# =========================================================
+
+<IfModule mod_rewrite.c>
+    # منع عرض المجلدات
+    Options -Indexes -MultiViews
+
+    RewriteEngine On
+
+    # ===============================
+    # التعامل مع Authorization Header
+    # ===============================
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # ===============================
+    # إزالة الشرطة المائلة في نهاية المسار
+    # ===============================
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+
+    # ===============================
+    # توجيه الطلبات إلى index.php (التحكم في API)
+    # ===============================
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+# =========================================================
+# إعدادات W3TC Browser Cache (اختيارية)
+# =========================================================
+
+<IfModule mod_mime.c>
+    AddType text/css .css
+    AddType application/javascript .js
+    AddType image/png .png
+    AddType image/jpeg .jpg .jpeg
+    AddType image/gif .gif
+    AddType application/json .json
+    AddType application/font-woff .woff
+    AddType application/x-font-ttf .ttf .ttc
+</IfModule>
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css A31536000
+    ExpiresByType application/javascript A31536000
+    ExpiresByType image/png A31536000
+    ExpiresByType image/jpeg A31536000
+    ExpiresByType image/gif A31536000
+    ExpiresByType application/json A31536000
+    ExpiresByType application/font-woff A31536000
+    ExpiresByType application/x-font-ttf A31536000
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/css application/javascript text/html text/plain application/json
+</IfModule>
+
+# =========================================================
+# نهاية الملف
+# =========================================================

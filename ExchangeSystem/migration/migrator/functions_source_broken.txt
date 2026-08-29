@@ -1,0 +1,7 @@
+Functions whose SQL Server ORIGINAL also errors (broken source). Conversion faithful; not bugs.
+
+Ass_sumcredet1: source error (Invalid object name 'dbo.ExAssociationAct_AssActivityTb'.)
+Ass_sumDEBETalter1: source error (Invalid object name 'dbo.ExAssociationAct_AssActivityTb'.)
+CATEID_GetNetTotal: source error (Invalid object name 'ContractDB.dbo.ImportItemsTb'.)
+EXPORTEDCATID_GetNetTotal: source error (Invalid object name 'ContractDB.dbo.PROEXPORTITEM'.)
+sumDEBETalter2: source error (Invalid object name 'dbo.ExAssociationAct_AssActivityTb'.)

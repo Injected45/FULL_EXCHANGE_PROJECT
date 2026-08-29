@@ -1,0 +1,8 @@
+Procs whose SQL Server ORIGINAL also errors (broken source — reference dropped tables/cols). Conversion is
+faithful (both engines fail identically); NOT conversion bugs and NOT counted as failures.
+
+card_bookings_sELECprint: source error (Invalid object name 'rhalla2024Teset.DBO.card_bookings'.)
+card_bookings_sELECT: source error (Invalid object name 'rhalla2024Teset.DBO.card_bookings'.)
+card_bookings_sELECT_date: source error (Invalid object name 'rhalla2024Teset.dbo.card_bookings'.)
+ExchangeSystem_FastAnalyz: source error (Cannot find either column "DBO" or the user-defined function or aggregate "DBO.INTERNALEX_OUTCOMENOTDELIVERED", or the name is ambiguous.)
+purge_oqs: source error (Could not find stored procedure 'dbo.purge_oqs'.)

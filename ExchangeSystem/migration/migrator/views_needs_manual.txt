@@ -1,0 +1,15 @@
+VIEWS THAT NEED MANUAL REVIEW (typically T-SQL '+' string concat -> MySQL CONCAT, or date-fn signatures)
+
+== failed to CREATE ==
+query_stats: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'bigint) `total_dop`,CAST(0 as bigint) `last_dop`,CAST(0 as bigint) `min_dop`,...' at line 32
+
+== created but diff FAILED ==
+AhmedAshref: query error The Command Timeout expired before the operation completed.
+ExchangeAccData: rows/values differ (src=2061, dst=2061)
+ExchangeAccData_notACCid: query error Illegal mix of collations for operation 'UNION'
+ExchangeAccData_notACCid_Cosumer: query error Illegal mix of collations for operation 'UNION'
+ExternalEx_LoadToIssued: rows/values differ (src=9108, dst=9108)
+InternalEx_SelectType_View_not_BRanchId : query error Incorrect table name 'InternalEx_SelectType_View_not_BRanchId '
+InternalEx_SelectType_View_statetosForok : query error Incorrect table name 'InternalEx_SelectType_View_statetosForok '
+View_AccSafeActiv_SafeLoad: query error The Command Timeout expired before the operation completed.
+View_User_TB_CHECKACOUNT: rows/values differ (src=69, dst=69)

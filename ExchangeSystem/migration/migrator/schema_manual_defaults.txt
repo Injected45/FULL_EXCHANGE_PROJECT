@@ -1,0 +1,4 @@
+DEFAULT constraints that could NOT be translated faithfully and were therefore OMITTED.
+Review each one — an omitted DEFAULT is a silent-data-loss risk (README_MYSQL §8.2).
+
+BankVisaTransfers_CentralLibya.TransferSeq  int  (NEXT VALUE FOR [Seq_BankVisaTransfers])

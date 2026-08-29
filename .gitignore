@@ -1,0 +1,41 @@
+# ─────────────────────────────────────────────────────────────
+# Root .gitignore for the Alrhalla monorepo.
+#
+# backend/, rhalla_agent/ and ExchangeSystem/ each keep their own
+# .gitignore and git still honours them. What is here is either
+# repo-wide, or a deliberate second line of defence around the
+# credential files — those must never reach GitHub even if a
+# sub-.gitignore is edited later.
+# ─────────────────────────────────────────────────────────────
+
+# --- Credentials: never commit, at any depth ---
+.env
+.env.*
+!.env.example
+*.env.bak
+RhallaConfig.ini
+!RhallaConfig.ini.template
+key.properties
+!key.properties.template
+*.jks
+*.keystore
+*.pem
+*.p12
+*.pfx
+auth.json
+
+# --- OS / editor noise ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+
+# --- Python caches (from .claude/skills scripts) ---
+__pycache__/
+*.py[cod]
+
+# --- Dependency + build output (backstop; sub-ignores cover these too) ---
+node_modules/
+vendor/
+/backend/env
+/backend/L

@@ -1,0 +1,3 @@
+﻿Public Class FRMVIEWINCOMETRANSFER
+
+End Class

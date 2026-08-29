@@ -1,0 +1,353 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{FC466252-9126-4370-B2AD-C9B083960443}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <StartupObject>ExchangeSystem.My.MyApplication</StartupObject>
+    <RootNamespace>ExchangeSystem</RootNamespace>
+    <AssemblyName>ExchangeSystem</AssemblyName>
+    <FileAlignment>512</FileAlignment>
+    <MyType>WindowsForms</MyType>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <DefineDebug>true</DefineDebug>
+    <DefineTrace>true</DefineTrace>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DocumentationFile>ExchangeSystem.xml</DocumentationFile>
+    <NoWarn>42016,41999,42017,42018,42019,42032,42036,42020,42021,42022</NoWarn>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <DefineDebug>false</DefineDebug>
+    <DefineTrace>true</DefineTrace>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DocumentationFile>ExchangeSystem.xml</DocumentationFile>
+    <NoWarn>42016,41999,42017,42018,42019,42032,42036,42020,42021,42022</NoWarn>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OptionExplicit>On</OptionExplicit>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OptionCompare>Binary</OptionCompare>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OptionStrict>Off</OptionStrict>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OptionInfer>On</OptionInfer>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Accessibility" />
+    <Reference Include="DevExpress.BonusSkins.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      
+    </Reference>
+    <Reference Include="DevExpress.Data.Desktop.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL" />
+    <Reference Include="DevExpress.Data.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL" />
+    <Reference Include="DevExpress.Drawing.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a" />
+    <Reference Include="DevExpress.Pdf.v25.1.Core, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a" />
+    <Reference Include="DevExpress.Pdf.v25.1.Drawing, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a" />
+    <Reference Include="DevExpress.Printing.v25.1.Core, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL" />
+    <Reference Include="DevExpress.Sparkline.v25.1.Core, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL" />
+    <Reference Include="DevExpress.Utils.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL" />
+    <Reference Include="DevExpress.XtraBars.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL" />
+    <Reference Include="DevExpress.XtraEditors.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL" />
+    <Reference Include="DevExpress.XtraGrid.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL" />
+    <Reference Include="DevExpress.XtraLayout.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a" />
+    <Reference Include="DevExpress.XtraPdfViewer.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a, processorArchitecture=MSIL" />
+    <Reference Include="DevExpress.XtraPrinting.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a" />
+    <Reference Include="DevExpress.XtraTreeList.v25.1, Version=25.1.3.0, Culture=neutral, PublicKeyToken=b88d1754d700e49a" />
+    <Reference Include="MetroFramework, Version=1.4.0.0, Culture=neutral, PublicKeyToken=5f91a84759bf584a, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\shippingsystem\ShippingSystem\ShippingSystem\bin\Debug\MetroFramework.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="Nancy, Version=2.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\Nancy.2.0.0\lib\net452\Nancy.dll</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json, Version=12.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <HintPath>..\packages\Newtonsoft.Json.12.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="RestSharp, Version=108.0.3.0, Culture=neutral, PublicKeyToken=598062e77f915f75, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\shippingsystem\ShippingSystem\ShippingSystem\bin\Debug\RestSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="RestSharp.Serializers.Newtonsoft.Json, Version=1.5.1.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\RestSharp.Newtonsoft.Json.1.5.1\lib\net452\RestSharp.Serializers.Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.ComponentModel.DataAnnotations" />
+    <Reference Include="System.Configuration" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Data.Linq" />
+    <Reference Include="System.Deployment" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Runtime.Serialization.Formatters.Soap" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Transactions" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <Import Include="Microsoft.VisualBasic" />
+    <Import Include="System" />
+    <Import Include="System.Collections" />
+    <Import Include="System.Collections.Generic" />
+    <Import Include="System.Data" />
+    <Import Include="System.Drawing" />
+    <Import Include="System.Diagnostics" />
+    <Import Include="System.Windows.Forms" />
+    <Import Include="System.Linq" />
+    <Import Include="System.Xml.Linq" />
+    <Import Include="System.Threading.Tasks" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="CLSFRM\CLSCoBranch.vb" />
+    <Compile Include="CLSFRM\CLSEMPLOYEE.vb" />
+    <Compile Include="CLSFRM\CLSINTERNALTRANSFER.vb" />
+    <Compile Include="CLSFRM\CLSSAFE.vb" />
+    <Compile Include="CLSFRM\CoBranchGene.vb" />
+    <Compile Include="FORMSEXCHANGE\FRMINTERNALTRANSFER.designer.vb">
+      <DependentUpon>FRMINTERNALTRANSFER.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMSEXCHANGE\FRMINTERNALTRANSFER.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMSEXCHANGE\FRMOUTCOMETRANSFER.Designer.vb">
+      <DependentUpon>FRMOUTCOMETRANSFER.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMSEXCHANGE\FRMOUTCOMETRANSFER.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMSEXCHANGE\FRMVIEWINCOMETRANSFER.Designer.vb">
+      <DependentUpon>FRMVIEWINCOMETRANSFER.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMSEXCHANGE\FRMVIEWINCOMETRANSFER.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMSEXCHANGE\FRMVIEWINTERNALTRANSFER.Designer.vb">
+      <DependentUpon>FRMVIEWINTERNALTRANSFER.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMSEXCHANGE\FRMVIEWINTERNALTRANSFER.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMADDPIVAL.Designer.vb">
+      <DependentUpon>FRMADDPIVAL.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMADDPIVAL.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FrmCoBranch.designer.vb">
+      <DependentUpon>FrmCoBranch.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FrmCoBranch.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMEMPLOYEE.designer.vb">
+      <DependentUpon>FRMEMPLOYEE.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMEMPLOYEE.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FrmPayIncrease.designer.vb">
+      <DependentUpon>FrmPayIncrease.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FrmPayIncrease.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMSAFE.designer.vb">
+      <DependentUpon>FRMSAFE.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMSAFE.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FrmViewCoBranch.designer.vb">
+      <DependentUpon>FrmViewCoBranch.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FrmViewCoBranch.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMVIEWEMPLOYEE.designer.vb">
+      <DependentUpon>FRMVIEWEMPLOYEE.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMVIEWEMPLOYEE.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMVIEWPI.Designer.vb">
+      <DependentUpon>FRMVIEWPI.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMVIEWPI.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMVIEWSAFE.designer.vb">
+      <DependentUpon>FRMVIEWSAFE.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\BASICINFO\FRMVIEWSAFE.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\FRMMAIN.Designer.vb">
+      <DependentUpon>FRMMAIN.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\FRMMAIN.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\TemplateForm.designer.vb">
+      <DependentUpon>TemplateForm.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\TemplateForm.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FORMS\XtraForm1.Designer.vb">
+      <DependentUpon>XtraForm1.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FORMS\XtraForm1.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FrmMaster.designer.vb">
+      <DependentUpon>FrmMaster.vb</DependentUpon>
+    </Compile>
+    <Compile Include="FrmMaster.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="MDD\MD_CONNECTION.vb" />
+    <Compile Include="MDD\MD_MESSAGE.vb" />
+    <Compile Include="MDD\MD_PUBLIC.VB" />
+    <Compile Include="Module1.vb" />
+    <Compile Include="Module2.vb" />
+    <Compile Include="MSGFORMS\FrmEditMessage.designer.vb">
+      <DependentUpon>FrmEditMessage.vb</DependentUpon>
+    </Compile>
+    <Compile Include="MSGFORMS\FrmEditMessage.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="MSGFORMS\FrmRemovemessage.designer.vb">
+      <DependentUpon>FrmRemovemessage.vb</DependentUpon>
+    </Compile>
+    <Compile Include="MSGFORMS\FrmRemovemessage.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="MSGFORMS\FrmSavedSuccefully.designer.vb">
+      <DependentUpon>FrmSavedSuccefully.vb</DependentUpon>
+    </Compile>
+    <Compile Include="MSGFORMS\FrmSavedSuccefully.vb">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="My Project\AssemblyInfo.vb" />
+    <Compile Include="My Project\Application.Designer.vb">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Application.myapp</DependentUpon>
+    </Compile>
+    <Compile Include="My Project\Resources.Designer.vb">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+    <Compile Include="My Project\Settings.Designer.vb">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Settings.settings</DependentUpon>
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="FORMSEXCHANGE\FRMINTERNALTRANSFER.resx">
+      <DependentUpon>FRMINTERNALTRANSFER.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMSEXCHANGE\FRMOUTCOMETRANSFER.resx">
+      <DependentUpon>FRMOUTCOMETRANSFER.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMSEXCHANGE\FRMVIEWINTERNALTRANSFER.resx">
+      <DependentUpon>FRMVIEWINTERNALTRANSFER.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\BASICINFO\FRMADDPIVAL.resx">
+      <DependentUpon>FRMADDPIVAL.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\BASICINFO\FrmCoBranch.resx">
+      <DependentUpon>FrmCoBranch.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\BASICINFO\FRMEMPLOYEE.resx">
+      <DependentUpon>FRMEMPLOYEE.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\BASICINFO\FrmPayIncrease.resx">
+      <DependentUpon>FrmPayIncrease.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\BASICINFO\FRMSAFE.resx">
+      <DependentUpon>FRMSAFE.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\BASICINFO\FrmViewCoBranch.resx">
+      <DependentUpon>FrmViewCoBranch.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\BASICINFO\FRMVIEWEMPLOYEE.resx">
+      <DependentUpon>FRMVIEWEMPLOYEE.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\BASICINFO\FRMVIEWPI.resx">
+      <DependentUpon>FRMVIEWPI.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\BASICINFO\FRMVIEWSAFE.resx">
+      <DependentUpon>FRMVIEWSAFE.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\FRMMAIN.resx">
+      <DependentUpon>FRMMAIN.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\TemplateForm.resx">
+      <DependentUpon>TemplateForm.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FORMS\XtraForm1.resx">
+      <DependentUpon>XtraForm1.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FrmMaster.resx">
+      <DependentUpon>FrmMaster.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="MSGFORMS\FrmEditMessage.resx">
+      <DependentUpon>FrmEditMessage.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="MSGFORMS\FrmRemovemessage.resx">
+      <DependentUpon>FrmRemovemessage.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="MSGFORMS\FrmSavedSuccefully.resx">
+      <DependentUpon>FrmSavedSuccefully.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="My Project\licenses.licx" />
+    <EmbeddedResource Include="My Project\Resources.resx">
+      <Generator>VbMyResourcesResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.vb</LastGenOutput>
+      <CustomToolNamespace>My.Resources</CustomToolNamespace>
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="My Project\Application.myapp">
+      <Generator>MyApplicationCodeGenerator</Generator>
+      <LastGenOutput>Application.Designer.vb</LastGenOutput>
+    </None>
+    <None Include="My Project\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <CustomToolNamespace>My</CustomToolNamespace>
+      <LastGenOutput>Settings.Designer.vb</LastGenOutput>
+    </None>
+    <None Include="App.config" />
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <WCFMetadata Include="Connected Services\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="USERSFRM\" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
+</Project>

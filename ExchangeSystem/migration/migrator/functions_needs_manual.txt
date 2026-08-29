@@ -1,0 +1,13 @@
+SCALAR FUNCTIONS NEEDING MANUAL WORK
+
+== failed to CREATE (T-SQL body needs hand-translation: multi-line statements, SELECT @x= patterns, etc.) ==
+ExtractNumbers: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'WHILE; IF;         SET v_i = v_i + 1;     END;      RETURN v_result; END' at line 10
+GetIdCOde: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'set  v_IDCode = 1   else SET v_IDCode = v_IDCode + 1 THEN return v_IDCode; EN...' at line 7
+NormalizePhone: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'ELSE IF p_phone LIKE '20%';         SET v_clean = SUBSTRING(p_phone, 3, CHAR_...' at line 7
+SalePrice_mo_Value: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '= v_maxVAle  THEN SELECT p_value  -  case   when a.RateType= 0  then a.DisVal...' at line 38
+
+== created but diff FAILED ==
+ExtractAccountNumberFromText: MySQL call error FUNCTION exchangesys2026.ExtractNumbers does not exist
+ExtractLastNumbers('1',1): SQL=[1] MySQL=[]
+
+== created, not auto-tested ==

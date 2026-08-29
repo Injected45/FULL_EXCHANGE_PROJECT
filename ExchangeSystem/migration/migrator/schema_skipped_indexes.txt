@@ -1,0 +1,7 @@
+Indexes skipped (exceed MariaDB 3072-byte key limit or index a TEXT/BLOB column). These are
+SQL Server wide 'covering' indexes — performance hints, not correctness. Review if a query needs them
+(MySQL alternative: a shorter index or a prefixed index like col(255)).
+
+CustomersTb.idx_cod (~9999 key bytes, cols: Code)
+EmployeeTb.NonClusteredIndex-20240406-001824 (~10677 key bytes, cols: CODE,EMPNAME,NATNUMBER,CLASSIFICATION,Nationality,SalaryVal,Debit,Credit,ISACTIVE,PIVALUEID,PIVAL,BranchID,BonusVal,AccIDEx,AccIDPTTCA)
+EMPORCUSTWITHDRAWALTB.NonClusteredIndex-20240406-001935 (~10038 key bytes, cols: Code,InsertDate,EMPID,WDVAL,DPSVAL,SafeID,IsActive,TypeID,CODEID,BranchID)
