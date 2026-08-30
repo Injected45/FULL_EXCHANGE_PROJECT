@@ -10,6 +10,8 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../favorites/favorites_repository.dart';
+import '../favorites/favorites_screen.dart';
 import 'send_repository.dart';
 
 /// شاشة النجاح — الرمز هو المنتج الحقيقي للعملية، فهو أكبر عنصر فيها.
@@ -113,7 +115,18 @@ class TransferDoneScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 18),
+            RiseIn.small(
+              delay: const Duration(milliseconds: 260),
+              child: AddToFavoritesButton(
+                // الرمز الداخلي لا رمز الموبايل: المفضّلة تُربط بعمود Code.
+                code: transfer.code,
+                kind: FavoriteKind.internal,
+                name: transfer.receiverName,
+                phone: transfer.receiverPhone,
+              ),
+            ),
+            const SizedBox(height: 18),
             RiseIn(
               delay: const Duration(milliseconds: 350),
               child: Column(

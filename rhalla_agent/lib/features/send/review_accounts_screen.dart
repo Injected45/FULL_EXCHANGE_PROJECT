@@ -10,9 +10,10 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
-import '../home/home_repository.dart';
+import '../shell/auto_refresh.dart';
 import 'accounts_repository.dart';
-import 'send_repository.dart' show InsufficientFunds;
+import 'limit_dialog.dart';
+import 'send_repository.dart' show InsufficientFunds, TransferLimitExceeded;
 
 /// مراجعة التحويل بين الحسابات — اللوحة `design/ReviewAccounts.dc.html`.
 ///
@@ -50,15 +51,24 @@ class _ReviewAccountsScreenState extends ConsumerState<ReviewAccountsScreen> {
             amount: d.amount,
             branchId: user.branchId,
             notes: d.notes ?? '',
+            receiverPhone: d.target.phone,
           );
       if (!mounted) return;
       // الرصيد تغيّر على الخادم.
-      ref.invalidate(homeSnapshotProvider);
+      refreshAfterMoneyAction(ref);
       context.pushReplacement('/send/accounts/done', extra: t);
     } on ApiFailure catch (e) {
       if (!mounted) return;
       setState(() => _sending = false);
 
+      // تجاوز السقف حدٌّ لا خطأ — حوار في وسط الشاشة لا شريط أحمر.
+      final overLimit = TransferLimitExceeded.from(e);
+      if (overLimit != null) {
+        await showLimitExceededDialog(context, overLimit);
+        return;
+      }
+
+      if (!mounted) return;
       // «رصيد غير كافٍ» يصل كحقول لا كنص — انظر InsufficientFunds.
       final short = InsufficientFunds.from(e);
       ScaffoldMessenger.of(context)
@@ -113,12 +123,12 @@ class _ReviewAccountsScreenState extends ConsumerState<ReviewAccountsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.baseline,
                             textBaseline: TextBaseline.alphabetic,
                             children: [
-                              Text(Fmt.money(d.amount),
-                                  style: T.kufi(36, FontWeight.w800)),
-                              const SizedBox(width: 8),
                               Text(currency,
                                   style: T.plex(12, FontWeight.w400,
                                       color: R.inkA(.5))),
+                              const SizedBox(width: 8),
+                              Text(Fmt.money(d.amount),
+                                  style: T.kufi(36, FontWeight.w800)),
                             ],
                           ),
                         ),

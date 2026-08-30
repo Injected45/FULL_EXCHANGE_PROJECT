@@ -47,6 +47,11 @@ class AccountScreen extends ConsumerWidget {
                           onTap: () => context.go('/pos'),
                         ),
                       _Row(
+                        icon: Icons.star_outline_rounded,
+                        label: 'المفضّلة',
+                        onTap: () => context.push('/favorites'),
+                      ),
+                      _Row(
                         icon: Icons.speed_outlined,
                         label: 'السقوف والعمولات',
                         onTap: () => context.push('/limits'),

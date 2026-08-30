@@ -113,12 +113,54 @@ void main() {
       });
       expect(e.firstValidationError(), 'رقم الهاتف مطلوب');
     });
+
+    test('تجاوز السقف: قائمة الكائنات ليست رسالة تُعرض', () {
+      // ردّ checkTransferLimits الحقيقي — بجذر الجسم لا داخل data.
+      // كان firstValidationError يعيد «{type_from: Daily, Debit: 5025.000,
+      // label: اليومي}» فيراها الوكيل في شريط أحمر.
+      final e = Envelope.parse(422, {
+        'success': false,
+        'violations': [
+          {'type_from': 'Daily', 'Debit': 5025.000, 'label': 'اليومي'}
+        ],
+        'total': 3015,
+        'message': ' لقد تجاوزت حدود التحويل اليومي',
+      });
+      expect(e.firstValidationError(), isNot(contains('type_from')));
+      expect(e.firstValidationError(), 'لقد تجاوزت حدود التحويل اليومي');
+    });
+
+    test('قائمة نصوص ما زالت تُقرأ — لم نكسر حقيبة Laravel', () {
+      final e = Envelope.parse(422, {
+        'data': {
+          'amount': ['المبلغ مطلوب']
+        },
+      });
+      expect(e.firstValidationError(), 'المبلغ مطلوب');
+    });
   });
 
   group('Fmt', () {
-    test('الدينار بثلاث خانات عشرية', () {
-      expect(Fmt.money(48320.75), '48,320.750');
-      expect(Fmt.money(1250), '1,250.000');
+    test('خانتان حين تكون الثالثة صفراً', () {
+      expect(Fmt.money(1000), '1,000.00');
+      expect(Fmt.money(48320.75), '48,320.75');
+      expect(Fmt.money(1234.5), '1,234.50');
+      expect(Fmt.money(0), '0.00');
+      expect(Fmt.money(null), '0.00');
+    });
+
+    test('الخانة الثالثة تظهر متى حملت قيمة — لا يُخفى الدرهم', () {
+      // الدينار = 1000 درهم. إخفاء الخانة الثالثة يُسقط مالاً حقيقياً
+      // ويفتح باب فروق في الجرد، فالنمط #,##0.00# لا #,##0.00
+      expect(Fmt.money(1000.325), '1,000.325');
+      expect(Fmt.money(1234.005), '1,234.005');
+      expect(Fmt.money(0.001), '0.001');
+    });
+
+    test('الإشارة تستعمل − لا شَرطة الكيبورد', () {
+      expect(Fmt.moneyWithSign(250, credit: true), '+ 250.00');
+      expect(Fmt.moneyWithSign(-250), '− 250.00');
+      expect(Fmt.moneyWithSign(-250.125), '− 250.125');
     });
 
     test('الأرقام غربية لا عربية-هندية', () {

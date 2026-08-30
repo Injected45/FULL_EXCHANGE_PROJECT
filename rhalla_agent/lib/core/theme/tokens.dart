@@ -34,6 +34,10 @@ class R {
   // ─── سلّم الحبر ────────────────────────────────────────────
   static Color inkA(double a) => ink.withValues(alpha: a);
   static Color whiteA(double a) => const Color(0xFFFFFFFF).withValues(alpha: a);
+  /// إيحاء حركة الحساب: الوارد أخضر والصادر أحمر.
+  static Color creditA(double a) => credit.withValues(alpha: a);
+  static Color debitA(double a) => error.withValues(alpha: a);
+
   static Color primaryA(double a) => primary.withValues(alpha: a);
 
   // ─── التدرجات ──────────────────────────────────────────────

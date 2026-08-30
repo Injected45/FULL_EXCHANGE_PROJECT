@@ -13,10 +13,15 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../favorites/favorites_repository.dart';
+import '../favorites/favorites_screen.dart';
 import 'accounts_repository.dart';
 
 class SendAccountsScreen extends ConsumerStatefulWidget {
-  const SendAccountsScreen({super.key});
+  const SendAccountsScreen({super.key, this.prefill});
+
+  /// عميل من المفضّلة — يُملأ هاتفه ويُبحث عن حسابه فوراً.
+  final FavoriteCustomer? prefill;
 
   @override
   ConsumerState<SendAccountsScreen> createState() => _SendAccountsScreenState();
@@ -39,9 +44,36 @@ class _SendAccountsScreenState extends ConsumerState<SendAccountsScreen> {
 
   String? _error;
 
+  // كل حقل رقمي: يُفرَغ عند دخول المؤشّر، والمبالغ تُنسَّق عند الخروج.
+  late final _amountFocus = NumericFieldFocus(_amount,
+      onChanged: () => setState(() {}), formatOnExit: true);
+  late final _phoneFocus =
+      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.prefill;
+    if (p == null) return;
+    _phone.text = Fmt.phoneForApi(p.phone);
+    // ‏_search يستدعي setState، ولا يجوز ذلك داخل initState.
+    Future.microtask(_search);
+  }
+
+  Future<void> _pickFavorite() async {
+    final c = await FavoritePickerSheet.show(context, FavoriteKind.accounts);
+    if (c == null) return;
+    _phone.text = Fmt.phoneForApi(c.phone);
+    if (!mounted) return;
+    setState(() {});
+    await _search();
+  }
+
   @override
   void dispose() {
     _feeDebounce?.cancel();
+    _amountFocus.dispose();
+    _phoneFocus.dispose();
     for (final c in [_phone, _amount, _notes]) {
       c.dispose();
     }
@@ -233,7 +265,13 @@ class _SendAccountsScreenState extends ConsumerState<SendAccountsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('هاتف صاحب الحساب', style: T.label),
+            Row(
+              children: [
+                Text('هاتف صاحب الحساب', style: T.label),
+                const Spacer(),
+                FavoriteFieldButton(onTap: _pickFavorite),
+              ],
+            ),
             const SizedBox(height: 9),
             Row(
               children: [
@@ -242,12 +280,16 @@ class _SendAccountsScreenState extends ConsumerState<SendAccountsScreen> {
                     textDirection: TextDirection.ltr,
                     child: TextField(
                       controller: _phone,
+                      focusNode: _phoneFocus,
                       keyboardType: TextInputType.phone,
                       textInputAction: TextInputAction.search,
                       onSubmitted: (_) => _search(),
                       onChanged: (_) => setState(() {}),
+                      // أرقام فقط: لا حروف ولا إشارات. البادئة 218 أو 00218
+                      // أو الصفر تُزال في Fmt.phoneForApi، فلا حاجة إلى «+».
                       inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9+]')),
+                        const WesternDigits(),
+                        FilteringTextInputFormatter.digitsOnly,
                       ],
                       style: T.kufi(17, FontWeight.w600),
                       decoration: InputDecoration(
@@ -295,21 +337,21 @@ class _SendAccountsScreenState extends ConsumerState<SendAccountsScreen> {
               textDirection: TextDirection.ltr,
               child: TextField(
                 controller: _amount,
+                focusNode: _amountFocus,
                 onChanged: (_) => _onAmountChanged(),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                ],
+                inputFormatters: moneyInputFormatters,
                 style: T.kufi(24, FontWeight.w700),
                 decoration: InputDecoration(
                   isDense: true,
                   border: InputBorder.none,
-                  hintText: '0',
+                  hintText: '0.00',
                   hintStyle:
                       T.kufi(24, FontWeight.w700, color: R.inkA(.22)),
-                  suffixText: currency,
-                  suffixStyle:
+                  // مسافة لاصقة بالرمز — بدونها يلتصق «د.ل» بالرقم: د.ل0
+                  prefixText: '$currency  ',
+                  prefixStyle:
                       T.plex(12, FontWeight.w400, color: R.inkA(.5)),
                 ),
               ),
@@ -384,14 +426,14 @@ class _SendAccountsScreenState extends ConsumerState<SendAccountsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
+                    Text(currency,
+                        style: T.plex(11.5, FontWeight.w400,
+                            color: R.inkA(.55))),
+                    const SizedBox(width: 6),
                     Text(
                       _fee == null ? '—' : Fmt.money(_fee!.total),
                       style: T.kufi(18, FontWeight.w700),
                     ),
-                    const SizedBox(width: 6),
-                    Text(currency,
-                        style: T.plex(11.5, FontWeight.w400,
-                            color: R.inkA(.55))),
                   ],
                 ),
               ),
@@ -527,7 +569,14 @@ class AccountsDoneScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 18),
+              AddToFavoritesButton(
+                code: transfer.code,
+                kind: FavoriteKind.accounts,
+                name: transfer.receiverName,
+                phone: transfer.receiverPhone,
+              ),
+              const SizedBox(height: 18),
               PrimaryButton(
                 label: 'كشف الحساب',
                 onPressed: () => context.pushReplacement('/statement'),

@@ -9,6 +9,8 @@ import 'features/auth/onboarding_screen.dart';
 import 'features/auth/otp_screen.dart';
 import 'features/auth/phone_screen.dart';
 import 'features/auth/splash_screen.dart';
+import 'features/favorites/favorites_repository.dart';
+import 'features/favorites/favorites_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/legal/terms_screen.dart';
 import 'features/limits/limits_screen.dart';
@@ -79,6 +81,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const StatementScreen(),
       ),
       GoRoute(
+        path: '/favorites',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const FavoritesScreen(),
+      ),
+      GoRoute(
         path: '/limits',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const LimitsScreen(),
@@ -95,10 +102,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
 
       // مسار إنشاء الحوالة — فوق الهيكل، خارج التبويبات.
+      // extra قد يحمل FavoriteCustomer حين يأتي الوكيل من المفضّلة،
+      // فيُملأ اسم المستفيد وهاتفه سلفاً.
       GoRoute(
         path: '/send/internal',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const SendInternalScreen(),
+        builder: (_, s) =>
+            SendInternalScreen(prefill: s.extra as FavoriteCustomer?),
       ),
       GoRoute(
         path: '/send/internal/review',
@@ -116,7 +126,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/send/external',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const SendExternalScreen(),
+        builder: (_, s) =>
+            SendExternalScreen(prefill: s.extra as FavoriteCustomer?),
       ),
       GoRoute(
         path: '/send/external/done',
@@ -127,7 +138,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/send/accounts',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const SendAccountsScreen(),
+        builder: (_, s) =>
+            SendAccountsScreen(prefill: s.extra as FavoriteCustomer?),
       ),
       GoRoute(
         path: '/send/accounts/review',

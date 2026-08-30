@@ -10,7 +10,8 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
-import '../home/home_repository.dart';
+import '../shell/auto_refresh.dart';
+import 'limit_dialog.dart';
 import 'send_repository.dart';
 
 class ReviewTransferScreen extends ConsumerStatefulWidget {
@@ -39,7 +40,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
           );
       if (!mounted) return;
       // الرصيد والعمليات تغيّرا على الخادم.
-      ref.invalidate(homeSnapshotProvider);
+      refreshAfterMoneyAction(ref);
       context.pushReplacement('/send/internal/done', extra: created);
     } on ApiFailure catch (e) {
       if (!mounted) return;
@@ -59,6 +60,15 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
         return;
       }
 
+      // تجاوز السقف ليس خطأً من الوكيل بل حدّاً بلغه — يُعرض حواراً
+      // كهرمانياً في وسط الشاشة لا شريطاً أحمر.
+      final overLimit = TransferLimitExceeded.from(e);
+      if (overLimit != null) {
+        await showLimitExceededDialog(context, overLimit);
+        return;
+      }
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
@@ -109,12 +119,12 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                             crossAxisAlignment: CrossAxisAlignment.baseline,
                             textBaseline: TextBaseline.alphabetic,
                             children: [
-                              Text(Fmt.money(d.amount),
-                                  style: T.kufi(36, FontWeight.w800)),
-                              const SizedBox(width: 8),
                               Text(currency,
                                   style: T.plex(12, FontWeight.w400,
                                       color: R.inkA(.5))),
+                              const SizedBox(width: 8),
+                              Text(Fmt.money(d.amount),
+                                  style: T.kufi(36, FontWeight.w800)),
                             ],
                           ),
                         ),

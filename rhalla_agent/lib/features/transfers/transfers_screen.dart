@@ -10,6 +10,7 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../shell/auto_refresh.dart';
 import 'transfers_repository.dart';
 
 /// تبويب الحوالات — إدخال رمز للتسليم، وقائمة ما ينتظر التسليم في الفرع.
@@ -40,9 +41,19 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
 
   @override
   void dispose() {
+    _searchFocus.dispose();
     _search.dispose();
     super.dispose();
   }
+
+  // حقل رقمي: يُفرَغ عند دخول المؤشّر. ونُزامن _query معه وإلا بقيت
+  // القائمة مُرشَّحة بكودٍ لم يعد ظاهراً في الصندوق.
+  late final _searchFocus = NumericFieldFocus(_search, onChanged: () {
+    setState(() {
+      _query = _search.text;
+      _shown = _pageSize;
+    });
+  });
 
   Future<void> _deliver(IncomingTransfer t) async {
     final ok = await showModalBottomSheet<bool>(
@@ -61,7 +72,8 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
           .read(transfersRepositoryProvider)
           .deliver(code: t.code);
       if (!mounted) return;
-      ref.invalidate(incomingTransfersProvider);
+      // التسليم يُحرّك المال: الرصيد والكشف وقائمتا الحوالات كلها تتغيّر.
+      refreshAfterMoneyAction(ref);
       _toast(msg, ok: true);
     } on ApiFailure catch (e) {
       if (!mounted) return;
@@ -107,6 +119,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
             padding: const EdgeInsets.fromLTRB(R.padScreen, 12, R.padScreen, 0),
             child: _SearchField(
               controller: _search,
+              focusNode: _searchFocus,
               onChanged: (v) => setState(() {
                 _query = v;
                 _shown = _pageSize;
@@ -248,9 +261,14 @@ class _Tabs extends StatelessWidget {
 }
 
 class _SearchField extends StatelessWidget {
-  const _SearchField({required this.controller, required this.onChanged});
+  const _SearchField({
+    required this.controller,
+    required this.focusNode,
+    required this.onChanged,
+  });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final ValueChanged<String> onChanged;
 
   @override
@@ -263,9 +281,13 @@ class _SearchField extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: controller,
+                focusNode: focusNode,
                 onChanged: onChanged,
                 keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                inputFormatters: [
+                  WesternDigits(),
+                  FilteringTextInputFormatter.digitsOnly,
+                ],
                 style: T.kufi(15, FontWeight.w600),
                 decoration: InputDecoration(
                   isDense: true,

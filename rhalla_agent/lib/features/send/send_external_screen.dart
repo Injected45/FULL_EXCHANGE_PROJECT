@@ -11,12 +11,18 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
-import '../home/home_repository.dart';
+import '../favorites/favorites_repository.dart';
+import '../favorites/favorites_screen.dart';
+import '../shell/auto_refresh.dart';
 import 'external_repository.dart';
+import 'limit_dialog.dart';
 import 'send_repository.dart';
 
 class SendExternalScreen extends ConsumerStatefulWidget {
-  const SendExternalScreen({super.key});
+  const SendExternalScreen({super.key, this.prefill});
+
+  /// عميل من المفضّلة — يُملأ اسمه وهاتفه سلفاً.
+  final FavoriteCustomer? prefill;
 
   @override
   ConsumerState<SendExternalScreen> createState() => _SendExternalScreenState();
@@ -26,7 +32,8 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
   final _amount = TextEditingController();
   final _name = TextEditingController();
   final _phone = TextEditingController();
-  final _commission = TextEditingController(text: '0');
+  // صفر بخانتين كسائر المبالغ — قرار المالك: لا يظهر «0» عارياً في حقل مال.
+  final _commission = TextEditingController(text: '0.00');
 
   Ref2? _country;
   Ref2? _city;
@@ -39,9 +46,24 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
   bool _sending = false;
   String? _error;
 
+  /// يملأ الاسم والهاتف من عميل مفضّل. الرقم هنا أجنبي، فلا يُوحَّد بصيغة
+  /// ليبية — يُنظَّف من غير الأرقام فقط، مطابقةً لمرشِّح الحقل.
+  void _applyFavorite(FavoriteCustomer? c) {
+    if (c == null) return;
+    _name.text = c.name;
+    _phone.text = c.phone.replaceAll(RegExp(r'\D'), '');
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _pickFavorite() async {
+    final c = await FavoritePickerSheet.show(context, FavoriteKind.external);
+    _applyFavorite(c);
+  }
+
   @override
   void initState() {
     super.initState();
+    _applyFavorite(widget.prefill);
     // بلد واحد اليوم (مصر) — نختاره تلقائياً بدل إجبار المستخدم على خطوة صورية.
     Future.microtask(() async {
       final list = await ref.read(serviceCountriesProvider.future);
@@ -50,8 +72,19 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
     });
   }
 
+  // كل حقل رقمي: يُفرَغ عند دخول المؤشّر، والمبالغ تُنسَّق عند الخروج.
+  late final _amountFocus = NumericFieldFocus(_amount,
+      onChanged: () => setState(() => _quote = null), formatOnExit: true);
+  late final _commissionFocus = NumericFieldFocus(_commission,
+      onChanged: () => setState(() {}), formatOnExit: true);
+  late final _phoneFocus =
+      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
+
   @override
   void dispose() {
+    _amountFocus.dispose();
+    _commissionFocus.dispose();
+    _phoneFocus.dispose();
     for (final c in [_amount, _name, _phone, _commission]) {
       c.dispose();
     }
@@ -75,7 +108,9 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
 
   bool get _valid =>
       _amountValue > 0 &&
-      _name.text.trim().length >= 3 &&
+      // «الاسم الثلاثي» إيحاءٌ لا شرط — قرار المالك: لا يُفرض عدد محارف
+      // ولا عدد كلمات. يبقى الاسم مطلوباً فقط.
+      _name.text.trim().isNotEmpty &&
       _phone.text.trim().length >= 6 &&
       _country != null &&
       _city != null &&
@@ -133,12 +168,14 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
           .read(externalRepositoryProvider)
           .create(d: draft, accId: user.accId);
       if (!mounted) return;
-      ref.invalidate(homeSnapshotProvider);
+      refreshAfterMoneyAction(ref);
       // المُشغِّل يحسب NetTotal/TransPrice بعد الإدراج، والخادم يعيد الصف
       // بعدها — فهذه أرقام ما كُتب فعلاً، لا تقدير العميل.
       context.pushReplacement('/send/external/done', extra: _DoneArgs(
         code: '${row['codeForMobile'] ?? row['Code'] ?? ''}',
+        favoriteCode: '${row['Code'] ?? ''}'.trim(),
         name: draft.receiverName,
+        phone: draft.receiverPhone,
         amount: draft.amountLyd,
         commission: draft.commission,
         net: Fmt.num_(row['NetTotal']),
@@ -147,10 +184,14 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
       ));
     } on ApiFailure catch (e) {
       if (!mounted) return;
+      // تجاوز السقف حدٌّ لا خطأ — حوار في وسط الشاشة، ولا يُكتب في _error
+      // كي لا يبقى نصّاً أحمر أسفل النموذج بعد إغلاق الحوار.
+      final overLimit = TransferLimitExceeded.from(e);
       setState(() {
         _sending = false;
-        _error = e.message;
+        _error = overLimit == null ? e.message : null;
       });
+      if (overLimit != null) await showLimitExceededDialog(context, overLimit);
     }
   }
 
@@ -250,21 +291,20 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
                   textDirection: TextDirection.ltr,
                   child: TextField(
                     controller: _amount,
+                    focusNode: _amountFocus,
                     onChanged: (_) => setState(() => _quote = null),
                     onEditingComplete: _refreshQuote,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                    ],
+                    inputFormatters: moneyInputFormatters,
                     style: T.kufi(24, FontWeight.w700),
                     decoration: InputDecoration(
                       isDense: true,
                       border: InputBorder.none,
-                      hintText: '0',
+                      hintText: '0.00',
                       hintStyle: T.kufi(24, FontWeight.w700, color: R.inkA(.22)),
-                      suffixText: currency,
-                      suffixStyle:
+                      prefixText: '$currency  ',
+                      prefixStyle:
                           T.plex(12, FontWeight.w400, color: R.inkA(.5)),
                     ),
                   ),
@@ -286,7 +326,13 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('اسم المستفيد', style: T.label),
+                Row(
+                  children: [
+                    Text('اسم المستفيد', style: T.label),
+                    const Spacer(),
+                    FavoriteFieldButton(onTap: _pickFavorite),
+                  ],
+                ),
                 const SizedBox(height: 9),
                 TextField(
                   controller: _name,
@@ -309,8 +355,15 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
                   textDirection: TextDirection.ltr,
                   child: TextField(
                     controller: _phone,
+                    focusNode: _phoneFocus,
                     onChanged: (_) => setState(() {}),
                     keyboardType: TextInputType.phone,
+                    // كان بلا مرشِّح إطلاقاً فيقبل الحروف والرموز —
+                    // keyboardType يقترح لوحة أرقام ولا يمنع شيئاً.
+                    inputFormatters: [
+                      const WesternDigits(),
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
                     style: T.kufi(16, FontWeight.w600),
                     decoration: InputDecoration(
                       isDense: true,
@@ -359,18 +412,17 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
                   textDirection: TextDirection.ltr,
                   child: TextField(
                     controller: _commission,
+                    focusNode: _commissionFocus,
                     onChanged: (_) => setState(() {}),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                    ],
+                    inputFormatters: moneyInputFormatters,
                     style: T.kufi(16, FontWeight.w600),
                     decoration: InputDecoration(
                       isDense: true,
                       border: InputBorder.none,
-                      suffixText: currency,
-                      suffixStyle:
+                      prefixText: '$currency  ',
+                      prefixStyle:
                           T.plex(12, FontWeight.w400, color: R.inkA(.5)),
                     ),
                   ),
@@ -399,12 +451,12 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text(Fmt.money(_amountValue + _commissionValue),
-                        style: T.kufi(19, FontWeight.w700)),
-                    const SizedBox(width: 6),
                     Text(currency,
                         style: T.plex(11.5, FontWeight.w400,
                             color: R.inkA(.55))),
+                    const SizedBox(width: 6),
+                    Text(Fmt.money(_amountValue + _commissionValue),
+                        style: T.kufi(19, FontWeight.w700)),
                   ],
                 ),
               ),
@@ -443,15 +495,25 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
 class _DoneArgs {
   const _DoneArgs({
     required this.code,
+    required this.favoriteCode,
     required this.name,
+    required this.phone,
     required this.amount,
     required this.commission,
     required this.net,
     required this.rate,
     required this.currencyCode,
   });
+
+  /// الرمز المعروض للوكيل والمستفيد.
   final String code;
+
+  /// `ExternalEx.Code` — **وليس** رمز الموبايل. المفضّلة تُخزَّن به لأن
+  /// `Favorites_GetByUserID` يربط `code_Favorite` بعمود `Code` وحده، فحفظ
+  /// رمز الموبايل يعني صفّاً لا يظهر في القائمة أبداً.
+  final String favoriteCode;
   final String name;
+  final String phone;
   final double amount;
   final double commission;
 
@@ -697,10 +759,10 @@ class _QuoteCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
-                Text(value, style: T.kufi(12.5, FontWeight.w600)),
-                const SizedBox(width: 5),
                 Text(currency,
                     style: T.plex(10, FontWeight.w400, color: R.inkA(.45))),
+                const SizedBox(width: 5),
+                Text(value, style: T.kufi(12.5, FontWeight.w600)),
               ],
             ),
           ),
@@ -970,7 +1032,14 @@ class ExternalDoneScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 18),
+            AddToFavoritesButton(
+              code: a?.favoriteCode ?? '',
+              kind: FavoriteKind.external,
+              name: a?.name ?? '',
+              phone: a?.phone ?? '',
+            ),
+            const SizedBox(height: 18),
             PrimaryButton(
               label: 'حوالة خارجية جديدة',
               onPressed: () => context.pushReplacement('/send/external'),

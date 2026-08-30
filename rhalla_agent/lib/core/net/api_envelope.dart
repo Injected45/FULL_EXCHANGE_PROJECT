@@ -82,13 +82,25 @@ class Envelope {
   }
 
   /// أول رسالة تحقّق من حقيبة أخطاء Laravel، إن وُجدت.
+  ///
+  /// **لا تُخرج إلا نصاً.** كانت تعيد `v.first.toString()` لأي قائمة، وحين
+  /// رفض الخادم حوالةً لتجاوز السقف ردّ بجذرٍ فيه
+  /// `violations: [{type_from: Daily, Debit: 5025.000, label: اليومي}]` —
+  /// فرأى الوكيل بنية البيانات الخام في شريط أحمر بدل رسالة. حقيبة أخطاء
+  /// Laravel نصوصٌ دائماً `{حقل: [رسائل]}`، وقائمةُ كائنات ليست رسائل.
   String? firstValidationError() {
     final src = payload;
-    if (src is Map) {
-      for (final v in src.values) {
-        if (v is List && v.isNotEmpty) return v.first.toString();
-        if (v is String && v.trim().isNotEmpty) return v;
+    if (src is! Map) return null;
+    for (final v in src.values) {
+      if (v is List) {
+        for (final item in v) {
+          final s = _presentable(item is String ? item : null);
+          if (s != null) return s;
+        }
+        continue;
       }
+      final s = _presentable(v is String ? v : null);
+      if (s != null) return s;
     }
     return null;
   }
