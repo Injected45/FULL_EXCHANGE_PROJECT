@@ -50,19 +50,32 @@ android {
     buildTypes {
         release {
             // التوقيع بمفاتيح التصحيح كان يمرّ صامتاً وينتج APK لا يقبله Google Play،
-            // والأسوأ أنه يمنع ترقية التطبيق لاحقاً بمفتاح آخر. نفشل بصوت عالٍ بدلاً منه.
-            if (keystoreProperties.getProperty("storeFile") == null) {
-                throw GradleException(
-                    """
-                    بناء إصدار بلا مفاتيح توقيع.
-                    أنشئ android/key.properties بالمفاتيح: storeFile, storePassword, keyAlias, keyPassword
-                    وولّد الـ keystore بـ keytool — التعليمات في CLAUDE.md.
-                    المفتاح لا يُستبدل بعد أول نشر: احتفظ به وبكلمة سره خارج الجهاز.
-                    """.trimIndent()
-                )
+            // والأسوأ أنه يمنع ترقية التطبيق لاحقاً بمفتاح آخر. نفشل بصوت عالٍ بدلاً منه —
+            // لكن في taskGraph أدناه، لا هنا: Kotlin DSL يُقيّم هذه الكتلة في كل بناء،
+            // بما فيه assembleDebug، فكان الرمي من هنا يمنع بناء التصحيح وتشغيل
+            // التطبيق على المحاكي أصلاً، لا بناء الإصدار وحده.
+            if (keystoreProperties.getProperty("storeFile") != null) {
+                signingConfig = signingConfigs.getByName("release")
             }
-            signingConfig = signingConfigs.getByName("release")
         }
+    }
+}
+
+// يفشل فقط حين يكون بناء إصدار على وشك التنفيذ فعلاً — لا عند بناء التصحيح.
+gradle.taskGraph.whenReady {
+    val buildingRelease = allTasks.any { t ->
+        t.name.contains("Release") &&
+            (t.name.startsWith("assemble") || t.name.startsWith("bundle") || t.name.startsWith("package"))
+    }
+    if (buildingRelease && keystoreProperties.getProperty("storeFile") == null) {
+        throw GradleException(
+            """
+            بناء إصدار بلا مفاتيح توقيع.
+            أنشئ android/key.properties بالمفاتيح: storeFile, storePassword, keyAlias, keyPassword
+            وولّد الـ keystore بـ keytool — التعليمات في CLAUDE.md.
+            المفتاح لا يُستبدل بعد أول نشر: احتفظ به وبكلمة سره خارج الجهاز.
+            """.trimIndent()
+        )
     }
 }
 

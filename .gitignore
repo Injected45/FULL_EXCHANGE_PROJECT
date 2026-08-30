@@ -39,3 +39,6 @@ node_modules/
 vendor/
 /backend/env
 /backend/L
+
+# --- Built APKs (build_apk.bat output) ---
+/apk/

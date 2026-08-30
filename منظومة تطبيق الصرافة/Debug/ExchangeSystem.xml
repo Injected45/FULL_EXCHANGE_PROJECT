@@ -1,0 +1,896 @@
+﻿<?xml version="1.0"?>
+<doc>
+<assembly>
+<name>
+ExchangeSystem
+</name>
+</assembly>
+<members>
+<member name="T:ExchangeSystem.My.Resources.Resources">
+<summary>
+  A strongly-typed resource class, for looking up localized strings, etc.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.ResourceManager">
+<summary>
+  Returns the cached ResourceManager instance used by this class.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.Culture">
+<summary>
+  Overrides the current thread's CurrentUICulture property for all
+  resource lookups using this strongly typed resource class.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources._2">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources._2_modified">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources._exit">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources._return">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.actions_edit">
+<summary>
+  Looks up a localized resource of type System.Byte[].
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.add_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.addexpens">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.addexpens2">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.arrow">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.BANKICON">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.BENEFIT">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.bo_contact">
+<summary>
+  Looks up a localized resource of type System.Byte[].
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.boposition_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.boreport_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.bounus">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.bouser_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.bouser_32x321">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.bouser_32x322">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.Branch">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.BranchSafe">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.business_growth_using_marketing">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cancel">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cancel_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cancel_36">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cancel_36_32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cancel_close">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cancel_close_exit_logout_arrow_svgrepo_com">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cancel_production_order_16px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cancel1">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cashmoneypayment">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.changeuser">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.check_1x">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.checked_s">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.city">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.clearheaderandfooter">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cleartablestyle_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.confirm">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.converttorange_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.converttorange_32x321">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.converttorange_32x322">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.country">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.cross_1x">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.crossdatasourcefiltering">
+<summary>
+  Looks up a localized resource of type System.Byte[].
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.currency">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.currency2">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.customer">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.customer__1_">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.customizegrid_16x16">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.customizegrid_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.database_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.datasource_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.delete_table_16px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.deletebtn">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.deletebtn1">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.delivery">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.deliveryhand">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.details">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.discount">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.discountemp">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.down_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.download_from_the_cloud_16px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.editbtn">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.EMPICON">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.employees">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.error_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.exchange_money">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.exit_logout">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.Expenses">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.external_16px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.FALSE2">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.filterelements">
+<summary>
+  Looks up a localized resource of type System.Byte[].
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.following">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.forward_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.G_dollar">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.gift_card">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.growth">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.growth_svgrepo_com">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.handconfirm">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.hierarchy">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.icons8_cancel_100">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.icons8_chart_100">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.icons8_check_all_100">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.icons8_delete">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.icons8_lock_32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.icons8_ok_100">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.icons8_refresh_100">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.icons8_return_100">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.icons8_stumbleupon_100">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.information">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.information_point_svgrepo_com">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.insert_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.italki">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.loadfrom_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.loading">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.LogIn">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.main">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.marqueezoom_16x16">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.marqueezoom_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.messaging_32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.money_cash_svgrepo_com">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.money_payment_6400">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.moneyit">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.newtablestyle_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.ok_50px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.othercharts_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.othercharts_32x321">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.percentage">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.PettyCash">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.pie_chart">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.pie_chart_70">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.pie_chart_70_32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.plus">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.previouscomment">
+<summary>
+  Looks up a localized resource of type System.Byte[].
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.previouscomment1">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.print_16px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.print_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.printer">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.printer_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.printer_32x321">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.printer_32x322">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.publicfix_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.question">
+<summary>
+  Looks up a localized resource of type System.Drawing.Icon similar to (Icon).
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.quiries">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.R_dollar">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.radio_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.refresh">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.refresh_16px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.refresh_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.refresh_32x321">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.refresh2_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.refreshallpivottable">
+<summary>
+  Looks up a localized resource of type System.Byte[].
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.Remove_16px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.request">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.RHICON">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.RHICON11">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.right_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.safebox">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.safebox_business_and_finance_svgrepo_com">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.safeClose">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.SalaryView">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.save">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.save_16px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.save_16px1">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.saveto_16x16">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.saveto_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.search_16px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.search_svgrepo_com">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.searchdata">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.searchn">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.selectall2_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.show_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.show_32x321">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.standardization">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.textbox_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.TRUE2">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.up2_32x32">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.update_64px">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.VIEW">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.wallet">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.wallet1">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.warehouse_safe">
+<summary>
+  Looks up a localized resource of type DevExpress.Utils.Svg.SvgImage.
+</summary>
+</member>
+<member name="P:ExchangeSystem.My.Resources.Resources.لوقو_الصرافة_2024">
+<summary>
+  Looks up a localized resource of type System.Drawing.Bitmap.
+</summary>
+</member>
+<member name="F:ExchangeSystem.FRMCATEGORYTYPES.components">
+ <summary>
+ Required designer variable.
+ </summary>
+</member>
+<member name="M:ExchangeSystem.FRMCATEGORYTYPES.Dispose(System.Boolean)">
+ <summary>
+ Clean up any resources being used.
+ </summary>
+ <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+</member>
+<member name="M:ExchangeSystem.FRMCATEGORYTYPES.InitializeComponent">
+ <summary>
+ Required method for Designer support - do not modify
+ the contents of this method with the code editor.
+ </summary>
+
+</member>
+<member name="F:ExchangeSystem.FRMTransfer_commissions.components">
+ <summary>
+ Required designer variable.
+ </summary>
+</member>
+<member name="M:ExchangeSystem.FRMTransfer_commissions.Dispose(System.Boolean)">
+ <summary>
+ Clean up any resources being used.
+ </summary>
+ <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+</member>
+<member name="M:ExchangeSystem.FRMTransfer_commissions.InitializeComponent">
+ <summary>
+ Required method for Designer support - do not modify
+ the contents of this method with the code editor.
+ </summary>
+
+</member>
+<member name="F:ExchangeSystem.XtraForm2.components">
+ <summary>
+ Required designer variable.
+ </summary>
+</member>
+<member name="M:ExchangeSystem.XtraForm2.Dispose(System.Boolean)">
+ <summary>
+ Clean up any resources being used.
+ </summary>
+ <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+</member>
+<member name="M:ExchangeSystem.XtraForm2.InitializeComponent">
+ <summary>
+ Required method for Designer support - do not modify
+ the contents of this method with the code editor.
+ </summary>
+
+</member>
+<member name="M:ExchangeSystem.SandWatsappMasggs.BuildMessageForStandardTransferw(System.String,System.String,System.Decimal,System.String,System.String,System.UInt64)">
+ حوالة داخلية كود ارسال حوالة الي الراسل 
+</member>
+<member name="M:ExchangeSystem.SandWatsappMasggs.sEnFRoRElode(System.String,System.Int32,System.Int32,System.Int32,System.Decimal,System.Decimal)">
+ ارسال رسالة تبيلغ حوالة داخلية الي وكيل 
+</member>
+</members>
+</doc>
