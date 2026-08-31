@@ -305,7 +305,10 @@ class _EditPosSheetState extends ConsumerState<_EditPosSheet> {
   late final _name = TextEditingController(text: widget.pos.name);
   late final _phone = TextEditingController(text: widget.pos.phone);
   late final _phoneFocus =
-      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
+      AutoClearFocus(_phone, onChanged: () => setState(() {}));
+  /// الاسم أيضاً يُفرَغ عند الدخول — قرار المالك: أي حقل يُنتقل إليه.
+  late final _nameFocus =
+      AutoClearFocus(_name, onChanged: () => setState(() {}));
   late bool _active = widget.pos.isActive;
 
   String? _error;
@@ -315,6 +318,7 @@ class _EditPosSheetState extends ConsumerState<_EditPosSheet> {
   @override
   void dispose() {
     _phoneFocus.dispose();
+    _nameFocus.dispose();
     _name.dispose();
     _phone.dispose();
     super.dispose();
@@ -393,6 +397,7 @@ class _EditPosSheetState extends ConsumerState<_EditPosSheet> {
             _Field(
               label: 'اسم نقطة البيع',
               controller: _name,
+              focusNode: _nameFocus,
               hint: 'مثال: نقطة بيع السوق القديم',
               onChanged: (_) => setState(() {}),
             ),
@@ -506,13 +511,16 @@ class _AddPosSheetState extends ConsumerState<_AddPosSheet> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
   late final _phoneFocus =
-      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
+      AutoClearFocus(_phone, onChanged: () => setState(() {}));
+  late final _nameFocus =
+      AutoClearFocus(_name, onChanged: () => setState(() {}));
   String? _error;
   bool _saving = false;
 
   @override
   void dispose() {
     _phoneFocus.dispose();
+    _nameFocus.dispose();
     _name.dispose();
     _phone.dispose();
     super.dispose();
@@ -580,6 +588,7 @@ class _AddPosSheetState extends ConsumerState<_AddPosSheet> {
             _Field(
               label: 'اسم نقطة البيع',
               controller: _name,
+              focusNode: _nameFocus,
               hint: 'مثال: نقطة بيع السوق القديم',
             ),
             const SizedBox(height: R.gapCard),
@@ -631,7 +640,7 @@ class _Field extends StatelessWidget {
   final TextEditingController controller;
   final String hint;
 
-  /// للحقول الرقمية: NumericFieldFocus كي يُفرَغ الحقل عند دخول المؤشّر.
+  /// AutoClearFocus كي يُفرَغ الحقل عند دخول المؤشّر.
   final FocusNode? focusNode;
   final bool ltr;
   final bool digitsOnly;
@@ -645,9 +654,13 @@ class _Field extends StatelessWidget {
       focusNode: focusNode,
       onChanged: onChanged,
       keyboardType: digitsOnly ? TextInputType.number : TextInputType.text,
+      // رقمي ⇦ أرقام فقط · نصّي ⇦ حروف ومسافات فقط. قرار المالك.
       inputFormatters: [
-        const WesternDigits(),
-        if (digitsOnly) FilteringTextInputFormatter.digitsOnly,
+        if (digitsOnly) ...[
+          const WesternDigits(),
+          FilteringTextInputFormatter.digitsOnly,
+        ] else
+          ...lettersOnlyFormatters,
         if (maxLength != null) LengthLimitingTextInputFormatter(maxLength),
       ],
       style: ltr ? T.kufi(16, FontWeight.w600) : T.value,

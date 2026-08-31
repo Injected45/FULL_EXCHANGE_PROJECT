@@ -109,7 +109,7 @@ class _AddToFavoritesButtonState extends ConsumerState<AddToFavoritesButton> {
                 )
               else
                 Icon(_done ? Icons.star_rounded : Icons.star_outline_rounded,
-                    size: 18, color: R.primary),
+                    size: 18, color: R.star),
               const SizedBox(width: 8),
               Text(
                 _done ? 'في المفضّلة' : 'أضف المستفيد إلى المفضّلة',
@@ -138,7 +138,7 @@ class FavoriteFieldButton extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.star_rounded, size: 15, color: R.primary),
+              Icon(Icons.star_rounded, size: 18, color: R.star),
               const SizedBox(width: 5),
               Text('المفضّلة',
                   style: T.plex(11.5, FontWeight.w600, color: R.primaryDark)),

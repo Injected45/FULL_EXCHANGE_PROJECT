@@ -48,6 +48,40 @@ class Fmt {
     return double.tryParse(v.toString().replaceAll(',', '')) ?? 0;
   }
 
+  /// طابع زمني للعرض: `2026-08-31 08:26:56.780` ⇦ `2026-08-31 08:26:56`
+  ///
+  /// الخادم يعيد الوقت بكسور الثانية، وهي تأخذ حيّزاً بلا معنى للوكيل.
+  /// وما لا يطابق الشكل المتوقّع يمرّ كما هو — لا نُخفي بيانات لم نفهمها.
+  /// [separator] يفصل التاريخ عن الوقت — مسافة واحدة افتراضاً، وأوسع في
+  /// الفاتورة لأن الالتصاق يجعل السطر كتلةً واحدة يصعب مسحها بالعين.
+  static String stamp(String? raw, {String separator = ' '}) {
+    final s = (raw ?? '').trim().replaceFirst('T', ' ');
+    if (s.isEmpty) return '';
+    // replaceFirst لا يفهم المراجع الخلفية في Dart — تُخرج «$1» حرفياً.
+    final clean = s.replaceFirstMapped(
+        RegExp(r'(\d{2}:\d{2}:\d{2})\.\d+'), (m) => m[1]!);
+    if (separator == ' ') return clean;
+    final i = clean.indexOf(' ');
+    if (i < 0) return clean; // تاريخ بلا وقت — لا شيء يُفصل
+    return '${clean.substring(0, i)}$separator${clean.substring(i + 1)}';
+  }
+
+  /// طابع اللحظة الحالية للعرض: «31/08/2026 21:55».
+  ///
+  /// الساعة بنظام 24 لا AM/PM — قرار المالك، ويسري على كل موضع تظهر فيه
+  /// ساعة في التطبيق. وطوابع الخادم تصل بنظام 24 أصلاً، فتوحّد الشكلان.
+  ///
+  /// مبنيّ باليد لا بـ DateFormat، لسببين: الأخيرة تحتاج
+  /// `initializeDateFormatting` لأي لغة مسمّاة — ولا يستدعيها هذا التطبيق،
+  /// فكانت سترمي LocaleDataException عند أول فتحٍ للشاشة؛ ولأن البناء اليدوي
+  /// يضمن أرقاماً غربية مهما كانت لغة الجهاز، وهي قاعدةٌ لا استثناء لها هنا.
+  static String nowStamp([DateTime? at]) => _dayTime(at ?? DateTime.now());
+
+  static String _dayTime(DateTime n) {
+    String p(int v) => v.toString().padLeft(2, '0');
+
+    return '${p(n.day)}/${p(n.month)}/${n.year} ${p(n.hour)}:${p(n.minute)}';
+  }
   /// عرض رقم الهاتف: 924458817 → «92 445 8817»
   static String phone(String digits) {
     final d = digits.replaceAll(RegExp(r'\D'), '');
@@ -82,6 +116,20 @@ final moneyInputFormatters = <TextInputFormatter>[
   const WesternDigits(),
   FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
   const ThousandsGrouping(),
+];
+
+/// حقول الأسماء والنصوص: **حروف ومسافات فقط** — لا أرقام ولا إشارات ولا
+/// علامات.
+///
+/// قرار المالك (31 أغسطس 2026). والسبب عملي لا تجميلي: اسم المستفيد يُطبع
+/// على الفاتورة ويُقارَن بوثيقته على الشبّاك، فرقمٌ أو رمزٌ يتسلّل إليه
+/// يجعل الاسم غير مطابق فيُرفض التسليم.
+///
+/// المسموح: الحروف العربية (بلا تطويل ولا تشكيل)، والحروف اللاتينية،
+/// والمسافة. وما عداه يُحذف وقت الكتابة لا بعد الإرسال.
+final lettersOnlyFormatters = <TextInputFormatter>[
+  FilteringTextInputFormatter.allow(
+      RegExp(r'[\u0621-\u063A\u0641-\u064A\u0671-\u06D3a-zA-Z ]')),
 ];
 
 /// يضع فواصل الآلاف أثناء الكتابة: `2500` ⇦ `2,500`
@@ -158,8 +206,8 @@ class ThousandsGrouping extends TextInputFormatter {
 /// [onChanged] ضروري لا تجميلي: تعيين `controller.text` برمجياً **لا**
 /// يستدعي `onChanged` الخاصّ بالحقل، فبدونه يبقى سطر الإجمالي على قيمته
 /// القديمة بينما الحقل يعرض غيرها.
-class NumericFieldFocus extends FocusNode {
-  NumericFieldFocus(
+class AutoClearFocus extends FocusNode {
+  AutoClearFocus(
     this._controller, {
     VoidCallback? onChanged,
     bool formatOnExit = false,

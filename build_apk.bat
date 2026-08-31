@@ -6,10 +6,25 @@ cd /d "%~dp0rhalla_agent"
 rem ============================================================
 rem  Build the agent APK and drop it in <repo>\apk\.
 rem
-rem  Usage:  build_apk.bat [release^|debug] [API_BASE]
+rem  Usage:  build_apk.bat [release^|profile^|debug] [API_BASE]
 rem          set RHALLA_YES=1 to skip the confirmation prompt.
+rem          set RHALLA_PORT=8000 to change the backend port.
 rem
-rem  Defaults to a RELEASE build against the production API.
+rem  profile is the one to hand someone for testing: AOT-compiled
+rem  like release, ~80 MB against debug's ~216 MB, and it needs no
+rem  signing key - so it builds when release cannot. It is not for
+rem  the store: it carries observability hooks and debug signing.
+rem
+rem  API_BASE defaults to THIS MACHINE'S LAN ADDRESS, so the APK
+rem  talks to the backend running here from any phone on the same
+rem  Wi-Fi. 10.0.2.2 is NOT used: that alias exists only inside the
+rem  emulator and is unreachable from a real device.
+rem
+rem  The address is detected at build time and compiled in - it
+rem  cannot be changed afterwards. If this PC's IP changes, the APK
+rem  stops working and must be rebuilt. Pass API_BASE explicitly to
+rem  target anything else, including production.
+rem
 rem  A release build is refused unless android\key.properties
 rem  exists - signing with the debug keystore produces an APK that
 rem  Google Play rejects and that can never be upgraded, and the
@@ -23,14 +38,39 @@ rem ============================================================
 set "MODE=%~1"
 if not defined MODE set "MODE=release"
 if /i "%MODE%"=="release" goto :modeok
+if /i "%MODE%"=="profile" goto :modeok
 if /i "%MODE%"=="debug"   goto :modeok
-echo [ERROR] Unknown build type "%MODE%". Use "release" or "debug".
+echo [ERROR] Unknown build type "%MODE%". Use "release", "profile" or "debug".
 pause
 exit /b 1
 :modeok
 
+rem ---------- 0) Where is the backend? -----------------------
+rem  Detect this PC's LAN IPv4 so a phone on the same Wi-Fi can
+rem  reach the backend running here. WellKnown/link-local/loopback
+rem  are excluded, and the lowest interface metric wins - that is
+rem  the adapter Windows itself routes through.
 set "API_BASE=%~2"
-if not defined API_BASE set "API_BASE=http://102.214.165.242:8080/api"
+if defined API_BASE goto :apiok
+
+if not defined RHALLA_PORT set "RHALLA_PORT=8000"
+
+set "LANIP="
+rem  No pipes in the PowerShell below: cmd does not unescape ^| inside
+rem  the quoted argument, so a piped one-liner reaches PowerShell broken
+rem  and Where-Object fails. The .Where() method keeps it pipe-free.
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$a=@(Get-NetIPAddress -AddressFamily IPv4).Where({$_.PrefixOrigin -ne 'WellKnown' -and ($_.IPAddress -like '192.168.*' -or $_.IPAddress -like '10.*' -or $_.IPAddress -like '172.*')}); if($a.Count){$a[0].IPAddress}"`) do set "LANIP=%%i"
+
+if not defined LANIP (
+    echo [ERROR] Could not detect this machine's LAN address.
+    echo         Pass it yourself, e.g.:
+    echo             build_apk.bat debug http://192.168.0.173:8000/api
+    pause
+    exit /b 1
+)
+
+set "API_BASE=http://!LANIP!:%RHALLA_PORT%/api"
+:apiok
 
 set "OUTDIR=%~dp0apk"
 
@@ -74,8 +114,9 @@ echo   output     : %OUTDIR%
 echo ============================================================
 echo.
 echo  API_BASE is compiled in and cannot be changed afterwards.
-echo  The default is the LIVE production server - a build made with
-echo  it moves real money against real accounts.
+echo  The default is this PC's LAN address - the phone must be on
+echo  the same Wi-Fi and run_backend.bat must be running here.
+echo  Pass an API_BASE argument to target production instead.
 echo.
 if not "%RHALLA_YES%"=="1" (
     choice /c YN /n /m "Build with these settings? [Y/N] "

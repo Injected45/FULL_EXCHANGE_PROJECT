@@ -3,14 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/fmt.dart';
-import '../../core/net/api_envelope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
-import '../shell/auto_refresh.dart';
+import 'delivery_log.dart';
+import 'delivery_receipt_screen.dart';
 import 'transfers_repository.dart';
 
 /// تبويب الحوالات — إدخال رمز للتسليم، وقائمة ما ينتظر التسليم في الفرع.
@@ -35,9 +35,13 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
 
   bool get _isPending => _tab == 0;
 
-  /// مزوّد التبويب الحالي — الثاني لا يُطلب إلا عند فتحه.
+  /// مصدرٌ واحد للتبويبين — الدفتر المحلّي هو من يفرزهما.
+  ///
+  /// كان تبويب «سلَّمتُها» يُطلب من `InternalEx_SelectType_View_statetosForok`
+  /// وهو سِجل تسليم في المنظومة الرئيسية يعيد **صفر صفوف** لحساب وكيل.
+  /// وطلبٌ أقلّ على الخادم أيضاً.
   AutoDisposeFutureProvider<List<IncomingTransfer>> get _provider =>
-      _isPending ? incomingTransfersProvider : deliveredTransfersProvider;
+      incomingTransfersProvider;
 
   @override
   void dispose() {
@@ -48,37 +52,30 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
 
   // حقل رقمي: يُفرَغ عند دخول المؤشّر. ونُزامن _query معه وإلا بقيت
   // القائمة مُرشَّحة بكودٍ لم يعد ظاهراً في الصندوق.
-  late final _searchFocus = NumericFieldFocus(_search, onChanged: () {
+  late final _searchFocus = AutoClearFocus(_search, onChanged: () {
     setState(() {
       _query = _search.text;
       _shown = _pageSize;
     });
   });
 
-  Future<void> _deliver(IncomingTransfer t) async {
+  /// فاتورة الحوالة — عرض فقط، لا تُغيّر شيئاً.
+  void _openReceipt(IncomingTransfer t) => Navigator.of(context, rootNavigator: true)
+      .push(MaterialPageRoute(builder: (_) => DeliveryReceiptScreen(transfer: t)));
+
+  /// مسح السجل — بحاجز تأكيد، فهو زرّ لا رجعة فيه.
+  Future<void> _confirmReset() async {
     final ok = await showModalBottomSheet<bool>(
       context: context,
-      isScrollControlled: true,
-      // useRootNavigator: شريط التبويب السفلي يُرسم داخل الهيكل، فورقة
-      // تُفتح على مُلاحِق الهيكل يغطّي الشريطُ أسفلَها — ومنه زر الإلغاء.
       useRootNavigator: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _DeliverSheet(transfer: t),
+      builder: (_) => const _ResetSheet(),
     );
     if (ok != true || !mounted) return;
-
-    try {
-      final msg = await ref
-          .read(transfersRepositoryProvider)
-          .deliver(code: t.code);
-      if (!mounted) return;
-      // التسليم يُحرّك المال: الرصيد والكشف وقائمتا الحوالات كلها تتغيّر.
-      refreshAfterMoneyAction(ref);
-      _toast(msg, ok: true);
-    } on ApiFailure catch (e) {
-      if (!mounted) return;
-      _toast(e.message, ok: false);
-    }
+    await ref.read(deliveryLogProvider.notifier).resetAll();
+    if (!mounted) return;
+    setState(() => _shown = _pageSize);
+    _toast('أُفرِغ السجل — يبدأ من أول حوالة جديدة', ok: true);
   }
 
   void _toast(String msg, {required bool ok}) {
@@ -97,6 +94,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).user;
     final async = ref.watch(_provider);
+    final log = ref.watch(deliveryLogProvider);
 
     return Screen(
       child: Column(
@@ -104,6 +102,16 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
           RhallaAppBar(
             title: 'الحوالات',
             subtitle: '${user?.branchName ?? ''} · التسليم والمتابعة',
+            trailing: log.delivered.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'مسح السجل',
+                    onPressed: _confirmReset,
+                    icon: Icon(Icons.delete_sweep_outlined,
+                        size: 21, color: R.inkA(.55)),
+                    constraints:
+                        const BoxConstraints(minWidth: 44, minHeight: 44),
+                  ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(R.padScreen, 18, R.padScreen, 0),
@@ -133,8 +141,32 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                 message: '$e',
                 onRetry: () => ref.invalidate(_provider),
               ),
-              data: (all) {
-                final list = all.where((t) => t.matches(_query)).toList();
+              data: (server) {
+                // خطّ الأساس يُلتقط من أول قائمة تصل — بعده تبدأ الشاشة
+                // فارغة وتعمل من أول حوالة جديدة. راجع DeliveryState.baseline.
+                if (!log.ready) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    ref
+                        .read(deliveryLogProvider.notifier)
+                        .captureBaseline(server.map((t) => t.code));
+                  });
+                  return const _Loading();
+                }
+
+                // الفرز محلّي بالكامل: الخادم لا يعرف شيئاً عن هذا الدفتر.
+                final scope = server.where((t) => !log.isHidden(t.code));
+                final list = scope
+                    .where((t) =>
+                        _isPending ? !log.isDelivered(t.code) : log.isDelivered(t.code))
+                    .where((t) => t.matches(_query))
+                    .toList();
+
+                if (!_isPending) {
+                  // الأحدث تسليماً أولاً.
+                  list.sort((a, b) => (log.deliveredAt(b.code) ?? DateTime(0))
+                      .compareTo(log.deliveredAt(a.code) ?? DateTime(0)));
+                }
+
                 if (list.isEmpty) {
                   return _Empty(
                       searching: _query.isNotEmpty, pending: _isPending);
@@ -149,7 +181,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                     padding: const EdgeInsets.fromLTRB(
                         R.padScreen, 16, R.padScreen, 120),
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: visible.length + 2,
+                    itemCount: visible.length + 3,
                     separatorBuilder: (_, _) =>
                         const SizedBox(height: R.gapRow),
                     itemBuilder: (_, i) {
@@ -169,6 +201,8 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                           ),
                         );
                       }
+                      // آخر عنصر: تنبيه دائم بأن هذا دفتر على هذا الجهاز.
+                      if (i == visible.length + 2) return const _LocalNote();
                       if (i == visible.length + 1) {
                         if (visible.length >= list.length) {
                           return const SizedBox.shrink();
@@ -184,7 +218,10 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                         child: _TransferRow(
                           t: t,
                           // سِجل التسليم للقراءة — لا يُسلَّم ما سُلِّم.
-                          onTap: _isPending ? () => _deliver(t) : null,
+                          // لا تراجع عن التسليم — منع نهائي بأمر المالك.
+                          // الفاتورة نفسها في التبويبين — وزرّ التسجيل
+                          // داخلها لمن لم يُسجَّل بعد.
+                          onTap: () => _openReceipt(t),
                           done: !_isPending,
                         ),
                       );
@@ -374,98 +411,6 @@ class _TransferRow extends StatelessWidget {
 }
 
 /// ورقة تأكيد التسليم — العملية غير قابلة للتراجع، فلا تُنفَّذ بلمسة واحدة.
-class _DeliverSheet extends StatelessWidget {
-  const _DeliverSheet({required this.transfer});
-
-  final IncomingTransfer transfer;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = transfer;
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-          22, 22, 22, 26 + MediaQuery.viewInsetsOf(context).bottom),
-      decoration: BoxDecoration(
-        color: R.whiteA(.94),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(R.rNav)),
-        border: Border(top: BorderSide(color: R.whiteA(.95))),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: R.inkA(.16),
-                borderRadius: BorderRadius.circular(99),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text('تسليم الحوالة', style: T.kufi(17, FontWeight.w600)),
-          const SizedBox(height: 8),
-          Text('تأكّد من هوية المستفيد قبل التسليم.', style: T.label),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            decoration: BoxDecoration(
-              color: R.inkA(.05),
-              borderRadius: BorderRadius.circular(R.rRow),
-            ),
-            child: Column(
-              children: [
-                _kv('المستفيد', t.receiverName),
-                const SizedBox(height: 12),
-                _kv('الهاتف', t.receiverPhone, ltr: true),
-                const SizedBox(height: 12),
-                _kv('الرمز', t.code, ltr: true),
-                const SizedBox(height: 12),
-                Divider(color: R.inkA(.07), height: 1),
-                const SizedBox(height: 12),
-                _kv('المبلغ', Fmt.money(t.amount), ltr: true, strong: true),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          WarnBanner(
-            text: 'التسليم لا يمكن التراجع عنه بعد تأكيده.',
-          ),
-          const SizedBox(height: 20),
-          PrimaryButton(
-            label: 'تأكيد التسليم',
-            onPressed: () => Navigator.of(context).pop(true),
-          ),
-          const SizedBox(height: 10),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            style: TextButton.styleFrom(minimumSize: const Size(44, 48)),
-            child: Text('إلغاء',
-                style: T.plex(13, FontWeight.w500, color: R.inkA(.55))),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _kv(String k, String v, {bool ltr = false, bool strong = false}) => Row(
-        children: [
-          Text(k, style: T.plex(12, FontWeight.w400, color: R.inkA(.55))),
-          const Spacer(),
-          ltr
-              ? Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: Text(v,
-                      style: T.kufi(strong ? 16 : 14,
-                          strong ? FontWeight.w700 : FontWeight.w600)),
-                )
-              : Text(v, style: T.plex(13.5, FontWeight.w600)),
-        ],
-      );
-}
-
 class _Badge extends StatelessWidget {
   const _Badge({required this.count});
 
@@ -610,6 +555,92 @@ class _Failed extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      );
+}
+
+/// تنبيه أسفل القائمة: هذا دفتر على هذا الجهاز لا سِجل في المنظومة.
+///
+/// دائمٌ لا يُغلَق عمداً — الوكيل قد يبني عليه ترتيب يومه، فيجب أن يعرف
+/// أنه يزول مع إعادة التثبيت، وأنه لا علاقة له بالحسابات.
+class _LocalNote extends StatelessWidget {
+  const _LocalNote();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline_rounded, size: 15, color: R.inkA(.38)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'سِجل تنظيمي على هذا الجهاز وحده — لا يمسّ حسابات المنظومة. '
+                'ويُفرَغ تماماً عند إعادة تثبيت التطبيق أو مسح بياناته، '
+                'فيبدأ من أول حوالة جديدة.',
+                style: T.plex(10.5, FontWeight.w400,
+                    color: R.inkA(.45), height: 1.75),
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
+/// حاجز التأكيد قبل مسح السجل.
+class _ResetSheet extends StatelessWidget {
+  const _ResetSheet();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.fromLTRB(22, 22, 22, 26),
+        decoration: BoxDecoration(
+          color: R.whiteA(.94),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(R.rNav)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: R.inkA(.16),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 22),
+            Center(
+              child: Text('عفواً — هل تريد حذف البيانات؟',
+                  textAlign: TextAlign.center,
+                  style: T.kufi(17, FontWeight.w700, color: R.error)),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'سيُفرَغ سِجل التسليم على هذا الجهاز ويبدأ من جديد، '
+              'ويعمل من أول حوالة تصل بعد المسح.\n'
+              'لا أثر لهذا على حسابات المنظومة ولا على الحوالات نفسها.',
+              textAlign: TextAlign.center,
+              style: T.plex(12.5, FontWeight.w400, color: R.inkA(.6), height: 1.7),
+            ),
+            const SizedBox(height: 22),
+            PrimaryButton(
+              label: 'نعم، احذف',
+              onPressed: () => Navigator.of(context).pop(true),
+            ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              style: TextButton.styleFrom(minimumSize: const Size(44, 48)),
+              child: Text('لا',
+                  style: T.plex(13.5, FontWeight.w600, color: R.inkA(.6))),
+            ),
+          ],
         ),
       );
 }

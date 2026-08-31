@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,10 +13,20 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../auth/auth_repository.dart';
 import '../shell/auto_refresh.dart';
 import 'limit_dialog.dart';
 import 'send_repository.dart';
+import 'transfer_summary.dart';
 
+/// شاشة تأكيد الحوالة الداخلية — تعرض ما سيُخصم، ثم تطلب رمز تحقّق.
+///
+/// الرمز يُرسَل إلى هاتف **الوكيل نفسه** عبر واتساب، ويتحقّق منه الخادم
+/// (`device/otp/checkOtp`) قبل استدعاء `internal/exchange`.
+///
+/// ⚠ حدّ هذه الحماية: الخادم لا يربط الرمز بالحوالة — نقطة الإنشاء لا تطلب
+/// رمزاً أصلاً. فهي تحمي من عبثٍ بهاتفٍ مفتوح، لا من تطبيقٍ معدَّل. جعلها
+/// إلزامية على الخادم تتطلّب تعديلاً في الواجهة الخلفية.
 class ReviewTransferScreen extends ConsumerStatefulWidget {
   const ReviewTransferScreen({super.key, required this.draft});
 
@@ -25,13 +38,128 @@ class ReviewTransferScreen extends ConsumerStatefulWidget {
 }
 
 class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
+  /// أربع خانات: الخادم يولّد rand(1000, 9999)، و checkOtp يتحقق digits:4.
+  static const _otpLength = 4;
+
+  /// مهلة إعادة الإرسال. صلاحية الرمز نفسه ثلاث دقائق (ExpeaerTime).
+  static const _resendAfter = 60;
+
+  final _otpCtl = TextEditingController();
+  final _otpFocus = FocusNode();
+
+  String _code = '';
+  String? _otpError;
+  bool _requesting = false;
   bool _sending = false;
 
-  Future<void> _confirm() async {
-    final user = ref.read(authControllerProvider).user;
-    if (user == null) return;
+  /// صار الرمز مستهلَكاً: checkOtp يضع ISActive=1 عند أول مطابقة ناجحة،
+  /// فإن فشل إنشاء الحوالة بعدها لا ينفع الرمز مرّةً ثانية — والوكيل يحتاج
+  /// رمزاً جديداً لا محاولةً ثانية بالرمز ذاته.
+  bool _spent = false;
 
-    setState(() => _sending = true);
+
+  int _left = 0;
+  Timer? _timer;
+
+  /// وقت فتح الشاشة — ثابتٌ لا يقفز مع كل إعادة بناء.
+  final String _stamp = Fmt.nowStamp();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _requestOtp());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _otpCtl.dispose();
+    _otpFocus.dispose();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    setState(() => _left = _resendAfter);
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return t.cancel();
+      setState(() => _left--);
+      if (_left <= 0) t.cancel();
+    });
+  }
+
+  Future<void> _requestOtp() async {
+    final user = ref.read(authControllerProvider).user;
+    if (user == null || _requesting) return;
+
+    setState(() {
+      _requesting = true;
+      _otpError = null;
+    });
+
+    try {
+      await ref.read(authRepositoryProvider).requestOtp(user.phone);
+      if (!mounted) return;
+      setState(() {
+        _requesting = false;
+        _spent = false;
+        _code = '';
+        _otpCtl.clear();
+      });
+      _startTimer();
+    } on ApiFailure catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _requesting = false;
+        _otpError = e.message;
+        _left = 0;
+      });
+    }
+  }
+
+  /// الموافقة الآلية عند اكتمال الرمز.
+  ///
+  /// المهلة القصيرة ليست تجميلاً: بدونها تتحرّك الشاشة قبل أن يرى الوكيل
+  /// خانته الأخيرة تمتلئ، فلا يعرف أضغَط شيئاً أم أخطأ. ونعيد فحص الطول
+  /// بعدها لأنه قد يكون حذف رقماً في أثنائها.
+  Future<void> _autoConfirm() async {
+    await Future.delayed(const Duration(milliseconds: 180));
+    if (!mounted || _code.length != _otpLength) return;
+    await _confirm();
+  }
+
+  Future<void> _confirm() async {
+    // حارسٌ صريح لا يتّكل على تعطيل الزرّ. الإرسال صار آلياً، وحدث onChanged
+    // مكرَّر — أو لصقٌ، أو ضغطة على الزرّ في أثناء الإرسال — كان سينشئ
+    // حوالتين لا واحدة. وهذا مالٌ لا يُسترجع.
+    if (_sending || _spent) return;
+    final user = ref.read(authControllerProvider).user;
+    if (user == null || _code.length != _otpLength) return;
+
+    setState(() {
+      _sending = true;
+      _otpError = null;
+    });
+    FocusScope.of(context).unfocus();
+
+    // 1) التحقّق من الرمز على الخادم. لا يُقارَن هنا — العميل لا يعرفه.
+    try {
+      await ref.read(authRepositoryProvider).verifyOtp(user.phone, _code);
+    } on ApiFailure catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _otpError = e.message;
+        _code = '';
+        _otpCtl.clear();
+      });
+      return;
+    }
+
+    // 2) الرمز صحيح ⇒ استُهلك على الخادم. أيّ فشلٍ بعد هذا السطر يستلزم
+    //    رمزاً جديداً، لا إعادة محاولة بالرمز ذاته.
+    if (!mounted) return;
+    _spent = true;
 
     try {
       final created = await ref.read(sendRepositoryProvider).createInternal(
@@ -44,7 +172,13 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
       context.pushReplacement('/send/internal/done', extra: created);
     } on ApiFailure catch (e) {
       if (!mounted) return;
-      setState(() => _sending = false);
+      _timer?.cancel();
+      setState(() {
+        _sending = false;
+        _code = '';
+        _otpCtl.clear();
+        _left = 0; // إعادة الإرسال متاحة فوراً — الرمز السابق مات
+      });
 
       final short = InsufficientFunds.from(e);
       if (short != null) {
@@ -83,98 +217,42 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
     }
   }
 
+  bool get _busy => _sending || _requesting;
+  bool get _ready => !_busy && !_spent && _code.length == _otpLength;
+
   @override
   Widget build(BuildContext context) {
     final d = widget.draft;
-    final currency =
-        ref.watch(authControllerProvider).user?.currencyCode ?? 'د.ل';
+    final user = ref.watch(authControllerProvider).user;
+    final currency = user?.currencyCode ?? 'د.ل';
 
     return Screen(
       child: Column(
         children: [
           RhallaAppBar(
-            title: 'مراجعة الحوالة',
-            subtitle: 'تأكّد من البيانات قبل الإرسال',
+            title: 'حوالة داخلية',
+            subtitle: 'راجع البيانات ثم أدخل رمز التحقّق',
             onBack: _sending ? null : () => context.pop(),
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(R.padScreen, 22, R.padScreen, 20),
+              padding:
+                  const EdgeInsets.fromLTRB(R.padScreen, 22, R.padScreen, 20),
               children: [
-                RiseIn(
-                  duration: const Duration(milliseconds: 500),
-                  child: GlassCard(
-                    large: true,
-                    sheen: true,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 22, vertical: 22),
-                    child: Column(
-                      children: [
-                        Text('يستلم المستفيد', style: T.label),
-                        const SizedBox(height: 13),
-                        Directionality(
-                          textDirection: TextDirection.ltr,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(currency,
-                                  style: T.plex(12, FontWeight.w400,
-                                      color: R.inkA(.5))),
-                              const SizedBox(width: 8),
-                              Text(Fmt.money(d.amount),
-                                  style: T.kufi(36, FontWeight.w800)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: R.gapCard),
                 RiseIn.small(
                   delay: const Duration(milliseconds: 80),
                   child: GlassCard(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('المستفيد', style: T.label),
+                        KvRow('من حساب', user?.displayName ?? '—'),
                         const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            IconTile(letter: d.receiverName.characters.first),
-                            const SizedBox(width: 13),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(d.receiverName,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: T.name),
-                                  const SizedBox(height: 7),
-                                  Directionality(
-                                    textDirection: TextDirection.ltr,
-                                    child: Align(
-                                      alignment:
-                                          AlignmentDirectional.centerStart,
-                                      child: Text(
-                                          '+218 ${Fmt.phone(d.receiverPhone)}',
-                                          style: T.meta),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Divider(color: R.inkA(.07), height: 1),
-                        const SizedBox(height: 14),
+                        KvRow('إلى المستلم', d.receiverName),
+                        const SizedBox(height: 12),
+                        PhoneRow(d.receiverPhone),
+                        const SizedBox(height: 12),
                         KvRow('مدينة الاستلام', d.city.name),
                         const SizedBox(height: 12),
-                        KvRow('فرع الاستلام', d.branch.name),
+                        KvRow('التاريخ', _stamp, numeric: true),
                       ],
                     ),
                   ),
@@ -182,21 +260,10 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                 const SizedBox(height: R.gapCard),
                 RiseIn.small(
                   delay: const Duration(milliseconds: 140),
-                  child: GlassCard(
-                    child: Column(
-                      children: [
-                        KvRow('المبلغ', Fmt.money(d.amount), numeric: true),
-                        const SizedBox(height: 12),
-                        KvRow('العمولة', Fmt.money(d.commission),
-                            numeric: true, sub: 'حدّدتها أنت'),
-                        const SizedBox(height: 14),
-                        Divider(color: R.inkA(.07), height: 1),
-                        const SizedBox(height: 14),
-                        KvRow('الإجمالي المخصوم من رصيدك', Fmt.money(d.total),
-                            numeric: true, strong: true),
-                      ],
-                    ),
-                  ),
+                  child: TotalsBox(
+                      amount: d.amount,
+                      commission: d.commission,
+                      currency: currency),
                 ),
                 if (d.notes != null && d.notes!.trim().isNotEmpty) ...[
                   const SizedBox(height: R.gapCard),
@@ -213,6 +280,11 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                   ),
                 ],
                 const SizedBox(height: R.gapCard),
+                RiseIn.small(
+                  delay: const Duration(milliseconds: 200),
+                  child: _otpCard(user?.phone ?? ''),
+                ),
+                const SizedBox(height: R.gapCard),
                 const WarnBanner(
                   text:
                       'بعد الإرسال لا يمكن تعديل الحوالة — إلغاؤها يتطلّب مراجعة الفرع.',
@@ -221,7 +293,8 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
             ),
           ),
           Container(
-            padding: const EdgeInsets.fromLTRB(R.padScreen, 14, R.padScreen, 22),
+            padding:
+                const EdgeInsets.fromLTRB(R.padScreen, 14, R.padScreen, 22),
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -235,11 +308,11 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                 PrimaryButton(
                   label: 'تأكيد وإرسال',
                   loading: _sending,
-                  onPressed: _sending ? null : _confirm,
+                  onPressed: _ready ? _confirm : null,
                 ),
                 const SizedBox(height: 8),
                 TextButton(
-                  onPressed: _sending ? null : () => context.pop(),
+                  onPressed: _busy ? null : () => context.pop(),
                   style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
                   child: Text('تعديل البيانات',
                       style: T.plex(13, FontWeight.w500, color: R.inkA(.55))),
@@ -251,8 +324,146 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
       ),
     );
   }
-}
 
+  Widget _otpCard(String phone) => GlassCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('رمز التحقّق', style: T.kufi(15, FontWeight.w600)),
+            const SizedBox(height: 10),
+            Text.rich(
+              TextSpan(
+                style: T.plex(12.5, FontWeight.w400,
+                    color: R.inkA(.58), height: 1.75),
+                children: [
+                  const TextSpan(text: 'أرسلنا رمزاً من 4 أرقام إلى رقمك '),
+                  // عازل يونيكود حتى لا يختلّ ترتيب الرقم داخل جملة عربية.
+                  TextSpan(
+                    text: '\u{2066}${Fmt.phone(phone)}\u{2069}',
+                    style: T.plex(12.5, FontWeight.w600, color: R.ink),
+                  ),
+                  const TextSpan(text: ' عبر واتساب.'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            _OtpField(
+              length: _otpLength,
+              code: _code,
+              controller: _otpCtl,
+              focusNode: _otpFocus,
+              enabled: !_busy && !_spent,
+              onChanged: (v) {
+                setState(() {
+                  _code = v;
+                  _otpError = null;
+                });
+                // موافقةٌ آلية عند اكتمال الخانات الأربع — بلا ضغط زرّ.
+                // «الصحيح والمطابق» يقرّره الخادم لا التطبيق: العميل لا يعرف
+                // الرمز أصلاً، فالاكتمال يبدأ التحقّق، والتحقّق هو من يوافق.
+                if (v.length == _otpLength) _autoConfirm();
+              },
+            ),
+            const SizedBox(height: 14),
+            _otpStatus(),
+          ],
+        ),
+      );
+
+  Widget _otpStatus() {
+    // الإرسال بلا ضغطة زرّ يوجب إشارةً صريحة: بدونها يظنّ الوكيل أن الرمز
+    // لم يُقبَل فيمسحه ويعيد كتابته والحوالة في طريقها.
+    if (_sending) {
+      return Row(
+        children: [
+          const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 10),
+          Text('جارٍ التحقّق وإرسال الحوالة…',
+              style: T.plex(12, FontWeight.w600, color: R.primary)),
+        ],
+      );
+    }
+
+    if (_requesting) {
+      return Row(
+        children: [
+          const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 10),
+          Text('جارٍ إرسال الرمز…',
+              style: T.plex(12, FontWeight.w500, color: R.inkA(.55))),
+        ],
+      );
+    }
+
+    if (_otpError != null) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline_rounded, size: 15, color: R.error),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(_otpError!,
+                style:
+                    T.plex(12, FontWeight.w500, color: R.error, height: 1.5)),
+          ),
+        ],
+      );
+    }
+
+    if (_spent) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, size: 15, color: R.warnIcon),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text('استُهلك الرمز — اطلب رمزاً جديداً لإعادة المحاولة.',
+                style:
+                    T.plex(12, FontWeight.w500, color: R.warnInk, height: 1.5)),
+          ),
+        ],
+      );
+    }
+
+    if (_left > 0) {
+      final m = (_left ~/ 60).toString().padLeft(2, '0');
+      final s = (_left % 60).toString().padLeft(2, '0');
+      return Row(
+        children: [
+          Icon(Icons.schedule_rounded, size: 15, color: R.inkA(.4)),
+          const SizedBox(width: 7),
+          Text('الوقت المتبقّي لإعادة الإرسال',
+              style: T.plex(12, FontWeight.w400, color: R.inkA(.55))),
+          const Spacer(),
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Text('$m:$s',
+                style: T.kufi(13, FontWeight.w700, color: R.inkA(.7))),
+          ),
+        ],
+      );
+    }
+
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: TextButton(
+        onPressed: _sending ? null : _requestOtp,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(44, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+        ),
+        child: Text('إعادة إرسال الرمز',
+            style: T.plex(13, FontWeight.w600, color: R.primary)),
+      ),
+    );
+  }
+}
 
 /// «رصيد غير كافٍ» — مبنيّة من الحقول التي يعيدها الخادم داخل `message`.
 class _InsufficientSheet extends StatelessWidget {
@@ -364,5 +575,67 @@ class _InsufficientSheet extends StatelessWidget {
             ),
           ],
         ),
+      );
+}
+
+/// خانات الرمز الأربع فوق حقلٍ شفّاف يلتقط لوحة المفاتيح.
+///
+/// `OtpBoxes` عرضٌ فقط — لا يقبل إدخالاً. وشاشة الدخول تستعمل لوحة أرقام
+/// خاصة، لكنها هنا كانت ستزاحم مُلخّص الحوالة على الشاشة، فالمُلخَّص هو
+/// ما يجب أن يراه الوكيل قبل أن يؤكّد.
+class _OtpField extends StatelessWidget {
+  const _OtpField({
+    required this.length,
+    required this.code,
+    required this.controller,
+    required this.focusNode,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final int length;
+  final String code;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+        children: [
+          OtpBoxes(value: code, length: length),
+          Positioned.fill(
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              enabled: enabled,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              autofocus: false,
+              showCursor: false,
+              enableInteractiveSelection: false,
+              // WesternDigits أولاً: المرشّح بعده يسمح بـ [0-9] فقط، فلو
+              // سبقه لحذف الرقم الهندي قبل أن يُحوَّل — ولبدت لوحة المفاتيح
+              // وكأنها لا تكتب شيئاً.
+              inputFormatters: [
+                WesternDigits(),
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(length),
+              ],
+              style: const TextStyle(color: Colors.transparent, fontSize: 2),
+              cursorColor: Colors.transparent,
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                counterText: '',
+                contentPadding: EdgeInsets.zero,
+                filled: false,
+              ),
+              onChanged: onChanged,
+            ),
+          ),
+        ],
       );
 }

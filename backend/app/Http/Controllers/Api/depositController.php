@@ -1589,6 +1589,9 @@ public function AppTerms(Request $request)
                 ->select(
                     'a.ID',
                     'a.BName',
+                    // CityID: التطبيق يشتقّ فرع الاستلام من المدينة بدل أن
+                    // يسأل عنه الوكيل — عمود قراءة فقط، لا تغيير في الجدول.
+                    'a.CityID',
                     'a.Mobile1',
                     'a.Mobile2',
                     'a.MapLink',

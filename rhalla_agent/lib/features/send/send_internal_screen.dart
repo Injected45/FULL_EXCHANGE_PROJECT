@@ -33,12 +33,22 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
   final _notes = TextEditingController();
 
   // كل حقل رقمي: يُفرَغ عند دخول المؤشّر، والمبالغ تُنسَّق عند الخروج.
-  late final _amountFocus = NumericFieldFocus(_amount,
+  late final _amountFocus = AutoClearFocus(_amount,
       onChanged: () => setState(() {}), formatOnExit: true);
-  late final _commissionFocus = NumericFieldFocus(_commission,
+  late final _commissionFocus = AutoClearFocus(_commission,
       onChanged: () => setState(() {}), formatOnExit: true);
-  late final _phoneFocus =
-      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
+  late final _phoneFocus = AutoClearFocus(_phone, onChanged: () {
+    setState(() {});
+    // الرقم الليبي تسع خانات — باكتمالها ننتقل تلقائياً بلا ضغطة.
+    if (Fmt.phoneForApi(_phone.text).length == 9) _afterPhone();
+  });
+
+  /// الحقول النصّية تُفرَغ عند الدخول أيضاً — قرار المالك: «أي حقل مملوء
+  /// سابقاً بمجرّد الانتقال إليه يُفرَّغ تماماً لنتمكّن من تسجيل البيان
+  /// الجديد». والاسترجاع عند الخروج بلا كتابة يمنع ضياعه بلمسة عابرة.
+  late final _nameFocus =
+      AutoClearFocus(_name, onChanged: () => setState(() {}));
+  late final _notesFocus = AutoClearFocus(_notes);
 
   Ref2? _city;
   Ref2? _branch;
@@ -59,6 +69,50 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
     if (mounted) setState(() {});
   }
 
+  // ── سلسلة التنقّل التلقائي ───────────────────────────────────────────
+  //
+  // قرار المالك: يملأ الوكيل حقلاً فينتقل إلى التالي حتى يبلغ المراجعة.
+  // التنقّل يقع عند **اكتمال** الحقل لا عند كل ضغطة: الاسم والمبلغ عند
+  // ضغط «التالي» في لوحة المفاتيح، والهاتف من تلقائه عند الخانة التاسعة،
+  // والمنتقيان بمجرّد الاختيار.
+
+  void _afterAmount() => _nameFocus.requestFocus();
+
+  void _afterName() => _phoneFocus.requestFocus();
+
+  /// بعد الهاتف: نغلق لوحة المفاتيح ونفتح منتقي المدينة مباشرةً.
+  void _afterPhone() {
+    // مُلئت المدينة سلفاً — لا نُقحم ورقة على الوكيل، بل نتابع السلسلة
+    // إلى العمولة كما لو اختارها للتوّ.
+    if (_city != null) return _commissionFocus.requestFocus();
+    FocusScope.of(context).unfocus();
+    // تأخير قصير: فتح ورقة أثناء انسحاب لوحة المفاتيح يجعلها تقفز.
+    Future.delayed(const Duration(milliseconds: 220), () {
+      if (mounted && _city == null) _pickCity();
+    });
+  }
+
+  void _pickCity() => _pick(
+        title: 'اختر المدينة',
+        provider: citiesProvider,
+        onPicked: (r) {
+          setState(() => _city = r);
+          _resolveBranch(r);
+          // آخر حلقة قبل المراجعة: العمولة.
+          _commissionFocus.requestFocus();
+        },
+      );
+
+  /// يشتقّ فرع الاستلام من المدينة بلا أن يُسأل الوكيل — انظر
+  /// [resolveDeliveryBranch] لسبب كل قاعدة في الاختيار.
+  Future<void> _resolveBranch(Ref2 city) async {
+    // انتظار القائمة لا قراءتها: الوكيل قد يختار المدينة قبل أن تصل الفروع.
+    final all = await ref.read(branchesProvider.future);
+    if (!mounted) return;
+    final b = resolveDeliveryBranch(all, city.id);
+    if (b != null) setState(() => _branch = b);
+  }
+
   Future<void> _pickFavorite() async {
     final c = await FavoritePickerSheet.show(context, FavoriteKind.internal);
     _applyFavorite(c);
@@ -69,6 +123,8 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
     _amountFocus.dispose();
     _commissionFocus.dispose();
     _phoneFocus.dispose();
+    _nameFocus.dispose();
+    _notesFocus.dispose();
     for (final c in [_amount, _name, _phone, _commission, _notes]) {
       c.dispose();
     }
@@ -114,13 +170,19 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
       return 'أدخل رقماً ليبياً من 9 أرقام يبدأ بـ 9.';
     }
     if (_city == null) return 'اختر مدينة الاستلام.';
-    return 'اختر فرع الاستلام.';
+    // الفرع مخفيّ ويُشتقّ من المدينة، فبقاؤه فارغاً يعني أن قائمة الفروع
+    // لم تصل بعد — والرسالة تقول ذلك بدل أن تطلب من الوكيل حقلاً لا يراه.
+    return 'تعذّر تحديد وجهة الاستلام — تحقّق من الاتصال ثم أعد اختيار المدينة.';
   }
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).user;
     final currency = user?.currencyCode ?? 'د.ل';
+    // مراقبة الفروع رغم إخفاء منتقيها: بعد الإخفاء لم يعد أحد يراقب هذا
+    // المزوّد، وهو autoDispose — فكان يبقى غير محمَّل، ويعجز _resolveBranch
+    // عن إيجاد وجهة، فتقف الحوالة عند حقلٍ لا يراه الوكيل.
+    ref.watch(branchesProvider);
 
     return Screen(
       child: Column(
@@ -135,7 +197,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
           RiseIn(
             duration: const Duration(milliseconds: 500),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(26, 24, 26, 0),
+              padding: const EdgeInsets.fromLTRB(26, 12, 26, 0),
               child: Column(
                 children: [
                   Text('مبلغ الحوالة', style: T.label),
@@ -159,6 +221,10 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                               child: TextField(
                                 controller: _amount,
                                 focusNode: _amountFocus,
+                                // المؤشّر ينبض عند المبلغ فور فتح الشاشة.
+                                autofocus: true,
+                                textInputAction: TextInputAction.next,
+                                onSubmitted: (_) => _afterAmount(),
                                 onChanged: (_) => setState(() {}),
                                 keyboardType:
                                     const TextInputType.numberWithOptions(
@@ -170,7 +236,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                                   isDense: true,
                                   border: InputBorder.none,
                                   hintText: '0.00',
-                                  hintStyle: T.kufi(38, FontWeight.w800,
+                                  hintStyle: T.kufi(32, FontWeight.w800,
                                       color: R.inkA(.2)),
                                 ),
                               ),
@@ -196,7 +262,8 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
 
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(R.padScreen, 22, R.padScreen, 20),
+              padding:
+                  const EdgeInsets.fromLTRB(R.padScreen, 12, R.padScreen, 8),
               children: [
                 GlassCard(
                   child: Column(
@@ -212,6 +279,10 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                       const SizedBox(height: 9),
                       TextField(
                         controller: _name,
+                        focusNode: _nameFocus,
+                        inputFormatters: lettersOnlyFormatters,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => _afterName(),
                         onChanged: (_) => setState(() {}),
                         style: T.value,
                         decoration: InputDecoration(
@@ -240,6 +311,8 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                             Expanded(
                               child: TextField(
                                 controller: _phone,
+                                textInputAction: TextInputAction.next,
+                                onSubmitted: (_) => _afterPhone(),
                                 focusNode: _phoneFocus,
                                 onChanged: (_) => setState(() {}),
                                 keyboardType: TextInputType.number,
@@ -267,25 +340,12 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                 ),
                 const SizedBox(height: R.gapCard),
 
-                // المدينة أولاً ثم الفرع — الترتيب الطبيعي، وكلاهما يطلبه الخادم.
+                // «فرع الاستلام» مخفيّ عن الوكيل — لا محذوف. يُشتقّ من هذه
+                // المدينة في _resolveBranch ويُرسَل في branch_id كما كان.
                 _Picker(
                   label: 'مدينة الاستلام',
                   value: _city?.name,
-                  onTap: () => _pick(
-                    title: 'اختر المدينة',
-                    provider: citiesProvider,
-                    onPicked: (r) => setState(() => _city = r),
-                  ),
-                ),
-                const SizedBox(height: R.gapCard),
-                _Picker(
-                  label: 'فرع الاستلام',
-                  value: _branch?.name,
-                  onTap: () => _pick(
-                    title: 'اختر الفرع',
-                    provider: branchesProvider,
-                    onPicked: (r) => setState(() => _branch = r),
-                  ),
+                  onTap: _pickCity,
                 ),
                 const SizedBox(height: R.gapCard),
 
@@ -293,6 +353,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                   controller: _commission,
                   focusNode: _commissionFocus,
                   onChanged: () => setState(() {}),
+                  onSubmitted: () => _notesFocus.requestFocus(),
                   currency: currency,
                 ),
                 const SizedBox(height: R.gapCard),
@@ -305,7 +366,13 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                       const SizedBox(height: 9),
                       TextField(
                         controller: _notes,
-                        maxLines: 2,
+                        focusNode: _notesFocus,
+                        inputFormatters: lettersOnlyFormatters,
+                        // سطر واحد: يسمح لـ«تمّ» بإنهاء السلسلة، ويُبقي
+                        // الشاشة كلّها ظاهرة بلا تمرير.
+                        maxLines: 1,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => FocusScope.of(context).unfocus(),
                         style: T.plex(14, FontWeight.w500, height: 1.7),
                         decoration: InputDecoration(
                           isDense: true,
@@ -329,7 +396,8 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
           ),
 
           Container(
-            padding: const EdgeInsets.fromLTRB(R.padScreen, 14, R.padScreen, 22),
+            padding:
+                const EdgeInsets.fromLTRB(R.padScreen, 10, R.padScreen, 14),
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -341,7 +409,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
                   child: Row(
                     children: [
                       Text('الإجمالي المخصوم',
@@ -367,7 +435,9 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                   ),
                 ),
                 PrimaryButton(
-                  label: 'مراجعة الحوالة',
+                  // النصّ يتبدّل باكتمال البيانات: «مراجعة» ما دام ناقصاً،
+                  // و«إرسال» حين يصير الضغط خطوةً نحو تحويل مالٍ فعليّ.
+                  label: _valid ? 'إرسال الحوالة' : 'تنفيذ الحوالة',
                   onPressed: _valid ? _review : null,
                 ),
               ],
@@ -430,61 +500,57 @@ class _CommissionCard extends StatelessWidget {
   const _CommissionCard({
     required this.controller,
     required this.focusNode,
+    required this.onSubmitted,
     required this.onChanged,
     required this.currency,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
+
+  /// إتمام السلسلة: «التالي» في لوحة المفاتيح ينقل من العمولة إلى الملاحظات.
+  final VoidCallback onSubmitted;
   final VoidCallback onChanged;
   final String currency;
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: BoxDecoration(
           color: R.primaryA(.07),
           border: Border.all(color: R.primaryA(.18)),
           borderRadius: BorderRadius.circular(R.rCard),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // صفّ واحد لا صفّان: العمولة رقم صغير، وحاويةٌ بارتفاع حقلٍ كامل
+        // من أجله تترك فراغاً يشوّه الصفّ ويزيح ما بعده.
+        child: Row(
           children: [
-            Row(
-              children: [
-                Text('العمولة', style: T.label),
-                const SizedBox(width: 7),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: R.primaryA(.16),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  // الخادم يقبلها كما تُرسل للوكيل — لا يحسبها.
-                  child: Text('تحدّدها أنت',
-                      style:
-                          T.plex(11, FontWeight.w500, color: R.primaryDark)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 9),
+            Text('العمولة', style: T.label),
+            const Spacer(),
             Directionality(
               textDirection: TextDirection.ltr,
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                onChanged: (_) => onChanged(),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: moneyInputFormatters,
-                style: T.kufi(16, FontWeight.w600),
-                decoration: InputDecoration(
-                  isDense: true,
-                  border: InputBorder.none,
-                  // مسافة لاصقة بالرمز — بدونها يلتصق «د.ل» بالرقم: د.ل0
-                  prefixText: '$currency  ',
-                  prefixStyle: T.plex(12, FontWeight.w400, color: R.inkA(.5)),
+              child: SizedBox(
+                // عرضٌ يكفي «د.ل  99,999.00» ولا يزيد.
+                width: 152,
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  onChanged: (_) => onChanged(),
+                  textInputAction: TextInputAction.next,
+                  onSubmitted: (_) => onSubmitted(),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: moneyInputFormatters,
+                  style: T.kufi(16, FontWeight.w600),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    border: InputBorder.none,
+                    // مسافة لاصقة بالرمز — بدونها يلتصق «د.ل» بالرقم: د.ل0
+                    prefixText: '$currency  ',
+                    prefixStyle:
+                        T.plex(12, FontWeight.w400, color: R.inkA(.5)),
+                  ),
                 ),
               ),
             ),

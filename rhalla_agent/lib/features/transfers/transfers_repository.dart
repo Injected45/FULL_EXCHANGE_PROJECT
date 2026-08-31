@@ -20,6 +20,7 @@ class IncomingTransfer {
     required this.branchName,
     required this.insertedAt,
     required this.status,
+    required this.destination,
   });
 
   final String code;
@@ -37,6 +38,10 @@ class IncomingTransfer {
   final String insertedAt;
   final String status;
 
+  /// `CaseStauts` — الجهة المُسلِّمة كما يبنيها الـ view: اسم فرع
+  /// `BranchDeliveredID`، أو «خارج المنظومة» إن لم يكن لها فرع.
+  final String destination;
+
   factory IncomingTransfer.fromJson(Map<String, dynamic> j) => IncomingTransfer(
         code: '${j['Code'] ?? ''}'.trim(),
         receiverName: '${j['RecievedName'] ?? ''}'.trim(),
@@ -48,6 +53,7 @@ class IncomingTransfer {
         branchName: '${j['BName'] ?? ''}'.trim(),
         insertedAt: '${j['InsertDate'] ?? ''}'.trim(),
         status: '${j['SendStatus'] ?? ''}'.trim(),
+        destination: '${j['CaseStauts'] ?? ''}'.trim(),
       );
 
   /// بحث محلي — الخادم لا يوفّر بحثاً ولا ترقيم صفحات.
@@ -107,9 +113,19 @@ class TransfersRepository {
   }
 
   /// تسليم حوالة بالرمز.
+  /// ⛔ **لا تستدعِ هذه.** بقيت للتوثيق والرجوع لا للاستعمال.
   ///
-  /// الخادم يقفل الإدخال 15 دقيقة بعد 5 رموز خاطئة (WrongCodeAttempts)،
-  /// ويرد 409 إن كانت مُسلَّمة سلفاً.
+  /// كانت تُستدعى من زرّ «سلَّمها»، وهي تكتب في `InternalEx`:
+  /// `ACCID_FRom` و`Type_Moble_costimer=1` و`Notes`.
+  ///
+  /// أُوقف استدعاؤها بشرط حازم من المالك: **لا تغيير في قاعدة البيانات
+  /// ولا في العمليات المحاسبية**. الحوالة تصل الوكيل مسلَّمةً ومسجَّلة
+  /// عليه، والمحاسبة مُغلقة؛ فشاشة التسليم صارت دفتراً محلّياً
+  /// (`delivery_log.dart`) لا إجراءً.
+  ///
+  /// ولم تكن تعمل أصلاً كأداة تنظيم: الـ view الذي يبني «بانتظار التسليم»
+  /// شرطه `WHERE ConfirmType = 1` ولا يذكر هذين العمودين، فالحوالة كانت
+  /// تبقى في القائمة بعد «تسليمها».
   Future<String> deliver({required String code, String? notes}) async {
     final env = await _api.post('/device/exchange/InternalEx_costimer', body: {
       'Code': code,

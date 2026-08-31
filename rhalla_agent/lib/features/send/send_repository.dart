@@ -6,9 +6,14 @@ import '../../core/net/api_envelope.dart';
 
 /// مرجع بسيط: دولة أو مدينة أو فرع.
 class Ref2 {
-  const Ref2(this.id, this.name);
+  const Ref2(this.id, this.name, {this.cityId = 0});
   final int id;
   final String name;
+
+  /// مدينة الفرع — تُملأ للفروع وحدها. يشتقّ بها التطبيق فرع الاستلام من
+  /// المدينة التي اختارها الوكيل، فلا يُسأل عنه: «الوجهة» شأن منظومة سطح
+  /// المكتب لا شأن التطبيق (قرار المالك).
+  final int cityId;
 
   static int _i(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
@@ -17,7 +22,7 @@ class Ref2 {
   factory Ref2.city(Map<String, dynamic> j) =>
       Ref2(_i(j['ID']), '${j['CityName'] ?? ''}'.trim());
   factory Ref2.branch(Map<String, dynamic> j) =>
-      Ref2(_i(j['ID']), '${j['BName'] ?? ''}'.trim());
+      Ref2(_i(j['ID']), '${j['BName'] ?? ''}'.trim(), cityId: _i(j['CityID']));
 }
 
 /// مسوّدة الحوالة الداخلية — تنتقل بين النموذج والمراجعة.
@@ -33,8 +38,8 @@ class TransferDraft {
     this.notes,
   });
 
-  final String receiverName;
   final String receiverPhone;
+  final String receiverName;
   final double amount;
   final double commission;
   final Ref2 city;
@@ -55,6 +60,8 @@ class CreatedTransfer {
     required this.amount,
     required this.commission,
     required this.insertedAt,
+    this.cityName = '',
+    this.branchName = '',
   });
 
   /// `Code` — الرمز الداخلي الكامل.
@@ -72,12 +79,19 @@ class CreatedTransfer {
   final double commission;
   final String insertedAt;
 
+  /// مدينة الاستلام وفرعه. لا يعيدهما رد الإنشاء — يُنقلان من المسوّدة،
+  /// لأن الفاتورة تعرض «المدينة المحوَّل لها» ولا سبيل آخر لمعرفتها.
+  final String cityName;
+  final String branchName;
+
   /// ما يُعرض ويُشارَك — رمز الموبايل إن وُجد، وإلا الرمز الداخلي.
   String get shareCode => mobileCode.isNotEmpty ? mobileCode : code;
 
   factory CreatedTransfer.fromJson(
     Map<String, dynamic> j, {
     String fallbackPhone = '',
+    String cityName = '',
+    String branchName = '',
   }) =>
       CreatedTransfer(
         code: '${j['Code'] ?? ''}'.trim(),
@@ -90,7 +104,17 @@ class CreatedTransfer {
         }(),
         amount: Fmt.num_(j['OverallVal']),
         commission: Fmt.num_(j['ExVal']),
-        insertedAt: '${j['InsertDate'] ?? ''} ${j['InsertTime'] ?? ''}'.trim(),
+        insertedAt: () {
+          final d = '${j['InsertDate'] ?? ''}'.trim();
+          final t = '${j['InsertTime'] ?? ''}'.trim();
+          // InsertDate يحمل التاريخ **والوقت** معاً (2026-08-31 12:59:40)،
+          // و InsertTime يكرّر الوقت نفسه بأجزاء الثانية — فضمّهما كان يطبع
+          // الساعة مرّتين في الفاتورة التي تُسلَّم للزبون.
+          if (RegExp(r'\d{1,2}:\d{2}').hasMatch(d)) return d;
+          return t.isEmpty ? d : '$d $t';
+        }(),
+        cityName: cityName,
+        branchName: branchName,
       );
 }
 
@@ -262,6 +286,8 @@ class SendRepository {
       return CreatedTransfer.fromJson(
         (payload['transfer'] as Map).cast<String, dynamic>(),
         fallbackPhone: d.receiverPhone,
+        cityName: d.city.name,
+        branchName: d.branch.name,
       );
     }
     // الحوالة قد تكون أُنشئت رغم اختلاف شكل الرد — لا نزعم الفشل.
@@ -281,3 +307,22 @@ final citiesProvider = FutureProvider.autoDispose<List<Ref2>>(
 
 final branchesProvider = FutureProvider.autoDispose<List<Ref2>>(
     (ref) => ref.watch(sendRepositoryProvider).branches());
+
+/// يشتقّ فرع الاستلام من المدينة التي اختارها الوكيل.
+///
+/// قرار المالك: «الوجهة» شأن منظومة سطح المكتب لا شأن التطبيق — فالحقل
+/// **مخفيّ لا محذوف**، وقيمته ما تزال تُرسَل في `branch_id` كما كانت، لأن
+/// الخادم يشترطها: `Rollback_Branch_Trinsfrim_me` يردّ 404 على فرعٍ غير
+/// موجود، ويقيس بها سقف التحويل إلى تلك الوجهة.
+///
+/// الترتيب بالمعرّف مقصود: درنة وطبرق لهما فرعان، ولو أُخذ «الأول كما ورد»
+/// لتبدّلت الوجهة بتبدّل ترتيب صفوف الخادم — والوكيل لا يرى ما اختير له.
+///
+/// 62 من 79 مدينة ليبية لا فرع لها، فتقع على أول فرع في القائمة. لا نُعيد
+/// null لها: الخادم يرفض الحوالة بلا فرع، والوكيل لا يملك حقلاً يصحّح به.
+Ref2? resolveDeliveryBranch(List<Ref2> all, int cityId) {
+  if (all.isEmpty) return null;
+  final inCity = all.where((b) => b.cityId == cityId).toList()
+    ..sort((a, b) => a.id.compareTo(b.id));
+  return inCity.isNotEmpty ? inCity.first : all.first;
+}

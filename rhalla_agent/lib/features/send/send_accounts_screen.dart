@@ -45,10 +45,12 @@ class _SendAccountsScreenState extends ConsumerState<SendAccountsScreen> {
   String? _error;
 
   // كل حقل رقمي: يُفرَغ عند دخول المؤشّر، والمبالغ تُنسَّق عند الخروج.
-  late final _amountFocus = NumericFieldFocus(_amount,
+  late final _amountFocus = AutoClearFocus(_amount,
       onChanged: () => setState(() {}), formatOnExit: true);
   late final _phoneFocus =
-      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
+      AutoClearFocus(_phone, onChanged: () => setState(() {}));
+  /// النصّية أيضاً تُفرَغ عند الدخول — قرار المالك.
+  late final _notesFocus = AutoClearFocus(_notes);
 
   @override
   void initState() {
@@ -74,6 +76,7 @@ class _SendAccountsScreenState extends ConsumerState<SendAccountsScreen> {
     _feeDebounce?.cancel();
     _amountFocus.dispose();
     _phoneFocus.dispose();
+    _notesFocus.dispose();
     for (final c in [_phone, _amount, _notes]) {
       c.dispose();
     }
@@ -222,6 +225,8 @@ class _SendAccountsScreenState extends ConsumerState<SendAccountsScreen> {
                       const SizedBox(height: 9),
                       TextField(
                         controller: _notes,
+                        focusNode: _notesFocus,
+                        inputFormatters: lettersOnlyFormatters,
                         maxLines: 2,
                         style: T.value,
                         decoration: InputDecoration(

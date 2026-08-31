@@ -26,6 +26,10 @@ class R {
   static const warnInk = Color(0xFF6E5408);
   static const warnIcon = Color(0xFF8A6A0B);
 
+  /// نجمة المفضّلة — أصفر ذهبيّ بطلب المالك. أدكن من عائلة التنبيه
+  /// (FFD678) لأن الأخير باهت على خلفية البطاقات الفاتحة.
+  static const star = Color(0xFFFFC107);
+
   // ─── علم ليبيا ─────────────────────────────────────────────
   static const flagRed = Color(0xFFE70013);
   static const flagBlack = Color(0xFF000000);

@@ -6,14 +6,14 @@ import 'package:rhalla_agent/core/format/fmt.dart';
 /// • الحقل الرقمي يُفرَغ عند دخول المؤشّر، فلا يلتحم رقمٌ سابق بما يُكتَب.
 /// • لكن الخروج بلا كتابة يُعيد ما كان — وإلا ضاعت الحوالة بلمسة عابرة.
 void main() {
-  Future<(TextEditingController, NumericFieldFocus, int Function())> pumpField(
+  Future<(TextEditingController, AutoClearFocus, int Function())> pumpField(
     WidgetTester tester, {
     required String initial,
     bool formatOnExit = false,
   }) async {
     final c = TextEditingController(text: initial);
     var count = 0;
-    final node = NumericFieldFocus(c,
+    final node = AutoClearFocus(c,
         onChanged: () => count++, formatOnExit: formatOnExit);
     addTearDown(node.dispose);
     addTearDown(c.dispose);
@@ -34,7 +34,7 @@ void main() {
     await tester.pump();
   }
 
-  group('NumericFieldFocus — التنظيف عند الدخول', () {
+  group('AutoClearFocus — التنظيف عند الدخول', () {
     testWidgets('يُفرَغ الحقل بمجرّد دخول المؤشّر', (tester) async {
       final (c, node, _) = await pumpField(tester, initial: '5,650.00');
       node.requestFocus();
@@ -73,7 +73,7 @@ void main() {
     });
   });
 
-  group('NumericFieldFocus — التنسيق عند الخروج', () {
+  group('AutoClearFocus — التنسيق عند الخروج', () {
     testWidgets('الخانة الثالثة تبقى إن حملت قيمة', (tester) async {
       final (c, node, _) =
           await pumpField(tester, initial: '', formatOnExit: true);
@@ -84,7 +84,7 @@ void main() {
       expect(c.text, '2,500.325');
     });
 
-    testWidgets('حقل غير مالي لا يُنسَّق — الهاتف يبقى كما كُتب',
+    testWidgets('حقل نصّي لا يُنسَّق — الهاتف يبقى كما كُتب',
         (tester) async {
       final (c, node, _) = await pumpField(tester, initial: '');
       node.requestFocus();

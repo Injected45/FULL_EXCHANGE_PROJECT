@@ -73,18 +73,22 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
   }
 
   // كل حقل رقمي: يُفرَغ عند دخول المؤشّر، والمبالغ تُنسَّق عند الخروج.
-  late final _amountFocus = NumericFieldFocus(_amount,
+  late final _amountFocus = AutoClearFocus(_amount,
       onChanged: () => setState(() => _quote = null), formatOnExit: true);
-  late final _commissionFocus = NumericFieldFocus(_commission,
+  late final _commissionFocus = AutoClearFocus(_commission,
       onChanged: () => setState(() {}), formatOnExit: true);
   late final _phoneFocus =
-      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
+      AutoClearFocus(_phone, onChanged: () => setState(() {}));
+  /// الحقول النصّية تُفرَغ عند الدخول أيضاً — قرار المالك.
+  late final _nameFocus =
+      AutoClearFocus(_name, onChanged: () => setState(() {}));
 
   @override
   void dispose() {
     _amountFocus.dispose();
     _commissionFocus.dispose();
     _phoneFocus.dispose();
+    _nameFocus.dispose();
     for (final c in [_amount, _name, _phone, _commission]) {
       c.dispose();
     }
@@ -336,6 +340,8 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
                 const SizedBox(height: 9),
                 TextField(
                   controller: _name,
+                  focusNode: _nameFocus,
+                  inputFormatters: lettersOnlyFormatters,
                   onChanged: (_) => setState(() {}),
                   style: T.value,
                   decoration: InputDecoration(
