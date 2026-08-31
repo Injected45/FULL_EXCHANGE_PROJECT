@@ -7,6 +7,8 @@ val keystoreProperties = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
+val hasSigningKeys = keystoreProperties.getProperty("storeFile") != null
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -29,11 +31,15 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            keyAlias = keystoreProperties.getProperty("keyAlias")
-            keyPassword = keystoreProperties.getProperty("keyPassword")
-            storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
-            storePassword = keystoreProperties.getProperty("storePassword")
+        // لا يُنشأ إلا حين توجد المفاتيح فعلاً — إعداد توقيع نصفه فارغ
+        // أسوأ من غيابه، لأنه يفشل متأخّراً وبرسالة غامضة.
+        if (hasSigningKeys) {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
+                storePassword = keystoreProperties.getProperty("storePassword")
+            }
         }
     }
 
@@ -49,33 +55,35 @@ android {
 
     buildTypes {
         release {
-            // التوقيع بمفاتيح التصحيح كان يمرّ صامتاً وينتج APK لا يقبله Google Play،
-            // والأسوأ أنه يمنع ترقية التطبيق لاحقاً بمفتاح آخر. نفشل بصوت عالٍ بدلاً منه —
-            // لكن في taskGraph أدناه، لا هنا: Kotlin DSL يُقيّم هذه الكتلة في كل بناء،
-            // بما فيه assembleDebug، فكان الرمي من هنا يمنع بناء التصحيح وتشغيل
-            // التطبيق على المحاكي أصلاً، لا بناء الإصدار وحده.
-            if (keystoreProperties.getProperty("storeFile") != null) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            // بلا مفاتيح: لا نُسنِد إعداد توقيع إطلاقاً. الحارس أدناه يمنع
+            // خروج نسخة إصدار غير موقّعة، وnull هنا أوضح من مفاتيح التصحيح.
+            signingConfig = if (hasSigningKeys) signingConfigs.getByName("release") else null
         }
     }
 }
 
-// يفشل فقط حين يكون بناء إصدار على وشك التنفيذ فعلاً — لا عند بناء التصحيح.
-gradle.taskGraph.whenReady {
-    val buildingRelease = allTasks.any { t ->
-        t.name.contains("Release") &&
-            (t.name.startsWith("assemble") || t.name.startsWith("bundle") || t.name.startsWith("package"))
-    }
-    if (buildingRelease && keystoreProperties.getProperty("storeFile") == null) {
-        throw GradleException(
-            """
-            بناء إصدار بلا مفاتيح توقيع.
-            أنشئ android/key.properties بالمفاتيح: storeFile, storePassword, keyAlias, keyPassword
-            وولّد الـ keystore بـ keytool — التعليمات في CLAUDE.md.
-            المفتاح لا يُستبدل بعد أول نشر: احتفظ به وبكلمة سره خارج الجهاز.
-            """.trimIndent()
-        )
+// التوقيع بمفاتيح التصحيح كان يمرّ صامتاً وينتج APK لا يقبله Google Play،
+// والأسوأ أنه يمنع ترقية التطبيق لاحقاً بمفتاح آخر. نفشل بصوت عالٍ بدلاً منه.
+//
+// الحارس هنا لا داخل buildTypes.release عمداً: كتل buildTypes تُقيَّم في وقت
+// الإعداد لكل بناء، فرمي الاستثناء داخلها كان يُفشل assembleDebug أيضاً —
+// أي أنه منع بناء أي APK على جهاز بلا keystore، وهو ما لم يكن مقصوداً.
+// taskGraph.whenReady يؤجّل الفحص إلى ما بعد تحديد المهام المطلوبة فعلاً.
+if (!hasSigningKeys) {
+    gradle.taskGraph.whenReady {
+        val wantsRelease = allTasks.any {
+            it.name.matches(Regex("^(assemble|bundle|package).*Release$"))
+        }
+        if (wantsRelease) {
+            throw GradleException(
+                """
+                بناء إصدار بلا مفاتيح توقيع.
+                أنشئ android/key.properties بالمفاتيح: storeFile, storePassword, keyAlias, keyPassword
+                وولّد الـ keystore بـ keytool — التعليمات في CLAUDE.md.
+                المفتاح لا يُستبدل بعد أول نشر: احتفظ به وبكلمة سره خارج الجهاز.
+                """.trimIndent()
+            )
+        }
     }
 }
 

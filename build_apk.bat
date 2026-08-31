@@ -105,6 +105,44 @@ if /i "%MODE%"=="release" if not exist "android\key.properties" (
     exit /b 1
 )
 
+rem ---------- 2b) Cleartext allow-list (debug over http) ------
+rem  Android blocks cleartext HTTP unless the host is listed. Only the
+rem  debug source set carries a config that permits it at all, so this
+rem  applies to debug builds only - a release apk over http:// cannot
+rem  work, and the fix for that is TLS on the server, not an exception.
+set "NSC=android\app\src\debug\res\xml\network_security_config.xml"
+if /i "%MODE%"=="debug" (
+    echo %API_BASE% | findstr /b /i /c:"http://" >nul
+    if not errorlevel 1 (
+        for /f "tokens=2 delims=/" %%h in ("%API_BASE%") do set "APIHOST=%%h"
+        for /f "tokens=1 delims=:" %%h in ("!APIHOST!") do set "APIHOST=%%h"
+        if exist "%NSC%" (
+            rem  -ExecutionPolicy Bypass: this machine's policy is Restricted,
+            rem  so a .ps1 will not run without it. Scoped to this one call.
+            powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\allow_cleartext_host.ps1" -Config "%NSC%" -HostName "!APIHOST!"
+            if errorlevel 1 (
+                echo [ERROR] Could not update %NSC%
+                pause
+                exit /b 1
+            )
+        ) else (
+            echo [WARN] %NSC% is missing - the apk may not be allowed to use http://.
+        )
+    )
+)
+
+rem ---------- 2c) Build scratch space -------------------------
+rem  Gradle fails deep inside ExtractJniTransform with "not enough
+rem  space on the disk" when C: runs out. Keep its home and TEMP on
+rem  a drive that has room, if there is one.
+if exist "D:\" (
+    if not exist "D:\gradle" mkdir "D:\gradle"
+    if not exist "D:\tmp"    mkdir "D:\tmp"
+    set "GRADLE_USER_HOME=D:\gradle"
+    set "TMP=D:\tmp"
+    set "TEMP=D:\tmp"
+)
+
 rem ---------- 3) Confirm the target ---------------------------
 echo.
 echo ============================================================
@@ -142,6 +180,8 @@ if errorlevel 1 (
     echo [ERROR] The build failed.
     echo         If Gradle complained about SDK licences, run:
     echo             flutter doctor --android-licenses
+    echo         "not enough space on the disk"    - free space on C:
+    echo         "daemon disappeared unexpectedly" - lower org.gradle.jvmargs
     pause
     exit /b 1
 )
@@ -222,6 +262,7 @@ echo.
 echo ============================================================
 echo  Built: %FINAL%
 for %%f in ("%FINAL%") do echo  Size : %%~zf bytes
+echo  Talks to: %API_BASE%
 echo ============================================================
 echo.
 echo  Install on a connected device with:
@@ -235,6 +276,27 @@ if /i "%MODE%"=="release" (
     echo  usesCleartextTraffic, which would put balances and transfer codes
     echo  on the wire in the clear.
     echo.
+) else (
+    echo  Check from the phone's browser first:
+    echo      %API_BASE%/device/exchange/AppTerms_get
+    echo.
 )
 pause
 endlocal
+goto :eof
+
+rem ============================================================
+rem  Subroutines
+rem ============================================================
+
+rem  Reads this PC's LAN address, via tools\detect_lan_ip.ps1.
+rem
+rem  The query lives in a .ps1 rather than inline here because as a
+rem  one-liner in a for-loop it needs "^|" for every pipe and dies
+rem  inside an if-block, where cmd ends the block at the first
+rem  unescaped ")" - and it dies silently, returning an empty
+rem  address instead of an error.
+:detect_lanip
+set "LANIP="
+for /f "delims=" %%i in ('powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\detect_lan_ip.ps1" 2^>nul') do if not defined LANIP set "LANIP=%%i"
+exit /b 0
