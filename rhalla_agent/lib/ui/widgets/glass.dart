@@ -77,11 +77,64 @@ class GlassCard extends StatelessWidget {
 }
 
 /// صف قائمة — العملية، نقطة البيع، حركة الحساب.
+/// إيحاء صفّ حركة الحساب.
+///
+/// قرار المالك: الحوالة الصادرة (‏−) حمراء بكاملها والواردة (‏+) خضراء،
+/// ليُميّزها الوكيل بلمحة بدل قراءة الإشارة. اللون على الصفّ كلّه لا على
+/// الرقم وحده — الرقم وحده يُقرأ متأخّراً في قائمة طويلة.
+enum RowTone {
+  none,
+  credit,
+  debit;
+
+  /// مزيج لا استبدال: الزجاج الأبيض يبقى تحته، واللون غسالة فوقه — وإلا
+  /// فقد الصفّ شفافيته وخرج عن نظام التصميم.
+  Color get fill => switch (this) {
+        RowTone.none => R.whiteA(.7),
+        RowTone.credit => Color.alphaBlend(R.creditA(.13), R.whiteA(.72)),
+        RowTone.debit => Color.alphaBlend(R.debitA(.12), R.whiteA(.72)),
+      };
+
+  Color get border => switch (this) {
+        RowTone.none => R.whiteA(.9),
+        RowTone.credit => R.creditA(.30),
+        RowTone.debit => R.debitA(.28),
+      };
+
+  /// لون المبلغ والإشارة وبيان الحوالة.
+  Color get ink => switch (this) {
+        RowTone.none => R.ink,
+        RowTone.credit => R.credit,
+        RowTone.debit => R.error,
+      };
+
+  Color get tile => switch (this) {
+        RowTone.none => R.primaryA(.13),
+        RowTone.credit => R.creditA(.16),
+        RowTone.debit => R.debitA(.14),
+      };
+}
+
 class GlassRow extends StatelessWidget {
-  const GlassRow({super.key, required this.children, this.onTap});
+  const GlassRow({
+    super.key,
+    required this.children,
+    this.onTap,
+    this.tone = RowTone.none,
+    this.dense = false,
+  });
 
   final List<Widget> children;
   final VoidCallback? onTap;
+  final RowTone tone;
+
+  /// صفّ مضغوط بارتفاع **ثابت**.
+  ///
+  /// قرار المالك: صفوف الحركات كانت تأخذ مساحة أكبر مما تستحقّه بياناتها.
+  /// والارتفاع ثابت لا تابعٌ للمحتوى عمداً — فالقائمة تبقى موحّدة الإيقاع
+  /// بدل أن يتغيّر حجم كل حاوية بطول ما فيها.
+  static const denseHeight = 56.0;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
@@ -90,11 +143,13 @@ class GlassRow extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: R.blurRow, sigmaY: R.blurRow),
         child: Container(
-          constraints: const BoxConstraints(minHeight: 44),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          height: dense ? denseHeight : null,
+          constraints: dense ? null : const BoxConstraints(minHeight: 44),
+          padding: EdgeInsets.symmetric(
+              horizontal: dense ? 13 : 16, vertical: dense ? 0 : 14),
           decoration: BoxDecoration(
-            color: R.whiteA(.7),
-            border: Border.all(color: R.whiteA(.9)),
+            color: tone.fill,
+            border: Border.all(color: tone.border),
             borderRadius: BorderRadius.circular(R.rRow),
           ),
           child: Row(children: children),
@@ -124,20 +179,30 @@ class GlassRow extends StatelessWidget {
 
 /// مربّع الأيقونة داخل الصف.
 class IconTile extends StatelessWidget {
-  const IconTile({super.key, this.icon, this.letter, this.color, this.background});
+  const IconTile({
+    super.key,
+    this.icon,
+    this.letter,
+    this.color,
+    this.background,
+    this.size = 40,
+  });
 
   final Widget? icon;
   final String? letter;
   final Color? color;
   final Color? background;
 
+  /// 40 في البطاقات، وأصغر في الصفوف المضغوطة.
+  final double size;
+
   @override
   Widget build(BuildContext context) => Container(
-        width: 40,
-        height: 40,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           color: background ?? R.primaryA(.13),
-          borderRadius: BorderRadius.circular(R.rTile),
+          borderRadius: BorderRadius.circular(size >= 40 ? R.rTile : 10),
         ),
         alignment: Alignment.center,
         child: icon ??

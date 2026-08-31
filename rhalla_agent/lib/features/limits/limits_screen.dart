@@ -337,10 +337,11 @@ class _CommissionsCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
+                      const Spacer(),
                       Text(currency,
                           style: T.plex(13, FontWeight.w500,
                               color: R.whiteA(.78))),
-                      const Spacer(),
+                      const SizedBox(width: 8),
                       Text(Fmt.money(total),
                           style: T.kufi(32, FontWeight.w800, color: Colors.white)),
                     ],

@@ -208,6 +208,12 @@ class _Header extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
                           children: [
+                            // رمز العملة أولاً — قرار المالك: الرمز في أقصى
+                            // اليسار ثم المبلغ إلى يمينه، في كل شاشة.
+                            Text(currency,
+                                style: T.plex(13, FontWeight.w500,
+                                    color: R.whiteA(.78))),
+                            const SizedBox(width: 8),
                             Text(
                               Fmt.money(balance ?? 0).split('.').first,
                               style: T.kufi(44, FontWeight.w800, color: Colors.white),
@@ -217,10 +223,6 @@ class _Header extends StatelessWidget {
                               '.${Fmt.money(balance ?? 0).split('.').last}',
                               style: T.kufi(22, FontWeight.w600, color: R.whiteA(.82)),
                             ),
-                            const SizedBox(width: 8),
-                            Text(currency,
-                                style: T.plex(13, FontWeight.w500,
-                                    color: R.whiteA(.78))),
                           ],
                         ),
                       ),
@@ -379,9 +381,12 @@ class _DailyLimit extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.baseline,
                 textBaseline: TextBaseline.alphabetic,
                 children: [
+                  // الرمز ملاصق للرقم لا في الطرف المقابل، والاثنان يمينَ
+                  // البطاقة كما في التصميم.
+                  const Spacer(),
                   Text(currency,
                       style: T.plex(11, FontWeight.w400, color: R.inkA(.55))),
-                  const Spacer(),
+                  const SizedBox(width: 6),
                   Text(Fmt.money(ceiling), style: T.kufi(19, FontWeight.w700)),
                 ],
               ),
@@ -402,37 +407,50 @@ class _MovementRow extends StatelessWidget {
   final Movement m;
 
   @override
-  Widget build(BuildContext context) => GlassRow(
-        children: [
-          IconTile(
-            icon: Icon(
-              m.isCredit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-              size: 17,
-              color: R.primaryGradEnd,
-            ),
+  Widget build(BuildContext context) {
+    final tone = m.isCredit ? RowTone.credit : RowTone.debit;
+
+    return GlassRow(
+      dense: true,
+      tone: tone,
+      children: [
+        IconTile(
+          size: 32,
+          background: tone.tile,
+          icon: Icon(
+            m.isCredit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+            size: 15,
+            color: tone.ink,
           ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(m.title.isEmpty ? 'حركة حساب' : m.title,
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: T.name),
-                const SizedBox(height: 7),
-                Text(m.date, style: T.meta),
-              ],
-            ),
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(m.title.isEmpty ? 'حركة حساب' : m.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: T.plex(12.5, FontWeight.w600, color: tone.ink)),
+              const SizedBox(height: 3),
+              // التاريخ يبقى محايداً: تلوينه يُذهب التدرّج ويجعل الصفّ صاخباً.
+              Text(m.date,
+                  style: T.plex(10.5, FontWeight.w400, color: R.inkA(.5))),
+            ],
           ),
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: Text(
-              Fmt.moneyWithSign(m.amount, credit: m.isCredit),
-              style: T.kufi(14, FontWeight.w700,
-                  color: m.isCredit ? R.credit : R.ink),
-            ),
+        ),
+        const SizedBox(width: 8),
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Text(
+            Fmt.moneyWithSign(m.amount, credit: m.isCredit),
+            style: T.kufi(13.5, FontWeight.w700, color: tone.ink),
           ),
-        ],
-      );
+        ),
+      ],
+    );
+  }
 }
 
 class _EmptyMovements extends StatelessWidget {

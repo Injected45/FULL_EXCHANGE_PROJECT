@@ -215,9 +215,10 @@ class _Total extends StatelessWidget {
           const SizedBox(height: 8),
           Directionality(
             textDirection: TextDirection.ltr,
+            // الصادر أحمر كصفوفه، وإلا ناقض الإجمالي ما فوقه.
             child: Text(Fmt.money(value),
                 style: T.kufi(14, FontWeight.w700,
-                    color: credit ? R.credit : R.ink)),
+                    color: credit ? R.credit : R.error)),
           ),
         ],
       );
@@ -289,39 +290,51 @@ class _MovementRow extends StatelessWidget {
   final String currency;
 
   @override
-  Widget build(BuildContext context) => GlassRow(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(m.title.isEmpty ? 'حركة حساب' : m.title,
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: T.name),
-                const SizedBox(height: 7),
-                Row(
-                  children: [
-                    Text('الرصيد', style: T.meta),
-                    const SizedBox(width: 5),
-                    Directionality(
-                      textDirection: TextDirection.ltr,
-                      child: Text(Fmt.money(m.balance), style: T.meta),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+  Widget build(BuildContext context) {
+    final tone = m.isCredit ? RowTone.credit : RowTone.debit;
+
+    final meta = T.plex(10.5, FontWeight.w400, color: R.inkA(.5));
+
+    return GlassRow(
+      dense: true,
+      tone: tone,
+      children: [
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(m.title.isEmpty ? 'حركة حساب' : m.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: T.plex(12.5, FontWeight.w600, color: tone.ink)),
+              const SizedBox(height: 3),
+              // الرصيد بعد الحركة يبقى محايداً: هو ليس صادراً ولا وارداً،
+              // وتلوينه بلون الحركة يوهم أنه جزء منها.
+              Row(
+                children: [
+                  Text('الرصيد', style: meta),
+                  const SizedBox(width: 5),
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Text(Fmt.money(m.balance), style: meta),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: Text(
-              Fmt.moneyWithSign(m.amount, credit: m.isCredit),
-              style: T.kufi(14, FontWeight.w700,
-                  color: m.isCredit ? R.credit : R.ink),
-            ),
+        ),
+        const SizedBox(width: 10),
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Text(
+            Fmt.moneyWithSign(m.amount, credit: m.isCredit),
+            style: T.kufi(13.5, FontWeight.w700, color: tone.ink),
           ),
-        ],
-      );
+        ),
+      ],
+    );
+  }
 }
 
 class _Empty extends StatelessWidget {

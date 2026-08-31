@@ -10,10 +10,15 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../favorites/favorites_repository.dart';
+import '../favorites/favorites_screen.dart';
 import 'send_repository.dart';
 
 class SendInternalScreen extends ConsumerStatefulWidget {
-  const SendInternalScreen({super.key});
+  const SendInternalScreen({super.key, this.prefill});
+
+  /// عميل من المفضّلة — يُملأ اسمه وهاتفه سلفاً.
+  final FavoriteCustomer? prefill;
 
   @override
   ConsumerState<SendInternalScreen> createState() => _SendInternalScreenState();
@@ -23,15 +28,47 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
   final _amount = TextEditingController();
   final _name = TextEditingController();
   final _phone = TextEditingController();
-  final _commission = TextEditingController(text: '0');
+  // صفر بخانتين كسائر المبالغ — قرار المالك: لا يظهر «0» عارياً في حقل مال.
+  final _commission = TextEditingController(text: '0.00');
   final _notes = TextEditingController();
+
+  // كل حقل رقمي: يُفرَغ عند دخول المؤشّر، والمبالغ تُنسَّق عند الخروج.
+  late final _amountFocus = NumericFieldFocus(_amount,
+      onChanged: () => setState(() {}), formatOnExit: true);
+  late final _commissionFocus = NumericFieldFocus(_commission,
+      onChanged: () => setState(() {}), formatOnExit: true);
+  late final _phoneFocus =
+      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
 
   Ref2? _city;
   Ref2? _branch;
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    _applyFavorite(widget.prefill);
+  }
+
+  /// يملأ الاسم والهاتف من عميل مفضّل. الهاتف يُوحَّد إلى تسع خانات لأن
+  /// الحقل هنا محدود بها، وما يعيده الخادم قد يحمل بادئة 218.
+  void _applyFavorite(FavoriteCustomer? c) {
+    if (c == null) return;
+    _name.text = c.name;
+    _phone.text = Fmt.phoneForApi(c.phone);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _pickFavorite() async {
+    final c = await FavoritePickerSheet.show(context, FavoriteKind.internal);
+    _applyFavorite(c);
+  }
+
+  @override
   void dispose() {
+    _amountFocus.dispose();
+    _commissionFocus.dispose();
+    _phoneFocus.dispose();
     for (final c in [_amount, _name, _phone, _commission, _notes]) {
       c.dispose();
     }
@@ -43,7 +80,9 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
 
   bool get _valid =>
       _amountValue >= 1 &&
-      _name.text.trim().length >= 3 &&
+      // «الاسم الثلاثي» إيحاءٌ لا شرط — قرار المالك: لا يُفرض عدد محارف
+      // ولا عدد كلمات. يبقى الاسم مطلوباً فقط، فحوالةٌ بلا مستفيد لا تُسلَّم.
+      _name.text.trim().isNotEmpty &&
       Fmt.isValidLibyanPhone(_phone.text) &&
       _city != null &&
       _branch != null;
@@ -70,7 +109,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
 
   String _firstProblem() {
     if (_amountValue < 1) return 'أدخل مبلغاً لا يقل عن 1.';
-    if (_name.text.trim().length < 3) return 'أدخل اسم المستفيد كاملاً.';
+    if (_name.text.trim().isEmpty) return 'أدخل اسم المستفيد.';
     if (!Fmt.isValidLibyanPhone(_phone.text)) {
       return 'أدخل رقماً ليبياً من 9 أرقام يبدأ بـ 9.';
     }
@@ -101,29 +140,46 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                 children: [
                   Text('مبلغ الحوالة', style: T.label),
                   const SizedBox(height: 10),
+                  // الرمز على يسار الرقم وملاصقٌ له، والاثنان في الوسط.
+                  // لم ينفع هنا prefixText: الحقل يمتدّ بعرض الشاشة فيقف
+                  // الرمز عند حافته اليسرى ويبتعد عن رقم قصير. الحلّ أن
+                  // يتبع عرضُ الحقل ما فيه — IntrinsicWidth.
                   Directionality(
                     textDirection: TextDirection.ltr,
-                    child: TextField(
-                      controller: _amount,
-                      onChanged: (_) => setState(() {}),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(currency, style: T.meta),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: IntrinsicWidth(
+                            child: ConstrainedBox(
+                              // حدّ أدنى حتى يبقى الحقل قابلاً للنقر وهو فارغ.
+                              constraints: const BoxConstraints(minWidth: 56),
+                              child: TextField(
+                                controller: _amount,
+                                focusNode: _amountFocus,
+                                onChanged: (_) => setState(() {}),
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                                inputFormatters: moneyInputFormatters,
+                                textAlign: TextAlign.center,
+                                style: T.kufi(38, FontWeight.w800),
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                  hintText: '0.00',
+                                  hintStyle: T.kufi(38, FontWeight.w800,
+                                      color: R.inkA(.2)),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
-                      textAlign: TextAlign.center,
-                      style: T.kufi(38, FontWeight.w800),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        border: InputBorder.none,
-                        hintText: '0',
-                        hintStyle:
-                            T.kufi(38, FontWeight.w800, color: R.inkA(.2)),
-                      ),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(currency, style: T.meta),
                   const SizedBox(height: 12),
                   Container(
                     width: 168,
@@ -146,7 +202,13 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('اسم المستفيد', style: T.label),
+                      Row(
+                        children: [
+                          Text('اسم المستفيد', style: T.label),
+                          const Spacer(),
+                          FavoriteFieldButton(onTap: _pickFavorite),
+                        ],
+                      ),
                       const SizedBox(height: 9),
                       TextField(
                         controller: _name,
@@ -178,9 +240,11 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                             Expanded(
                               child: TextField(
                                 controller: _phone,
+                                focusNode: _phoneFocus,
                                 onChanged: (_) => setState(() {}),
                                 keyboardType: TextInputType.number,
                                 inputFormatters: [
+                                  const WesternDigits(),
                                   FilteringTextInputFormatter.digitsOnly,
                                   LengthLimitingTextInputFormatter(9),
                                 ],
@@ -227,6 +291,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
 
                 _CommissionCard(
                   controller: _commission,
+                  focusNode: _commissionFocus,
                   onChanged: () => setState(() {}),
                   currency: currency,
                 ),
@@ -289,12 +354,12 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
                           children: [
-                            Text(Fmt.money(_amountValue + _commissionValue),
-                                style: T.kufi(19, FontWeight.w700)),
-                            const SizedBox(width: 6),
                             Text(currency,
                                 style: T.plex(11.5, FontWeight.w400,
                                     color: R.inkA(.55))),
+                            const SizedBox(width: 6),
+                            Text(Fmt.money(_amountValue + _commissionValue),
+                                style: T.kufi(19, FontWeight.w700)),
                           ],
                         ),
                       ),
@@ -364,11 +429,13 @@ class _Picker extends StatelessWidget {
 class _CommissionCard extends StatelessWidget {
   const _CommissionCard({
     required this.controller,
+    required this.focusNode,
     required this.onChanged,
     required this.currency,
   });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final VoidCallback onChanged;
   final String currency;
 
@@ -406,18 +473,18 @@ class _CommissionCard extends StatelessWidget {
               textDirection: TextDirection.ltr,
               child: TextField(
                 controller: controller,
+                focusNode: focusNode,
                 onChanged: (_) => onChanged(),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                ],
+                inputFormatters: moneyInputFormatters,
                 style: T.kufi(16, FontWeight.w600),
                 decoration: InputDecoration(
                   isDense: true,
                   border: InputBorder.none,
-                  suffixText: currency,
-                  suffixStyle: T.plex(12, FontWeight.w400, color: R.inkA(.5)),
+                  // مسافة لاصقة بالرمز — بدونها يلتصق «د.ل» بالرقم: د.ل0
+                  prefixText: '$currency  ',
+                  prefixStyle: T.plex(12, FontWeight.w400, color: R.inkA(.5)),
                 ),
               ),
             ),

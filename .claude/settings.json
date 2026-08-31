@@ -1,4 +1,45 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(flutter devices *)",
+      "Skill(fewer-permission-prompts)",
+      "Skill(fewer-permission-prompts:*)",
+
+      "Bash(flutter analyze)",
+      "Bash(flutter analyze *)",
+      "Bash(flutter test)",
+      "Bash(flutter test *)",
+      "Bash(flutter devices)",
+      "Bash(flutter doctor)",
+      "Bash(flutter doctor *)",
+      "Bash(flutter emulators)",
+      "Bash(flutter emulators *)",
+      "Bash(flutter --version)",
+
+      "Bash(npx tsc --noEmit*)",
+
+      "Bash(flutter build *)",
+      "Bash(adb install *)",
+
+      "Bash(adb devices)",
+      "Bash(adb devices *)",
+      "Bash(adb get-state*)",
+      "Bash(adb wait-for-device*)",
+      "Bash(adb logcat *)",
+      "Bash(adb exec-out screencap*)",
+      "Bash(adb shell getprop*)",
+      "Bash(adb shell dumpsys *)",
+      "Bash(adb shell pm list *)",
+      "Bash(adb shell getevent *)",
+
+      "PowerShell(flutter analyze)",
+      "PowerShell(flutter analyze *)",
+      "PowerShell(flutter test)",
+      "PowerShell(flutter test *)",
+      "PowerShell(flutter build *)",
+      "PowerShell(npx tsc --noEmit*)"
+    ]
+  },
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true
   }

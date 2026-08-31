@@ -161,6 +161,7 @@ class AccountsRepository {
     required double amount,
     required int branchId,
     String? notes,
+    String receiverPhone = '',
   }) async {
     final env = await _api.post('/device/internal/trans/between/accounts', body: {
       'acc_id': fromAccId,
@@ -173,7 +174,10 @@ class AccountsRepository {
 
     final p = env.payload;
     if (p is Map && p['result'] is Map) {
-      return AccountsTransfer.fromJson((p['result'] as Map).cast<String, dynamic>());
+      return AccountsTransfer.fromJson(
+        (p['result'] as Map).cast<String, dynamic>(),
+        fallbackPhone: receiverPhone,
+      );
     }
     throw ApiFailure(
       'تمّت العملية لكن رد الخادم غير متوقّع. راجع كشف الحساب قبل إعادة الإرسال.',
@@ -190,6 +194,7 @@ class AccountsTransfer {
     required this.mobileCode,
     required this.senderName,
     required this.receiverName,
+    required this.receiverPhone,
     required this.amount,
     required this.commission,
     required this.insertedAt,
@@ -199,17 +204,27 @@ class AccountsTransfer {
   final String mobileCode;
   final String senderName;
   final String receiverName;
+  final String receiverPhone;
   final double amount;
   final double commission;
   final String insertedAt;
 
   String get shareCode => mobileCode.isNotEmpty ? mobileCode : code;
 
-  factory AccountsTransfer.fromJson(Map<String, dynamic> j) => AccountsTransfer(
+  factory AccountsTransfer.fromJson(
+    Map<String, dynamic> j, {
+    String fallbackPhone = '',
+  }) =>
+      AccountsTransfer(
         code: '${j['Code'] ?? ''}'.trim(),
         mobileCode: '${j['codeForMobile'] ?? ''}'.trim(),
         senderName: '${j['senderName'] ?? ''}'.trim(),
         receiverName: '${j['recievedName'] ?? ''}'.trim(),
+        // الخادم لا يُرجع هاتف صاحب الحساب هنا — يأتي من الحساب المقصود،
+        // والمفضّلة تشترطه.
+        receiverPhone: '${j['AccPhone'] ?? ''}'.trim().isEmpty
+            ? fallbackPhone
+            : '${j['AccPhone']}'.trim(),
         amount: Fmt.num_(j['amount'] ?? j['TransValue']),
         commission: Fmt.num_(j['commission']),
         insertedAt: '${j['InsertDate'] ?? ''} ${j['InsertTime'] ?? ''}'.trim(),

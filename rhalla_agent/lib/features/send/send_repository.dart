@@ -51,6 +51,7 @@ class CreatedTransfer {
     required this.code,
     required this.mobileCode,
     required this.receiverName,
+    required this.receiverPhone,
     required this.amount,
     required this.commission,
     required this.insertedAt,
@@ -63,6 +64,10 @@ class CreatedTransfer {
   final String mobileCode;
 
   final String receiverName;
+
+  /// هاتف المستفيد. الخادم لا يُرجعه دائماً في رد الإنشاء، فيُستكمل من
+  /// المسوّدة — والمفضّلة تشترطه.
+  final String receiverPhone;
   final double amount;
   final double commission;
   final String insertedAt;
@@ -70,11 +75,19 @@ class CreatedTransfer {
   /// ما يُعرض ويُشارَك — رمز الموبايل إن وُجد، وإلا الرمز الداخلي.
   String get shareCode => mobileCode.isNotEmpty ? mobileCode : code;
 
-  factory CreatedTransfer.fromJson(Map<String, dynamic> j) => CreatedTransfer(
+  factory CreatedTransfer.fromJson(
+    Map<String, dynamic> j, {
+    String fallbackPhone = '',
+  }) =>
+      CreatedTransfer(
         code: '${j['Code'] ?? ''}'.trim(),
         // بهذا الإملاء — Code_For_mobules.
         mobileCode: '${j['Code_For_mobules'] ?? ''}'.trim(),
         receiverName: '${j['RecievedName'] ?? ''}'.trim(),
+        receiverPhone: () {
+          final p = '${j['RPhone1'] ?? ''}'.trim();
+          return p.isEmpty ? fallbackPhone : p;
+        }(),
         amount: Fmt.num_(j['OverallVal']),
         commission: Fmt.num_(j['ExVal']),
         insertedAt: '${j['InsertDate'] ?? ''} ${j['InsertTime'] ?? ''}'.trim(),
@@ -132,6 +145,58 @@ class InsufficientFunds {
       amount: Fmt.num_(m['amount']),
       commission: Fmt.num_(m['Commission'] ?? m['commission']),
       total: Fmt.num_(m['total']),
+    );
+  }
+}
+
+/// تجاوز سقف التحويل — يرد به `checkTransferLimits` بحالة 422.
+///
+/// ⚠️ يصل في **جذر** الجسم لا داخل `data`:
+/// `{success:false, violations:[{type_from, Debit, label}], total, message}`.
+/// و`violations` قائمةُ **كائنات** لا نصوص — وهذا ما كان يُطبَع خاماً في
+/// الشريط الأحمر قبل تشديد `firstValidationError`.
+///
+/// `Debit` هو إجمالي المخصوم في تلك المدّة **مع هذه الحوالة**، لا مبلغها.
+class TransferLimitExceeded {
+  const TransferLimitExceeded({
+    required this.labels,
+    required this.debit,
+    required this.total,
+  });
+
+  /// «اليومي» · «الأسبوعي» … — قد يُتجاوز أكثر من سقف بالحوالة نفسها.
+  final List<String> labels;
+  final double debit;
+  final double total;
+
+  String describe() {
+    final which = labels.isEmpty ? 'سقف التحويل' : 'السقف ${labels.join(' و')}';
+    final head = 'لا يمكن إتمام الحوالة: تجاوزت $which.';
+    if (debit <= 0) return head;
+    return '$head إجمالي ما يُخصم في هذه المدّة مع الحوالة '
+        '${Fmt.money(debit)}.';
+  }
+
+  static TransferLimitExceeded? from(ApiFailure e) {
+    final root = e.envelope?.payload;
+    if (root is! Map) return null;
+    final v = root['violations'];
+    if (v is! List || v.isEmpty) return null;
+
+    final labels = <String>[];
+    var debit = 0.0;
+    for (final item in v) {
+      if (item is! Map) continue;
+      final l = '${item['label'] ?? ''}'.trim();
+      if (l.isNotEmpty) labels.add(l);
+      // أكبر مخصوم بين المدد المتجاوَزة هو الرقم الذي يعني الوكيل.
+      final d = Fmt.num_(item['Debit']);
+      if (d > debit) debit = d;
+    }
+    return TransferLimitExceeded(
+      labels: labels,
+      debit: debit,
+      total: Fmt.num_(root['total']),
     );
   }
 }
@@ -195,7 +260,9 @@ class SendRepository {
     final payload = env.payload;
     if (payload is Map && payload['transfer'] is Map) {
       return CreatedTransfer.fromJson(
-          (payload['transfer'] as Map).cast<String, dynamic>());
+        (payload['transfer'] as Map).cast<String, dynamic>(),
+        fallbackPhone: d.receiverPhone,
+      );
     }
     // الحوالة قد تكون أُنشئت رغم اختلاف شكل الرد — لا نزعم الفشل.
     throw ApiFailure(

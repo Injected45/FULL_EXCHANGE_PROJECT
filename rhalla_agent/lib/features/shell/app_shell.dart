@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../auth/auth_controller.dart';
+import 'auto_refresh.dart';
 
 class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.navigationShell});
@@ -23,7 +24,10 @@ class AppShell extends ConsumerWidget {
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          navigationShell,
+          AutoRefresh(
+            tabIndex: navigationShell.currentIndex,
+            child: navigationShell,
+          ),
           PositionedDirectional(
             start: 16,
             end: 16,

@@ -39,3 +39,14 @@ node_modules/
 vendor/
 /backend/env
 /backend/L
+
+# --- Built APKs (build_apk.bat output) ---
+/apk/
+
+# --- Desktop build output copied for hand-off, never committed ---
+# 458 MB: a .rar of bin\Debug plus the DevExpress runtime, ExchangeSystem.exe
+# and its .pdb. Git keeps every binary in history forever, so committing this
+# would bloat the repo permanently for files that are rebuilt from source
+# anyway - and the DevExpress DLLs are licensed, not ours to redistribute.
+# The folder stays on disk; it is just not tracked.
+منظومة تطبيق الصرافة/

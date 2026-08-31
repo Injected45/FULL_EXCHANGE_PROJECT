@@ -304,6 +304,8 @@ class _EditPosSheet extends ConsumerStatefulWidget {
 class _EditPosSheetState extends ConsumerState<_EditPosSheet> {
   late final _name = TextEditingController(text: widget.pos.name);
   late final _phone = TextEditingController(text: widget.pos.phone);
+  late final _phoneFocus =
+      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
   late bool _active = widget.pos.isActive;
 
   String? _error;
@@ -312,6 +314,7 @@ class _EditPosSheetState extends ConsumerState<_EditPosSheet> {
 
   @override
   void dispose() {
+    _phoneFocus.dispose();
     _name.dispose();
     _phone.dispose();
     super.dispose();
@@ -397,6 +400,7 @@ class _EditPosSheetState extends ConsumerState<_EditPosSheet> {
             _Field(
               label: 'رقم الهاتف',
               controller: _phone,
+              focusNode: _phoneFocus,
               hint: '9XXXXXXXX',
               ltr: true,
               digitsOnly: true,
@@ -501,11 +505,14 @@ class _AddPosSheet extends ConsumerStatefulWidget {
 class _AddPosSheetState extends ConsumerState<_AddPosSheet> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
+  late final _phoneFocus =
+      NumericFieldFocus(_phone, onChanged: () => setState(() {}));
   String? _error;
   bool _saving = false;
 
   @override
   void dispose() {
+    _phoneFocus.dispose();
     _name.dispose();
     _phone.dispose();
     super.dispose();
@@ -579,6 +586,7 @@ class _AddPosSheetState extends ConsumerState<_AddPosSheet> {
             _Field(
               label: 'رقم الهاتف',
               controller: _phone,
+              focusNode: _phoneFocus,
               hint: '9XXXXXXXX',
               ltr: true,
               digitsOnly: true,
@@ -612,6 +620,7 @@ class _Field extends StatelessWidget {
     required this.label,
     required this.controller,
     required this.hint,
+    this.focusNode,
     this.ltr = false,
     this.digitsOnly = false,
     this.maxLength,
@@ -621,6 +630,9 @@ class _Field extends StatelessWidget {
   final String label;
   final TextEditingController controller;
   final String hint;
+
+  /// للحقول الرقمية: NumericFieldFocus كي يُفرَغ الحقل عند دخول المؤشّر.
+  final FocusNode? focusNode;
   final bool ltr;
   final bool digitsOnly;
   final int? maxLength;
@@ -630,9 +642,11 @@ class _Field extends StatelessWidget {
   Widget build(BuildContext context) {
     final field = TextField(
       controller: controller,
+      focusNode: focusNode,
       onChanged: onChanged,
       keyboardType: digitsOnly ? TextInputType.number : TextInputType.text,
       inputFormatters: [
+        const WesternDigits(),
         if (digitsOnly) FilteringTextInputFormatter.digitsOnly,
         if (maxLength != null) LengthLimitingTextInputFormatter(maxLength),
       ],
