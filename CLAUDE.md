@@ -24,7 +24,7 @@ That fixes the role of each existing directory:
 | Platforms | Android + iOS (iOS cannot be built on this Windows machine — needs a Mac) |
 | Auth | **OTP-only.** The design has no password screen anywhere; the API requires one. We add a backend endpoint that issues a Sanctum token after a *server-verified* OTP, which also closes the public `update/password` takeover hole |
 | Self-registration | **Removed from the implementation.** There is no self-registration in the API — `register` only claims a pre-provisioned row. Agents are created from the desktop back office. The design's `isInfo` (name / nationality / national ID / city) step is skipped; the file keeps it for a possible future customer app |
-| Design scope | The inherited design was a **customer wallet** (receive-only, single wallet, tabs: الرئيسية · استعلامات · الدردشة · الحساب). The agent needs sending, POS management, commissions, limits and delivery, so those screens were designed in the same visual system first — they live in `design/` — and are now built. The app's four tabs are الرئيسية · الحوالات · نقاط البيع · الحساب (`/`, `/transfers`, `/pos`, `/account`), not the wallet's |
+| Design scope | The inherited design was a **customer wallet** (receive-only, single wallet, tabs: الرئيسية · استعلامات · الدردشة · الحساب). The agent needs sending, POS management, commissions, limits and delivery, so those screens were designed in the same visual system first and are now built (the `design/` artboards that held them are gone — see below). The app's four tabs are الرئيسية · الحوالات · نقاط البيع · الحساب (`/`, `/transfers`, `/pos`, `/account`), not the wallet's |
 
 ### The Flutter app — `rhalla_agent/`
 
@@ -102,25 +102,17 @@ Note `Info.plist` has **no `NSAppTransportSecurity` key**, which is correct: iOS
 
 **The device id is now derived from hardware**, closing the reinstall lockout: `ANDROID_ID` through a method channel in `MainActivity.kt`, `identifierForVendor` on iOS, random as a last resort. **A stored id is never replaced** — accounts provisioned before this change are bound to a random id in the database, and overwriting it would lock every one of them out.
 
-### `design/` — the agent screens
+### `design/` — no longer on disk
 
-Twenty-nine `.dc.html` artboards laid out by `canvas.json` (which also carries twelve design annotations explaining *why* each departure from the customer design was made), plus the combined `rhalla-agent-screens.html`. **The `.dc.html` files are build output, not source.** They are emitted by four Node ESM generators that share one style system:
+The twenty-nine `.dc.html` artboards, `canvas.json`, `rhalla-agent-screens.html` and the four Node ESM generators that emitted them (`build.mjs` … `build4.mjs`, plus `fix.mjs`) are **gone from this tree, and were never committed** — the unification commit does not contain them, and there is no history to restore them from. Do not follow an instruction to `cd design`; it does not exist.
 
-```bash
-cd design && node build.mjs && node build2.mjs && node build3.mjs && node build4.mjs   # order matters
-```
-
-`build2.mjs`, `build3.mjs` and `build4.mjs` import `HEAD`, `FOOT`, `AMB`, `nav` and friends from `build.mjs`, so running them out of order or alone produces inconsistent screens. Editing a `.dc.html` by hand is silently discarded on the next build — **change the generator instead.** `fix.mjs` is the precedent for a review pass: it patches the generators' source strings, then you rebuild.
-
-**Every route and every sheet is now designed.** `build4.mjs` closed the gap — the screens it holds were all built in code first, so their designs were derived from the actual widgets and API behaviour rather than drawn ahead of them. That direction is worth knowing when reading them: where a design and the code disagree, the code is usually the older and more authoritative of the two.
-
-Three of those carry a decision rather than a layout:
+Nothing was lost that the app does not already hold: every one of those screens was built in code first and the artboards were derived from the actual widgets and API behaviour, so `rhalla_agent/lib/features/` is now the sole authority on what a screen looks like. What the artboards recorded and the code does not say out loud is the *reasoning*, which is why these three are kept here:
 
 - **`BandGap`** is the commission-band 422 (`accounts_repository.dart:110` returns `null` when no band matches). It is red, not amber, and disables the button: the agent cannot proceed at all, so it is an obstacle and not a warning. It sits on the *form*, which is the point — the band gap is caught before the review, not after the form is filled.
 - **`PosEdit`** puts the amber warning **above** the fields. `AuthorizedUsers_update` resets `Reg` to `'NO'` on every save, so fixing a typo in a name signs the point of sale out and forces it to re-register. The warning is the subject of that sheet, not a footnote on it.
 - **`SignOut` and `DeleteAccount`** are deliberately opposite. Signing out keeps the device id, so nothing is lost and nothing is red. Deleting stops the account (`Reg='NO'` plus `deleted_at`, a soft delete) and cannot be undone from the app — so it is red, down to the confirm button.
 
-`build4.mjs` also renders the states that no longer exist only in code: `EmptyTerms` (the terms are published from the back office and can legitimately be absent) and `Picker` (one artboard covering both the internal and external city/branch sheets, which share a pattern).
+Two states that are easy to forget exist because they are rare, not because they are edge cases: `EmptyTerms` — the terms are published from the back office and can legitimately be absent — and the city/branch picker, one pattern shared by the internal and external sheets.
 
 ### Design source
 
@@ -134,16 +126,22 @@ Everything below describes the existing systems.
 
 ## Scope
 
-The root directory is **not** a git repository. It holds four directories serving the same business — شركة الرحالة للصرافة (Alrhalla Exchange, Libya) — the first two sharing one production database:
+**The root is the git repository.** The projects were unified into one monorepo in a single commit (`الدفعة الأولى: توحيد مشروع الرحالة للصرافة في مستودع واحد`); none of them carries its own `.git` any more. So `rhalla_agent/` **is** under version control now, one `git status` at the root sees every project at once, and a Flutter change plus the backend endpoint it needs belong in the same commit.
 
-| Path | What it is | Stack | Git |
-|---|---|---|---|
-| `ExchangeSystem/` | Back-office desktop app used by branch staff — **reference only** | VB.NET WinForms, .NET Framework 4.8, DevExpress v25.1 | own repo (`main`) |
-| `backend/` | REST API — **the backend for the new Flutter apps** | Laravel 11, PHP 8.2 | own repo (`main`) |
-| `rhalla_agent/` | The agent app being built | Flutter 3.41 / Dart 3.11 | **none** |
-| `design/` | Generated agent screens (see below) | Node ESM scripts → `.dc.html` | **none** |
+There is exactly one commit, so `git log` explains nothing about why anything is the way it is — this file and [migration/STATUS.md](ExchangeSystem/migration/STATUS.md) are the history.
 
-`rhalla_agent/` and `design/` are **not under version control at all** — there is no repo to `git init` into and no history to fall back on. Treat every edit there as unrecoverable, and prefer additive changes over rewrites.
+It holds three projects serving the same business — شركة الرحالة للصرافة (Alrhalla Exchange, Libya) — the first two sharing one production database:
+
+| Path | What it is | Stack |
+|---|---|---|
+| `ExchangeSystem/` | Back-office desktop app used by branch staff — **reference only** | VB.NET WinForms, .NET Framework 4.8, DevExpress v25.1 |
+| `backend/` | REST API — **the backend for the new Flutter apps** | Laravel 11, PHP 8.2 |
+| `rhalla_agent/` | The agent app being built | Flutter 3.41 / Dart 3.11 |
+| `docs/` | The API contract and the design system, both derived by reading source | Markdown |
+
+`.claude/skills/` holds nineteen general-purpose security skills (recon, malware analysis, cloud auditing, …) with their own Python scripts. They are **committed tooling, not part of this business** — nothing in `backend/`, `rhalla_agent/` or `ExchangeSystem/` calls them, and they are not a description of what this project does.
+
+The root `.gitignore` is a **credential backstop, not a convenience.** It ignores `.env*`, `RhallaConfig.ini`, `key.properties`, `*.jks`, `*.keystore`, `*.pem`, `*.p12`, `*.pfx` and `auth.json` **at any depth**, deliberately duplicating what each sub-project already ignores, so that editing one sub-`.gitignore` cannot leak a secret. Keep the `!*.template` negations when adding to it.
 
 [ExchangeSystem/CLAUDE.md](ExchangeSystem/CLAUDE.md) carries the detailed guidance for the desktop app — read it before changing anything there. This file covers what is only visible from the root: how the two halves relate, and the database split between them.
 
