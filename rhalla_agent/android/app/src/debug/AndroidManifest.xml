@@ -10,5 +10,20 @@
          وعلى مضيف المحاكي وحده، فلا يصل إلى بناء الإصدار. -->
     <application
         android:networkSecurityConfig="@xml/network_security_config"
-        tools:replace="android:networkSecurityConfig" />
+        tools:replace="android:networkSecurityConfig">
+
+        <!-- Impeller مطفأ في بناء التصحيح وحده.
+             محرّك Impeller هو الافتراضي على أندرويد وهو الأسرع على الهواتف
+             الحقيقية، فلا يُمسّ في بناء الإصدار. لكنه ينهار على GL البرمجي
+             الذي يستعمله المحاكي على جهاز بلا تسريع Vulkan: كان المحاكي يموت
+             لحظة بدء التطبيق بالرسم - «Lost connection to device» بعد إنشاء
+             سياق EGL مباشرة - لا عند نفاد الذاكرة. إطفاؤه هنا يعيد Skia،
+             فيعمل التطبيق على المحاكي بلا تغيير في سلوك ما يُسلَّم للمستخدم.
+
+             موضعه في مجموعة مصادر debug مقصود: وضعه في src/main كان
+             سيُبطئ الهواتف الحقيقية كلها لأجل عائق خاص بالمحاكي. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
+    </application>
 </manifest>
