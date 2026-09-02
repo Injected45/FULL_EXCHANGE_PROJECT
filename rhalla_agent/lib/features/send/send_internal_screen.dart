@@ -12,7 +12,9 @@ import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
 import '../favorites/favorites_repository.dart';
 import '../favorites/favorites_screen.dart';
+import 'send_layout.dart';
 import 'send_repository.dart';
+
 
 class SendInternalScreen extends ConsumerStatefulWidget {
   const SendInternalScreen({super.key, this.prefill});
@@ -197,7 +199,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
           RiseIn(
             duration: const Duration(milliseconds: 500),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(26, 12, 26, 0),
+              padding: const EdgeInsets.fromLTRB(26, 4, 26, 0),
               child: Column(
                 children: [
                   Text('مبلغ الحوالة', style: T.label),
@@ -231,12 +233,12 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                                         decimal: true),
                                 inputFormatters: moneyInputFormatters,
                                 textAlign: TextAlign.center,
-                                style: T.kufi(38, FontWeight.w800),
+                                style: T.kufi(30, FontWeight.w800),
                                 decoration: InputDecoration(
                                   isDense: true,
                                   border: InputBorder.none,
                                   hintText: '0.00',
-                                  hintStyle: T.kufi(32, FontWeight.w800,
+                                  hintStyle: T.kufi(28, FontWeight.w800,
                                       color: R.inkA(.2)),
                                 ),
                               ),
@@ -246,7 +248,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   Container(
                     width: 168,
                     height: 2,
@@ -263,9 +265,10 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
           Expanded(
             child: ListView(
               padding:
-                  const EdgeInsets.fromLTRB(R.padScreen, 12, R.padScreen, 8),
+                  const EdgeInsets.fromLTRB(R.padScreen, 8, R.padScreen, 2),
               children: [
                 GlassCard(
+                  padding: kCardPad,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -276,7 +279,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                           FavoriteFieldButton(onTap: _pickFavorite),
                         ],
                       ),
-                      const SizedBox(height: 9),
+                      const SizedBox(height: kGapLabel),
                       TextField(
                         controller: _name,
                         focusNode: _nameFocus,
@@ -293,11 +296,11 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                               color: R.inkA(.42)),
                         ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: kGapRule),
                       Divider(color: R.inkA(.07), height: 1),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: kGapRule),
                       Text('هاتف المستفيد', style: T.label),
-                      const SizedBox(height: 9),
+                      const SizedBox(height: kGapLabel),
                       Directionality(
                         textDirection: TextDirection.ltr,
                         child: Row(
@@ -338,7 +341,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: R.gapCard),
+                const SizedBox(height: kGap),
 
                 // «فرع الاستلام» مخفيّ عن الوكيل — لا محذوف. يُشتقّ من هذه
                 // المدينة في _resolveBranch ويُرسَل في branch_id كما كان.
@@ -347,7 +350,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                   value: _city?.name,
                   onTap: _pickCity,
                 ),
-                const SizedBox(height: R.gapCard),
+                const SizedBox(height: kGap),
 
                 _CommissionCard(
                   controller: _commission,
@@ -356,14 +359,15 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                   onSubmitted: () => _notesFocus.requestFocus(),
                   currency: currency,
                 ),
-                const SizedBox(height: R.gapCard),
+                const SizedBox(height: kGap),
 
                 GlassCard(
+                  padding: kCardPad,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('ملاحظات · اختياري', style: T.label),
-                      const SizedBox(height: 9),
+                      const SizedBox(height: kGapLabel),
                       TextField(
                         controller: _notes,
                         focusNode: _notesFocus,
@@ -397,7 +401,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
 
           Container(
             padding:
-                const EdgeInsets.fromLTRB(R.padScreen, 10, R.padScreen, 14),
+                const EdgeInsets.fromLTRB(R.padScreen, 6, R.padScreen, 8),
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -409,7 +413,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
                   child: Row(
                     children: [
                       Text('الإجمالي المخصوم',
@@ -435,6 +439,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
                   ),
                 ),
                 PrimaryButton(
+                  height: kButtonHeight,
                   // النصّ يتبدّل باكتمال البيانات: «مراجعة» ما دام ناقصاً،
                   // و«إرسال» حين يصير الضغط خطوةً نحو تحويل مالٍ فعليّ.
                   label: _valid ? 'إرسال الحوالة' : 'تنفيذ الحوالة',
@@ -472,6 +477,7 @@ class _Picker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GlassCard(
+        padding: kCardPad,
         onTap: onTap,
         child: Row(
           children: [
@@ -480,7 +486,7 @@ class _Picker extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(label, style: T.label),
-                  const SizedBox(height: 9),
+                  const SizedBox(height: kGapLabel),
                   Text(
                     value ?? 'اختر',
                     style: value == null
@@ -515,7 +521,7 @@ class _CommissionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        padding: kCardPad,
         decoration: BoxDecoration(
           color: R.primaryA(.07),
           border: Border.all(color: R.primaryA(.18)),

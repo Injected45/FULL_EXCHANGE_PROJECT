@@ -14,12 +14,17 @@ class PrimaryButton extends StatelessWidget {
     this.onPressed,
     this.loading = false,
     this.icon,
+    this.height = 56,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final bool loading;
   final Widget? icon;
+
+  /// 56 في كل مكان. تُخفَّض في الشاشات المزدحمة وحدها — لا تنزل تحت 48،
+  /// وهو الحدّ الذي يبقى دونه الزرّ صعب الإصابة بالإبهام.
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +49,7 @@ class PrimaryButton extends StatelessWidget {
                   }
                 : null,
             child: Ink(
-              height: 56,
+              height: height,
               decoration: BoxDecoration(
                 gradient: R.primaryGradient,
                 borderRadius: BorderRadius.circular(R.rPill),
@@ -77,10 +82,18 @@ class PrimaryButton extends StatelessWidget {
 
 /// زر زجاجي ثانوي.
 class GlassButton extends StatelessWidget {
-  const GlassButton({super.key, required this.label, this.onPressed});
+  const GlassButton({
+    super.key,
+    required this.label,
+    this.onPressed,
+    this.height = 54,
+  });
 
   final String label;
   final VoidCallback? onPressed;
+
+  /// كما في [PrimaryButton]: تُخفَّض في الشاشات المزدحمة ولا تنزل تحت 48.
+  final double height;
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -92,7 +105,7 @@ class GlassButton extends StatelessWidget {
             child: InkWell(
               onTap: onPressed,
               child: Container(
-                height: 54,
+                height: height,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   border: Border.all(color: R.whiteA(.9)),
@@ -250,6 +263,99 @@ class NumericKeypad extends StatelessWidget {
   }
 }
 
+/// يجعل شاشةً ترسم [NumericKeypad] تقبل أرقام كيبورد الجهاز أيضاً.
+///
+/// شاشتا الهاتف والرمز لا تحتويان `TextField` إطلاقاً: الرقم يُبنى حرفاً حرفاً
+/// من نقرات اللوحة المرسومة. فلا شيء فيهما يستقبل ضغطة مفتاح، ولا ينفع معهما
+/// ضبط أي تخطيط لوحة مفاتيح في النظام — وعلى المحاكي يعني ذلك أن كل رقم يحتاج
+/// نقرة ماوس، فتصير كل تجربة دخول عملاً يدوياً بطيئاً.
+///
+/// يُركَّب على الحالة لا على شجرة الودجات: لا يوجد في هاتين الشاشتين ما يأخذ
+/// التركيز، فالالتقاط على مستوى [HardwareKeyboard] يكفي ويجعل الإضافة ثلاثة
+/// أسطر لا إعادةَ لفٍّ لكامل `build`.
+///
+/// المفاتيح تُحوَّل إلى نفس النداءات التي تستدعيها اللوحة المرسومة، فيبقى
+/// مصدر الحقيقة واحداً ولا يتفرّع السلوك بين مدخلين.
+mixin HardwareDigits<T extends StatefulWidget> on State<T> {
+  void onHardwareDigit(String digit);
+  void onHardwareDelete();
+
+  /// ما يفعله Enter. الافتراضي لا شيء — شاشة الرمز تتحقّق وحدها عند اكتمال
+  /// الخانات الأربع، فلا معنى لمفتاح تأكيد فيها.
+  void onHardwareSubmit() {}
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_handleKey);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleKey);
+    super.dispose();
+  }
+
+  bool _handleKey(KeyEvent event) {
+    if (!mounted) return false;
+
+    // المستمع عام، والشاشة قد تكون تحت شاشة أخرى — شاشة الهاتف تبقى حيّة
+    // تحت شاشة الرمز. بلا هذا الشرط تلتقط الشاشتان الضغطة نفسها.
+    if (ModalRoute.of(context)?.isCurrent != true) return false;
+
+    if (event is KeyUpEvent) return false;
+
+    final key = event.logicalKey;
+
+    // المسح وحده يقبل التكرار: إبقاء Backspace مضغوطاً يمسح الحقل تباعاً،
+    // وهذا هو المقصود دائماً.
+    if (key == LogicalKeyboardKey.backspace ||
+        key == LogicalKeyboardKey.delete) {
+      onHardwareDelete();
+      return true;
+    }
+
+    // وما بعده لا يقبله. حقل النص العادي يكرّر الحرف عند الضغط المطوّل،
+    // وهاتان ليستا حقلَي نص: مفتاح عالق أو ضغطة طويلة تضاعف رقماً داخل رقم
+    // هاتف أو رمز تحقّق دون أن ينتبه الوكيل، ولا أحد يقصد كتابة «5555»
+    // بإبقاء 5 مضغوطاً. والتكرار على Enter أسوأ — إرسال مكرّر.
+    //
+    // ليس افتراضاً: ضغطة واحدة أُبقيت نصف ثانية أنتجت ثلاثة أرقام في القياس.
+    if (event is! KeyDownEvent) return false;
+
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      onHardwareSubmit();
+      return true;
+    }
+
+    final digit = _digitOf(event);
+    if (digit == null) return false;
+    onHardwareDigit(digit);
+    return true;
+  }
+
+  /// يقرأ الحرف الناتج لا موضع المفتاح، فيعمل مع صفّ الأرقام ولوحة الأرقام
+  /// معاً ومع أي تخطيط لوحة مفاتيح — بما فيه التخطيط العربي.
+  ///
+  /// ويحوّل الأرقام العربية-الهندية والفارسية إلى غربية، تماماً كما يفعل
+  /// `WesternDigits` في الحقول العادية: كل رقم في هذا التطبيق غربي.
+  static String? _digitOf(KeyEvent event) {
+    final ch = event.character;
+    if (ch == null || ch.length != 1) return null;
+
+    final c = ch.codeUnitAt(0);
+    if (c >= 0x0030 && c <= 0x0039) return ch; // 0-9
+    if (c >= 0x0660 && c <= 0x0669) {
+      return String.fromCharCode(c - 0x0660 + 0x30); // ٠-٩
+    }
+    if (c >= 0x06F0 && c <= 0x06F9) {
+      return String.fromCharCode(c - 0x06F0 + 0x30); // ۰-۹
+    }
+    return null;
+  }
+}
+
 /// علم ليبيا المبسّط.
 class LibyaFlag extends StatelessWidget {
   const LibyaFlag({super.key});
@@ -351,7 +457,7 @@ class OtpBoxes extends StatelessWidget {
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      height: 60,
+      height: 50,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: R.whiteA(filled ? .9 : .5),
@@ -388,7 +494,7 @@ class WarnBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
           color: R.warnBg,
           border: Border.all(color: R.warnBorder),

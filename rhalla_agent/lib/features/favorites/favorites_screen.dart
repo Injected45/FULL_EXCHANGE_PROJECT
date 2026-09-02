@@ -90,7 +90,7 @@ class _AddToFavoritesButtonState extends ConsumerState<AddToFavoritesButton> {
         onTap: _busy || _done ? null : _add,
         borderRadius: BorderRadius.circular(R.rPill),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
           decoration: BoxDecoration(
             color: _done ? R.primaryA(.12) : R.whiteA(.7),
             borderRadius: BorderRadius.circular(R.rPill),

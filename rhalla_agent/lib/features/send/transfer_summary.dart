@@ -5,6 +5,7 @@ import '../../core/format/fmt.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/glass.dart';
+import 'send_layout.dart';
 import '../home/home_repository.dart';
 
 /// عناصر ملخّص الحوالة المشتركة بين شاشة التأكيد وشاشة النجاح.
@@ -102,7 +103,7 @@ class TotalsBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 17),
+        padding: kCardPad,
         decoration: BoxDecoration(
           color: R.warnBg,
           borderRadius: BorderRadius.circular(R.rCard),
@@ -111,11 +112,11 @@ class TotalsBox extends StatelessWidget {
         child: Column(
           children: [
             MoneyRow('قيمة الحوالة', amount, currency: currency),
-            const SizedBox(height: 12),
+            const SizedBox(height: kGap),
             MoneyRow('عمولة التحويل', commission, currency: currency),
-            const SizedBox(height: 14),
+            const SizedBox(height: kGapRule),
             Divider(color: R.warnInk.withValues(alpha: .18), height: 1),
-            const SizedBox(height: 14),
+            const SizedBox(height: kGapRule),
             MoneyRow(totalLabel, amount + commission,
                 currency: currency, strong: true),
           ],

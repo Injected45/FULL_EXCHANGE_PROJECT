@@ -20,10 +20,22 @@ class PhoneScreen extends ConsumerStatefulWidget {
   ConsumerState<PhoneScreen> createState() => _PhoneScreenState();
 }
 
-class _PhoneScreenState extends ConsumerState<PhoneScreen> {
+class _PhoneScreenState extends ConsumerState<PhoneScreen>
+    with HardwareDigits {
   String _digits = '';
   String? _error;
   bool _sending = false;
+
+  @override
+  void onHardwareDigit(String d) => _push(d);
+
+  @override
+  void onHardwareDelete() => _pop();
+
+  @override
+  void onHardwareSubmit() {
+    if (Fmt.isValidLibyanPhone(_digits) && !_sending) _submit();
+  }
 
   void _push(String d) {
     if (_digits.length >= 9) return;
@@ -87,7 +99,8 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                 children: [
                   Text('أدخل رقم هاتفك', style: T.title),
                   const SizedBox(height: 8),
-                  Text('سنرسل لك رمز تحقّق من 4 أرقام عبر واتساب.', style: T.body),
+                  Text('يجب أن يكون الرقم مسجّلاً لدى الشركة مسبقاً.',
+                      style: T.body),
                 ],
               ),
             ),
@@ -112,7 +125,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                       const SizedBox(width: 9),
                       Expanded(
                         child: Text(
-                          'يجب أن يكون الرقم مسجّلاً لدى الشركة مسبقاً.',
+                          'سيصلك رمز التحقق عبر WhatsApp على رقمك المسجل لدينا',
                           style: T.plex(11.5, FontWeight.w400,
                               color: R.inkA(.55), height: 1.5),
                         ),
@@ -128,7 +141,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(R.padScreen, 0, R.padScreen, 12),
             child: PrimaryButton(
-              label: 'إرسال الرمز',
+              label: 'إرسال رمز التحقق',
               loading: _sending,
               onPressed: valid ? _submit : null,
             ),

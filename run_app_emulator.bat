@@ -260,6 +260,15 @@ if not "!BOOTED:~0,1!"=="1" (
 )
 echo Device is ready.
 
+rem ============================================================
+rem  5b) Restore the emulator's typing setup
+rem ============================================================
+rem  Idempotent and quick. It exists because "the emulator lost its
+rem  Arabic keyboard again" was costing an hour at a time, and the
+rem  cause was usually not the emulator at all - see the header of
+rem  emulator_setup.ps1.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0emulator_setup.ps1"
+
 :run
 rem ============================================================
 rem  6) Run the app

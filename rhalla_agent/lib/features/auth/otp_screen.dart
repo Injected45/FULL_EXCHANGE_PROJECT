@@ -23,7 +23,13 @@ class OtpScreen extends ConsumerStatefulWidget {
   ConsumerState<OtpScreen> createState() => _OtpScreenState();
 }
 
-class _OtpScreenState extends ConsumerState<OtpScreen> {
+class _OtpScreenState extends ConsumerState<OtpScreen> with HardwareDigits {
+  @override
+  void onHardwareDigit(String d) => _push(d);
+
+  @override
+  void onHardwareDelete() => _pop();
+
   /// أربع خانات لا ستّاً.
   ///
   /// التصميم رسم ستّ خانات، لكن الخادم يولّد rand(1000, 9999) —

@@ -16,6 +16,7 @@ import '../auth/auth_controller.dart';
 import '../auth/auth_repository.dart';
 import '../shell/auto_refresh.dart';
 import 'limit_dialog.dart';
+import 'send_layout.dart';
 import 'send_repository.dart';
 import 'transfer_summary.dart';
 
@@ -237,27 +238,28 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
           Expanded(
             child: ListView(
               padding:
-                  const EdgeInsets.fromLTRB(R.padScreen, 22, R.padScreen, 20),
+                  const EdgeInsets.fromLTRB(R.padScreen, 8, R.padScreen, 4),
               children: [
                 RiseIn.small(
                   delay: const Duration(milliseconds: 80),
                   child: GlassCard(
+                    padding: kCardPad,
                     child: Column(
                       children: [
                         KvRow('من حساب', user?.displayName ?? '—'),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: kGapRow),
                         KvRow('إلى المستلم', d.receiverName),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: kGapRow),
                         PhoneRow(d.receiverPhone),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: kGapRow),
                         KvRow('مدينة الاستلام', d.city.name),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: kGapRow),
                         KvRow('التاريخ', _stamp, numeric: true),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: R.gapCard),
+                const SizedBox(height: kGap),
                 RiseIn.small(
                   delay: const Duration(milliseconds: 140),
                   child: TotalsBox(
@@ -266,25 +268,26 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                       currency: currency),
                 ),
                 if (d.notes != null && d.notes!.trim().isNotEmpty) ...[
-                  const SizedBox(height: R.gapCard),
+                  const SizedBox(height: kGap),
                   GlassCard(
+                    padding: kCardPad,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('ملاحظات', style: T.label),
-                        const SizedBox(height: 9),
+                        const SizedBox(height: 4),
                         Text(d.notes!.trim(),
                             style: T.plex(14, FontWeight.w500, height: 1.7)),
                       ],
                     ),
                   ),
                 ],
-                const SizedBox(height: R.gapCard),
+                const SizedBox(height: kGap),
                 RiseIn.small(
                   delay: const Duration(milliseconds: 200),
                   child: _otpCard(user?.phone ?? ''),
                 ),
-                const SizedBox(height: R.gapCard),
+                const SizedBox(height: kGap),
                 const WarnBanner(
                   text:
                       'بعد الإرسال لا يمكن تعديل الحوالة — إلغاؤها يتطلّب مراجعة الفرع.',
@@ -294,7 +297,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
           ),
           Container(
             padding:
-                const EdgeInsets.fromLTRB(R.padScreen, 14, R.padScreen, 22),
+                const EdgeInsets.fromLTRB(R.padScreen, 6, R.padScreen, 8),
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -306,11 +309,12 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
             child: Column(
               children: [
                 PrimaryButton(
+                  height: kButtonHeight,
                   label: 'تأكيد وإرسال',
                   loading: _sending,
                   onPressed: _ready ? _confirm : null,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 TextButton(
                   onPressed: _busy ? null : () => context.pop(),
                   style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
@@ -326,11 +330,12 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
   }
 
   Widget _otpCard(String phone) => GlassCard(
+        padding: kCardPad,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('رمز التحقّق', style: T.kufi(15, FontWeight.w600)),
-            const SizedBox(height: 10),
+            const SizedBox(height: 4),
             Text.rich(
               TextSpan(
                 style: T.plex(12.5, FontWeight.w400,
@@ -346,7 +351,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: kGap),
             _OtpField(
               length: _otpLength,
               code: _code,
@@ -364,7 +369,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                 if (v.length == _otpLength) _autoConfirm();
               },
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: kGap),
             _otpStatus(),
           ],
         ),
@@ -515,7 +520,7 @@ class _InsufficientSheet extends StatelessWidget {
                     children: [
                       Text('رصيد غير كافٍ',
                           style: T.kufi(17, FontWeight.w600)),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Text('الإجمالي المطلوب يتجاوز رصيد وكالتك.',
                           style: T.plex(12, FontWeight.w400,
                               color: R.inkA(.58), height: 1.5)),

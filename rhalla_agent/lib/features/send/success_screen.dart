@@ -14,6 +14,7 @@ import '../auth/auth_controller.dart';
 import '../favorites/favorites_repository.dart';
 import '../favorites/favorites_screen.dart';
 import '../transfers/receipt.dart';
+import 'send_layout.dart';
 import 'send_repository.dart';
 
 /// شاشة «تمّت الحوالة» — فاتورةٌ لا إشعارُ نجاحٍ فقط.
@@ -106,19 +107,19 @@ class _TransferDoneScreenState extends ConsumerState<TransferDoneScreen>
             Expanded(
               child: ListView(
                 padding:
-                    const EdgeInsets.fromLTRB(R.padScreen, 12, R.padScreen, 30),
+                    const EdgeInsets.fromLTRB(R.padScreen, 4, R.padScreen, 2),
                 children: [
                   Center(
                     child: SizedBox(
-                      width: 96,
-                      height: 96,
+                      width: 52,
+                      height: 52,
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
                           const Positioned.fill(child: PulseRing(seconds: 2.4)),
                           Container(
-                            width: 68,
-                            height: 68,
+                            width: 40,
+                            height: 40,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               gradient: R.primaryGradient,
@@ -131,19 +132,19 @@ class _TransferDoneScreenState extends ConsumerState<TransferDoneScreen>
                               ],
                             ),
                             child: const Icon(Icons.check_rounded,
-                                size: 32, color: Colors.white),
+                                size: 22, color: Colors.white),
                           ),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: kGap),
                   RiseIn.small(
                     delay: const Duration(milliseconds: 120),
                     child: Text('تمّت الحوالة بنجاح',
                         textAlign: TextAlign.center, style: T.titleSm),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: kGap),
                   RiseIn.small(
                     delay: const Duration(milliseconds: 200),
                     child: RepaintBoundary(
@@ -157,7 +158,7 @@ class _TransferDoneScreenState extends ConsumerState<TransferDoneScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: kGap),
                   AddToFavoritesButton(
                     // الرمز الداخلي لا رمز الموبايل: المفضّلة تُربط بعمود Code.
                     code: t.code,
@@ -165,30 +166,53 @@ class _TransferDoneScreenState extends ConsumerState<TransferDoneScreen>
                     name: t.receiverName,
                     phone: t.receiverPhone,
                   ),
-                  const SizedBox(height: 18),
-                  PrimaryButton(
-                    label: 'مشاركة الفاتورة',
-                    loading: receiptBusy,
-                    icon: const Icon(Icons.share_rounded,
-                        size: 18, color: Colors.white),
-                    onPressed: receiptBusy ? null : _share,
+                  const SizedBox(height: kGap),
+                  // الأزرار الأربعة نفسها، في صفّين بدل عمودٍ واحد.
+                  //
+                  // أربعة أزرار بعرض الشاشة تأكل ~224 dp من 640، فتدفع
+                  // الفاتورة خارج الشاشة. صفّان يردّانها إلى ~106 دون أن
+                  // يسقط زرّ واحد — والترتيب محفوظ: الأول يمين كل صفّ.
+                  Row(
+                    children: [
+                      Expanded(
+                        child: PrimaryButton(
+                          height: 48,
+                          label: 'مشاركة الفاتورة',
+                          loading: receiptBusy,
+                          icon: const Icon(Icons.share_rounded,
+                              size: 18, color: Colors.white),
+                          onPressed: receiptBusy ? null : _share,
+                        ),
+                      ),
+                      const SizedBox(width: kGap),
+                      Expanded(
+                        child: GlassButton(
+                          height: 48,
+                          label: 'طباعة',
+                          onPressed: receiptBusy ? null : _print,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 10),
-                  GlassButton(
-                    label: 'طباعة',
-                    onPressed: receiptBusy ? null : _print,
-                  ),
-                  const SizedBox(height: 10),
-                  PrimaryButton(
-                    label: 'حوالة جديدة',
-                    onPressed: receiptBusy
-                        ? null
-                        : _newTransfer,
-                  ),
-                  const SizedBox(height: 10),
-                  GlassButton(
-                    label: 'العودة إلى الرئيسية',
-                    onPressed: receiptBusy ? null : () => context.go('/'),
+                  const SizedBox(height: kGap),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: PrimaryButton(
+                          height: 48,
+                          label: 'حوالة جديدة',
+                          onPressed: receiptBusy ? null : _newTransfer,
+                        ),
+                      ),
+                      const SizedBox(width: kGap),
+                      Expanded(
+                        child: GlassButton(
+                          height: 48,
+                          label: 'العودة إلى الرئيسية',
+                          onPressed: receiptBusy ? null : () => context.go('/'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -221,7 +245,7 @@ class _Invoice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(R.rCardXl),
@@ -231,7 +255,7 @@ class _Invoice extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const ReceiptHeader(),
-            const SizedBox(height: 20),
+            const SizedBox(height: kGap),
             // وقت الخادم بالمباعدة نفسها المستعملة في فاتورة التسليم.
             ReceiptRow('تاريخ التحويل',
                 Fmt.stamp(t.insertedAt, separator: '    '),
@@ -240,7 +264,7 @@ class _Invoice extends StatelessWidget {
               ReceiptRow('اسم المرسل', senderName, strong: true),
             if (t.cityName.isNotEmpty)
               ReceiptRow('المدينة المحوَّل لها', t.cityName),
-            const SizedBox(height: 12),
+            const SizedBox(height: kGap),
             BoxedField(
               icon: Icons.person_outline_rounded,
               label: 'اسم المستلم',
@@ -248,7 +272,7 @@ class _Invoice extends StatelessWidget {
                   textAlign: TextAlign.start,
                   style: T.kufi(17, FontWeight.w700)),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: kGap),
             BoxedField(
               icon: Icons.phone_outlined,
               label: 'هاتف المستلم',
@@ -272,9 +296,9 @@ class _Invoice extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: kGap),
             Divider(color: R.inkA(.07), height: 1),
-            const SizedBox(height: 14),
+            const SizedBox(height: kGap),
             ReceiptRow('قيمة الحوالة', Fmt.money(t.amount),
                 ltr: true, strong: true, currency: currency),
           ],

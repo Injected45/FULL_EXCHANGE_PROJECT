@@ -26,7 +26,7 @@ class ReceiptHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
         children: [
-          const RhallaLogo(size: 42, color: R.primary),
+          const RhallaLogo(size: 34, color: R.primary),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -90,7 +90,7 @@ class ReceiptRow extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -119,7 +119,7 @@ class BoxedField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
         decoration: BoxDecoration(
           color: R.primaryA(.04),
           border: Border.all(color: R.primaryA(.22)),
