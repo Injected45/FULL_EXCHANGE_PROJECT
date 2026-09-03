@@ -101,7 +101,7 @@ class _AddToFavoritesButtonState extends ConsumerState<AddToFavoritesButton> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (_busy)
-                const SizedBox(
+                SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
@@ -212,7 +212,7 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
           Expanded(
             child: async.when(
               loading: () =>
-                  const Center(child: CircularProgressIndicator(color: R.primary)),
+                  Center(child: CircularProgressIndicator(color: R.primary)),
               error: (e, _) => _Failed(
                 message: '$e',
                 onRetry: () => ref.invalidate(favoritesProvider),
@@ -532,7 +532,7 @@ class _FavoritePickerSheetState extends ConsumerState<FavoritePickerSheet> {
           const SizedBox(height: 14),
           Expanded(
             child: async.when(
-              loading: () => const Center(
+              loading: () => Center(
                   child: CircularProgressIndicator(color: R.primary)),
               error: (e, _) => Center(
                 child: Text('$e',

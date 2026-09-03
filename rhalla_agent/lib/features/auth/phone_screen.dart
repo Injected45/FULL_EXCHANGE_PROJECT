@@ -80,27 +80,26 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen>
     return Screen(
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(R.padScreen, 8, R.padScreen, 0),
-            child: Row(
-              children: [
-                const Spacer(),
-                const RhallaLogo(size: 30, color: Color(0xBF00B17A)),
-              ],
-            ),
+          // الشعار في الوسط لا في الزاوية: هو ترويسة الشاشة لا علامة مائية.
+          const Padding(
+            padding: EdgeInsets.fromLTRB(R.padScreen, 14, R.padScreen, 0),
+            child: BrandLockup(),
           ),
 
           RiseIn(
             duration: const Duration(milliseconds: 500),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(26, 24, 26, 0),
+              // قرار المالك (2 سبتمبر 2026): كل جملة في وسط الشاشة، فلا
+              // تميل واحدة إلى جانب دون أخرى.
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text('أدخل رقم هاتفك', style: T.title),
+                  Text('أدخل رقم هاتفك',
+                      textAlign: TextAlign.center, style: T.title),
                   const SizedBox(height: 8),
-                  Text('يجب أن يكون الرقم مسجّلاً لدى الشركة مسبقاً.',
-                      style: T.body),
+                  Text('يجب أن يكون رقم الهاتف مسجلاً لدى الشركة مسبقاً',
+                      textAlign: TextAlign.center, style: T.body),
                 ],
               ),
             ),
@@ -109,23 +108,29 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen>
           Padding(
             padding: const EdgeInsets.fromLTRB(26, 22, 26, 0),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 _PhoneField(digits: _digits),
                 const SizedBox(height: 12),
                 if (_error != null)
                   Text(_error!,
+                      textAlign: TextAlign.center,
                       style: T.plex(12, FontWeight.w500,
                           color: R.error, height: 1.5))
                 else
+                  // Flexible لا Expanded: Expanded يمدّ النصّ على ما تبقّى من
+                  // العرض بعد الأيقونة، فيبدو مزاحاً عن الوسط. Flexible يجعل
+                  // الأيقونة والنصّ كتلةً واحدة تتوسّط الصفّ.
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline, size: 15, color: R.inkA(.45)),
+                      const WhatsAppMark(size: 22),
                       const SizedBox(width: 9),
-                      Expanded(
+                      Flexible(
                         child: Text(
                           'سيصلك رمز التحقق عبر WhatsApp على رقمك المسجل لدينا',
+                          textAlign: TextAlign.center,
                           style: T.plex(11.5, FontWeight.w400,
                               color: R.inkA(.55), height: 1.5),
                         ),
@@ -143,6 +148,9 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen>
             child: PrimaryButton(
               label: 'إرسال رمز التحقق',
               loading: _sending,
+              // السهم إلى اليسار — جهة المتابعة في واجهة عربية.
+              trailing: const Icon(Icons.chevron_left_rounded,
+                  size: 22, color: Colors.white),
               onPressed: valid ? _submit : null,
             ),
           ),

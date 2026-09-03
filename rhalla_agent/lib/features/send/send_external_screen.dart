@@ -216,7 +216,7 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
           Expanded(
             child: countries.when(
               loading: () =>
-                  const Center(child: CircularProgressIndicator(color: R.primary)),
+                  Center(child: CircularProgressIndicator(color: R.primary)),
               error: (e, _) => _Failed(
                 message: '$e',
                 onRetry: () => ref.invalidate(serviceCountriesProvider),
@@ -685,7 +685,7 @@ class _QuoteCard extends StatelessWidget {
             Text('ما يستلمه المستفيد', style: T.label),
             const Spacer(),
             if (loading)
-              const SizedBox(
+              SizedBox(
                 width: 16,
                 height: 16,
                 child:
@@ -714,7 +714,7 @@ class _QuoteCard extends StatelessWidget {
               Text('ما يستلمه المستفيد', style: T.label),
               const Spacer(),
               if (loading)
-                const SizedBox(
+                SizedBox(
                   width: 14,
                   height: 14,
                   child: CircularProgressIndicator(
@@ -973,7 +973,7 @@ class ExternalDoneScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 22),
               child: Column(
                 children: [
-                  Text('رمز الحوالة', style: T.label),
+                  Text('رقم الحوالة', style: T.label),
                   const SizedBox(height: 14),
                   Directionality(
                     textDirection: TextDirection.ltr,

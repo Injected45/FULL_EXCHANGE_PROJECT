@@ -231,7 +231,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
       child: Column(
         children: [
           RhallaAppBar(
-            title: 'حوالة داخلية',
+            title: 'حوالة محلية',
             subtitle: 'راجع البيانات ثم أدخل رمز التحقّق',
             onBack: _sending ? null : () => context.pop(),
           ),
@@ -298,7 +298,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
           Container(
             padding:
                 const EdgeInsets.fromLTRB(R.padScreen, 6, R.padScreen, 8),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,

@@ -57,7 +57,7 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
           Expanded(
             child: async.when(
               loading: () =>
-                  const Center(child: CircularProgressIndicator(color: R.primary)),
+                  Center(child: CircularProgressIndicator(color: R.primary)),
               error: (e, _) => _Failed(
                 message: '$e',
                 onRetry: () => ref.invalidate(statementProvider),
@@ -304,7 +304,7 @@ class _MovementRow extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(m.title.isEmpty ? 'حركة حساب' : m.title,
+              Text(m.title.isEmpty ? 'حركة حساب' : Fmt.localName(m.title),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: T.plex(12.5, FontWeight.w600, color: tone.ink)),

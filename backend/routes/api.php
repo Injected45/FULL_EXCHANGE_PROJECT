@@ -10,6 +10,8 @@ use App\Http\Controllers\Api\depositController as MobiledepositController;
 use App\Http\Controllers\Api\SmsController;
 use App\Http\Controllers\Api\OtpController;
 use App\Http\Controllers\Api\BankVisaTransferController;;
+use App\Http\Controllers\Api\AgentIncomingTransfersController;
+use App\Http\Controllers\Api\CompanyBrandingController;
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
@@ -56,17 +58,13 @@ Route::post('device/send/whatsapp/message',  [ MobileAuthController::class , 'se
   ////اضافة عميل من قبل  قاعد البيانت من خلال التطبيق
 
  Route::post('device/forgien/exchange/deposit/store',  [ MobiledepositController::class , 'storeaddcostmer']   );
-  // جلب الدول. 
   Route::post('device/countries',  [ MobiledepositController::class , 'getCountries']   );
 
 
-  //جلب المدن. 
   Route::post('device/cities',  [ MobiledepositController::class , 'GetCities']   );
   
   
-  //ارسال رسالة عبر  الهاتف
 Route::post('/send-sms', [SmsController::class, 'send']);
-//كود ارسال رمز التحققق
 Route::post('/send-verification', [SmsController::class, 'sendVerification']);
 ///كود التحقق من رمز التحقق
 Route::post('/check-verification', [SmsController::class, 'checkVerification']);
@@ -78,8 +76,15 @@ Route::post('/check-verification', [SmsController::class, 'checkVerification']);
 Route::get('device/exchange/AppTerms_get',  [ MobiledepositController::class , 'AppTerms']   ) ;
 
 
+// صورة شعار الشركة — خارج التوثيق عمداً، وسببه مشروح في المتحكّم.
+// الاسم عشوائي، والقيد `[A-Za-z0-9_.-]+` يمنع أي فاصل مسار قبل أن يصل الاسم
+// إلى الكود أصلاً.
+Route::get('company/branding/logo/{name}',
+    [ CompanyBrandingController::class , 'logo' ])
+    ->where('name', '[A-Za-z0-9_.\-]+');
 
-Route::middleware('auth:sanctum')->group(function () 
+
+Route::middleware('auth:sanctum')->group(function ()
 {
 
 
@@ -129,13 +134,10 @@ Route::post('device/dRIVER/Request_to_summon_driversTB_getnavction',  [ Mobilede
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
- //جلب الفروع 
   Route::get('device/exchange/CoBranch_select_get',  [ MobiledepositController::class , 'CoBranch_select']   );
 
 
- //  جملة اضافة للمفضلة 
  Route::post('device/exchange/Favorites_Table_add',  [ MobiledepositController::class , 'Favorites_Table_inser']   );
- //جملة الحذف من المفضلة 
   Route::post('device/exchange/Favorites_Table_delete_from',  [ MobiledepositController::class , 'Favorites_Table_delete']   );
 ////////////////////////////////////////////////
  Route::post('device/exchange/Favorites_ALL',  [ MobiledepositController::class , 'Favorites']   );
@@ -143,37 +145,30 @@ Route::post('device/dRIVER/Request_to_summon_driversTB_getnavction',  [ Mobilede
   
 
 
-  //جلب رصيد ودائع النقد الاجنبي.  
   Route::post('device/forgien/exchange/deposit/balance',  [ MobiledepositController::class , 'ForginDepositExchage']   );
 
 
- // كشف حساب ودائع النقد الاجنبي. 
  Route::post('device/forgien/exchange/deposit/account/statement',  [ MobiledepositController::class , 'ForginDepositExchageAS']   );
 
 
 
  
-  // جلب الرصيد الحالي الخاص بالمستخدم في العملة المحلية. 
   Route::post('device/current/balance/local/currency',  [ MobiledepositController::class , 'getBalanceLocal']   );
 
 
 
  
-  //نوع الخدمة علي حسب الدولة الي مرسلة اليها في الحوالة الخاريجية. 
   Route::post('device/service/external/transfer',  [ MobiledepositController::class , 'getServicesExternal']   );
 
 
 
-  //نوع الخدمة علي حسب الدولة الي مرسلة اليها في الحوالة الخاريجية. 
   Route::get('device/local/account/statment',  [ MobiledepositController::class , 'LocalStatmentAccount']   );
 
- //  شاشة تاكيد التحويل من حساب الي حساب جلب بيانات العمل الثاني. 
  Route::post('device/exchange/account',  [ MobiledepositController::class , 'ExchangeAcc']   );
  ///////////////////////////////////////////////////////داله الحقق من الرصيد الخاص بالجاري///////////////////////////////////
 
  Route::get('device/Rollback_Branch_Trinsfrim_me/{branchID}/{val_value}',  [ MobiledepositController::class , 'Rollback_Branch_Trinsfrim_me']   );
 
- //  تحويلا بين الحسباتا الجملة الجلب. 
  Route::get('device/exchange/accounts/data',  [ MobiledepositController::class , 'ExchangeAccData']   );
 ///جملة جلب الحولات الواردة للحساب العادي /////////////////////////////////////////////////////////////////////
  Route::get('device/exchange/accounts/ExchangeAccData_notACCid_Cosumer',  [ MobiledepositController::class , 'ExchangeAccData_notACCid_Cosumer']   );
@@ -181,42 +176,33 @@ Route::post('device/dRIVER/Request_to_summon_driversTB_getnavction',  [ Mobilede
  Route::post('device/internal/exchange',  [ MobiledepositController::class , 'InternalExchange']   );
 
 
-//كود احتساب التوقيت بين العمليات الصيريفر للمدةو خمسة دقائيق.sql
  Route::post('device/internal/exchange/time/check',  [ MobiledepositController::class , 'InternalEx_minut']   );
 
 
-//عملية التحويل التحققق من الفترة المسموح بها.sql
 Route::post('device/internal/exchange/external/check',  [ MobiledepositController::class , 'checkTtans']   );
 
 
 //////////////////جلب حساب العمولة//////////////////////////////////////////////////////////////////////////
 Route::post('device/internal/CommtionRetview_get',  [ MobiledepositController::class , 'CommtionRetview_get']   );
 
-//تحويل بين الحسبا جملة الحفظ.
 Route::post('device/internal/trans/between/accounts',  [ MobiledepositController::class , 'transInsert']   );
 
-//معاينة عمولة التحويل بين الحسابات قبل التنفيذ — قراءة فقط.
 Route::post('device/internal/trans/between/accounts/commission',  [ MobiledepositController::class , 'transBetweenAccountsCommission']   );
 
 
-//حساب فرق التحويل بين الحسبات التوقيت
 Route::post('device/internal/check/between/time',  [ MobiledepositController::class , 'check_between_time']   );
 
 
-//جلب سعر التحويل الخاريجي_جديد. 
 Route::post('device/external/get/exchange',  [ MobiledepositController::class , 'externalGetExchnage']   );
 
-//تسعيرة الحوالة الخارجية بنفس حساب المُشغِّل — قراءة فقط.
 //get/exchange تعيد رقماً بوسيط أول خاطئ فلا يصلح لتسعير الزبون.
 Route::post('device/external/quote',  [ MobiledepositController::class , 'externalQuote']   );
 
 
 
-//   كود احتساب الوقت external 
 Route::post('device/external/time/exchange',  [ MobiledepositController::class , 'getDiffernceTimeExternal']   );
 
       
-//  كود الحوالة الخارجية اضافة.  
 Route::post('device/external/insert/transfer',  [ MobiledepositController::class , 'transInsertExternal']   );
 
 
@@ -226,20 +212,37 @@ Route::post('device/external/insert/transfer',  [ MobiledepositController::class
 Route::post('device/add/user/trans',  [ MobiledepositController::class , 'addUserTrans']   );
 
 
-//جملة عرض المستخدمين الذين تمت اضافتهم للتحويل 
 Route::post('device/list/user/trans',  [ MobiledepositController::class , 'ListUsersAddedToTrans']   );
 
 
-//جملة عرض المستخدمين الذين تمت اضافتهم للتحويل 
 Route::post('device/delete/user/trans',  [ MobiledepositController::class , 'deleteUser']   );
 
-//طلب سكرين من التطبيق الزبون 
 Route::post('device/otp/senotpGroupFr',  [ OtpController::class , 'senotpGroupFr']   );
 
 /////بحث عن سكرين 
 Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchPayment']   );
 
 
-});
 
- 
+  //
+  // -- الحوالات الواردة للوكيل: متابعة تسليم لا حركة مالية --------------
+  //
+  // مفصولة تماماً عن حالة المنظومة (InternalEx.ConfirmType) بقرار المالك:
+  // تلك تقوم عليها العمليات الحسابية ولا تُمسّ من التطبيق. وهذه للقراءة
+  // ومساعدة الوكيل على معرفة ما سلّمه وما لم يسلّمه.
+  Route::get('agent/incoming-transfers',
+      [ AgentIncomingTransfersController::class , 'index' ]);
+  Route::post('agent/incoming-transfers/{id}/deliver',
+      [ AgentIncomingTransfersController::class , 'deliver' ])->whereNumber('id');
+
+  //
+  // -- هوية الشركة داخل التطبيق: طبقة عرض لا غير -------------------------
+  //
+  // لا مسار يقبل رقم الشركة من جسم الطلب: يُشتقّ من التوثيق في المتحكّم.
+  // والتعديل للحساب الرئيسي وحده، ونقاط البيع تقرأ فقط.
+  Route::get ('company/branding',       [ CompanyBrandingController::class , 'show'   ]);
+  Route::put ('company/branding',       [ CompanyBrandingController::class , 'update' ]);
+  Route::post('company/branding/logo',  [ CompanyBrandingController::class , 'uploadLogo' ]);
+  Route::post('company/branding/reset', [ CompanyBrandingController::class , 'reset'  ]);
+
+});

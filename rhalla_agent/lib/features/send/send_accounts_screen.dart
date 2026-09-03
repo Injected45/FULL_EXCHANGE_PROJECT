@@ -401,7 +401,7 @@ class _SendAccountsScreenState extends ConsumerState<SendAccountsScreen> {
               ),
               const Spacer(),
               if (_feeLoading)
-                const SizedBox(
+                SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
@@ -495,7 +495,7 @@ class _AccountTile extends StatelessWidget {
             Container(
               width: 22,
               height: 22,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                   gradient: R.primaryGradient, shape: BoxShape.circle),
               child: const Icon(Icons.check_rounded,
                   size: 14, color: Colors.white),

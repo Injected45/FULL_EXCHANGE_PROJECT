@@ -1429,8 +1429,37 @@ public function InternalEx_SelectType_View_not_coustmers(Request $request)
             ? 'InternalEx_SelectType_View_not_BRanchId'
             : 'InternalEx_SelectType_View_not_coustmers';
 
+        // ── الحوالات المعتمدة وحدها ──────────────────────────────────────
+        //
+        // الحوالة تُنشأ بـ ConfirmType = 0 «غير معتمدة»، ثم تمرّ بلحظة اعتماد
+        // في المنظومة الرئيسية **قد تُحوّلها إلى وكيل آخر**. فإظهارها قبل
+        // الاعتماد يعني أن وكيلاً قد يسلّم حوالةً تُعتمد بعد قليل باسم غيره،
+        // فتختفي من تطبيقه بعد أن دفع مالها. هذا ما وقع فعلاً: ثلاث حوالات
+        // (1111-1-2/3/4) كانت ظاهرة عند وكيل الفرع 15 وهي غير معتمدة.
+        //
+        // **2 = «مسلمه»** هي المقصودة، وقرار المالك (2 سبتمبر 2026) هو
+        // مرجعها: «مسلمه» في المنظومة تعني **سُلِّمت إلى الوكيل** لا إلى
+        // المستفيد. أما تسليم الوكيل للمستفيد فيُسجَّل في
+        // `agent_incoming_transfers` وحده ولا يمسّ هذا العمود.
+        //
+        // ولا تُقاس المدة: قياسٌ على حوالة حقيقية (1111-1-4) أظهر أن
+        // ConfirmDate و RecievedDate يفترقان بخمس ثوانٍ — فحالة 1 «غير
+        // مسلمه» نافذةٌ لا يراها أحد، والترشيح عليها كان يُخفي كل شيء.
+        //
+        // والمهمّ أن 0 «غير معتمدة» تبقى مستبعدة: إظهارها قبل الاعتماد كان
+        // يجعل وكيلاً يسلّم حوالةً تُعتمد بعد قليل باسم غيره.
+        //
+        // قيم dbo.InternalEx_Stautes:
+        //   0 غير معتمدة · 1 غير مسلمه · 2 مسلمه · 3،4 قيد الإلغاء
+        //   5 ملغية · 6 ملغية مسلمة · 7..10 حالات المندوب والتاكسي
+        //
+        // الترشيح على الرقم لا على الاسم: `SendStatus` في الـ View نصٌّ يأتي
+        // من جدول المسمّيات، وتعديل حرفٍ فيه كان سيُسقط الشرط بصمت.
+        // والانضمام إلى الجدول الأصل لأن الـ View لا يُظهر ConfirmType.
         $results = DB::table("$viewName as a")
+            ->join('InternalEx as t', 't.Code', '=', 'a.Code')
             ->where('a.BranchDeliveredID', '=', $branchID)
+            ->where('t.ConfirmType', '=', 2)
             ->select([
                 'a.Code',
                 'a.BName',
@@ -2102,6 +2131,29 @@ return $this->sendResponse( $results , 'Success');
           return $this->sendResponse(null, 'الرجاء تسجيل الدخول أولاً.', 422);
       }
   
+      // مزامنة دفتر تسليم الوكيل قبل القراءة.
+      //
+      // «آخر العمليات» تعرض حالة التسليم من دفتر الوكيل لا من حالة المنظومة
+      // (قرار المالك، 2 سبتمبر 2026)، فحوالةٌ اعتُمدت للتوّ ولم تُزامَن بعد
+      // كانت ستظهر بلا حالة حتى يفتح الوكيل تبويب «الحوالات الواردة».
+      //
+      // والفشل هنا لا يمنع كشف الحساب: المال يُعرض، وتغيب حالة التسليم وحدها.
+      try {
+          $u = Auth::user();
+          if ($u && !empty($u->BrancchID)) {
+              app(\App\Services\AgentIncomingTransfersService::class)->syncFromCore(
+                  (int) $u->id,
+                  (int) $u->BrancchID,
+                  (int) ($u->UeserType ?? 0)
+              );
+          }
+      } catch (\Throwable $e) {
+          \Illuminate\Support\Facades\Log::warning('statement: agent incoming sync failed', [
+              'user'  => $userId,
+              'error' => $e->getMessage(),
+          ]);
+      }
+
       $results = DB::table('EX24AccSafeActivityTb as a')
       ->join('users as b', 'a.accidfrom', '=', 'b.AccID')
       ->join('AccountsTb as c', 'b.AccID', '=', 'c.AccID')
@@ -2129,8 +2181,48 @@ return $this->sendResponse( $results , 'Success');
   
           a.InsertDate,
           d.OperationType AS MovementType,
-          a.Balnce
-      ")
+          a.Balnce,
+
+          -- رقم الحوالة كما يعرفه الوكيل. ISID هو Code في InternalEx.
+          a.ISID AS Code,
+
+          -- الوقت وحالة التسليم من الحوالة الأصل.
+          --
+          -- استعلامان فرعيان لا JOIN: كشف الحساب صفوفه مالية، و JOIN على
+          -- رقم تكرّر ولو مرّة يضاعف صفّاً فيبدو للوكيل أن مبلغاً خُصم
+          -- مرّتين. الاستعلام الفرعي لا يمكنه تغيير عدد الصفوف.
+          --
+          -- وتبقى NULL للحركات التي ليست حوالة (عمولة، إقفال ميزانية)،
+          -- والتطبيق يخفي ما هو فارغ.
+          (SELECT TOP 1 ie.InsertDate FROM InternalEx ie
+            WHERE ie.Code = a.ISID) AS TransTime,
+
+          (SELECT TOP 1 s.SName FROM InternalEx ie
+             JOIN InternalEx_Stautes s ON s.ConfirmType = ie.ConfirmType
+            WHERE ie.Code = a.ISID) AS DeliveryStatus,
+
+          -- حالة التسليم كما في شاشة «الحوالات الواردة» — وهي التي تُعرض.
+          --
+          -- قرار المالك (2 سبتمبر 2026): وسم الحوالة في «آخر العمليات» يُبنى
+          -- على **دفتر تسليم الوكيل** لا على حالة المنظومة أعلاه. الأولى تقول
+          -- «هل سلّمتُ المال للمستفيد؟» والثانية تقول «أين الحوالة بيني وبين
+          -- الرحالة؟» — وهما سؤالان مختلفان، وخلطهما يجعل الوكيل يظنّ أنه
+          -- سلّم مالاً لم يسلّمه.
+          --
+          -- `DeliveryStatus` أعلاه يبقى في الرد ولا يُحذف: تعرضه شاشات أخرى.
+          --
+          -- استعلامان فرعيان لا JOIN، للسبب نفسه المشروح فوق: JOIN هنا قد
+          -- يضاعف صفّاً مالياً.
+          (SELECT TOP 1 ait.status FROM agent_incoming_transfers ait
+            WHERE ait.agent_id = ? AND ait.transfer_number = a.ISID)
+            AS AgentStatus,
+
+          -- حالة المنظومة المرآة داخل الدفتر نفسه — منها يُعرف الإلغاء
+          -- (3،4 «قيد الإلغاء» · 5 «ملغية» · 6 «ملغية مسلمة»).
+          (SELECT TOP 1 ait.core_confirm_type FROM agent_incoming_transfers ait
+            WHERE ait.agent_id = ? AND ait.transfer_number = a.ISID)
+            AS AgentCoreType
+      ", [$userId, $userId])
       ->get();
   
   

@@ -65,7 +65,7 @@ class PosScreen extends ConsumerWidget {
           ),
           Expanded(
             child: async.when(
-              loading: () => const Center(
+              loading: () => Center(
                 child: CircularProgressIndicator(color: R.primary),
               ),
               error: (e, _) => _Failed(

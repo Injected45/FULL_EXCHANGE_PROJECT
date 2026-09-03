@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
@@ -11,6 +12,9 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import '../branding/arabic_to_latin.dart';
+import '../branding/brand_mark.dart';
+import '../branding/branding_controller.dart';
 
 /// مكوّنات فاتورة الحوالة، مشتركة بين «بانتظار التسليم» و«سلَّمتُها»
 /// وشاشة «تمّت الحوالة».
@@ -19,33 +23,55 @@ import '../../ui/widgets/glass.dart';
 /// ونسخةٌ ثانية من صفٍّ أو حاوية كانت ستفترق عن أختها عند أول تعديل،
 /// فيقرأ الوكيل الفاتورة نفسها بشكلين حسب الشاشة التي فتحها منها.
 
-/// ترويسة الفاتورة — اسم الشركة وشعارها.
-class ReceiptHeader extends StatelessWidget {
+/// ترويسة الفاتورة — باسم الشركة وشعارها، لا باسم «الرحالة».
+///
+/// قرار المالك (3 سبتمبر 2026): الفاتورة هي الورقة التي تصل يد العميل، فهي
+/// أوّل ما يجب أن يحمل هوية الشركة. وميزة «هوية الشركة» أُضيفت لهذا بالضبط:
+/// أن يشعر الوكيل أن التطبيق تطبيقه.
+///
+/// وهي تُصوَّر للطباعة والمشاركة، لذلك يُهيَّأ الشعار في الذاكرة قبل التصوير
+/// (انظر [ReceiptTools.runReceiptAction]) — وإلا خرجت أول فاتورة بشعارٍ فارغ.
+class ReceiptHeader extends ConsumerWidget {
   const ReceiptHeader({super.key});
 
   @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          const RhallaLogo(size: 34, color: R.primary),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('شركة الرحالة للصرافة',
-                    style: T.kufi(16, FontWeight.w800, color: R.primaryDark)),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final b = ref.watch(brandingControllerProvider).branding;
+
+    final ar = b.displayName;
+    // اسمٌ إنجليزيّ لم تحفظه الشركة يُشتقّ من اسمها العربي — لا يبقى السطر
+    // فارغاً، ولا يحمل اسم شركةٍ أخرى.
+    final en = (b.companyNameEn ?? '').trim().isNotEmpty
+        ? b.companyNameEn!.trim()
+        : ArabicToLatin.suggest(ar);
+
+    return Row(
+      children: [
+        BrandMark(size: 34, color: R.primary),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(ar,
+                  maxLines: 2,
+                  style: T.kufi(16, FontWeight.w800, color: R.primaryDark)),
+              if (en.isNotEmpty) ...[
                 const SizedBox(height: 3),
                 Directionality(
                   textDirection: TextDirection.ltr,
-                  child: Text('Al Rhalla Exchange Company',
+                  child: Text(en,
+                      maxLines: 2,
                       style: T.plex(10.5, FontWeight.w500,
                           color: R.primaryA(.75))),
                 ),
               ],
-            ),
+            ],
           ),
-        ],
-      );
+        ),
+      ],
+    );
+  }
 }
 
 class ReceiptRow extends StatelessWidget {
@@ -216,7 +242,7 @@ class PrintPreview extends StatelessWidget {
                 allowPrinting: true,
                 allowSharing: true,
                 useActions: true,
-                loadingWidget: const Center(
+                loadingWidget: Center(
                     child: CircularProgressIndicator(color: R.primary)),
               ),
             ),
@@ -237,6 +263,30 @@ mixin ReceiptTools<W extends StatefulWidget> on State<W> {
   final GlobalKey receiptKey = GlobalKey();
   bool receiptBusy = false;
 
+  /// تحميل شعار الشركة إلى الذاكرة قبل التصوير.
+  ///
+  /// التصوير يلتقط ما هو مرسوم في تلك اللحظة، وشعارٌ يأتي من الشبكة قد يكون
+  /// لم يُفكّ ترميزه بعد — فتخرج **أول فاتورة** بشعارٍ فارغ أو بشعار الرحالة
+  /// الاحتياطي، وهي بالضبط الورقة التي تصل يد العميل.
+  ///
+  /// الحاوية تُقرأ من الشجرة لا عبر `ref`: هذا mixin على `State` عادية،
+  /// وبعض شاشات الفاتورة ليست `ConsumerState`.
+  ///
+  /// وفشلُ التحميل لا يمنع الطباعة: تُطبع بالشعار الاحتياطي، وفاتورةٌ بشعارٍ
+  /// افتراضي خيرٌ من فاتورةٍ لا تُطبع.
+  Future<void> _warmLogo() async {
+    try {
+      final url = ProviderScope.containerOf(context, listen: false)
+          .read(brandingControllerProvider)
+          .branding
+          .logoUrl;
+      if (url == null || !mounted) return;
+      await precacheImage(NetworkImage(url), context);
+    } catch (_) {
+      // متروك عمداً.
+    }
+  }
+
   /// تصوير الفاتورة بدقّة الطباعة.
   Future<Uint8List?> captureReceipt() async {
     final ctx = receiptKey.currentContext;
@@ -254,6 +304,7 @@ mixin ReceiptTools<W extends StatefulWidget> on State<W> {
     if (receiptBusy) return;
     setState(() => receiptBusy = true);
     try {
+      await _warmLogo();
       final png = await captureReceipt();
       if (png == null) throw 'تعذّر تجهيز الفاتورة.';
       await action(png);

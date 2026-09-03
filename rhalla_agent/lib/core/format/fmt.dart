@@ -11,6 +11,24 @@ import 'package:intl/intl.dart';
 class Fmt {
   Fmt._();
 
+  /// «داخلية» ⇦ «محلية» في كل نصّ يصل من الخادم.
+  ///
+  /// قرار المالك (3 سبتمبر 2026): تُسمّى «حوالة محلية» في كل مناطق العرض.
+  /// وأسماء الحركات تأتي من `OperationTypeTb` في قاعدة البيانات — وهي
+  /// **مشتركة مع تطبيق سطح المكتب**، فتغييرها هناك يغيّر شاشات موظّفي الفروع
+  /// أيضاً. لذلك تُترجَم عند العرض هنا، ولا تُمسّ القاعدة.
+  ///
+  /// المؤنّث وحده يُستبدل («حوالة داخلية»، «حوالات داخلية»، «عمولة داخلية»)،
+  /// والمذكّر يُترك عمداً: `OperationTypeTb` فيه «ارسال فاتورة نقل داخلي مع
+  /// تاكسي»، وهو نقلٌ بريّ لا حوالة، فـ«نقل محلي» فيه تحريف لا تصحيح.
+  ///
+  /// و«الداخلية» تُصحَّح تلقائياً إلى «المحلية»: الألف واللام خارج المستبدَل.
+  static String localName(String? raw) {
+    final s = (raw ?? '').trim();
+    if (s.isEmpty) return s;
+    return s.replaceAll('داخليّة', 'محلية').replaceAll('داخلية', 'محلية').replaceAll('داخليه', 'محلية');
+  }
+
   static final _money = NumberFormat('#,##0.00#', 'en');
   static final _int = NumberFormat('#,##0', 'en');
   static final _rate4 = NumberFormat('#,##0.0###', 'en');
@@ -66,6 +84,24 @@ class Fmt {
     return '${clean.substring(0, i)}$separator${clean.substring(i + 1)}';
   }
 
+  /// طابع مختصر لصفوف القوائم: «2026-09-02 · 10:24».
+  ///
+  /// بلا ثوانٍ — لا تفيد الوكيل في صفٍّ يمرّ عليه بنظرة. وبلا ص/م: الساعة
+  /// في هذا التطبيق بنظام 24 في كل موضع بقرار المالك، وطوابع الخادم تصل
+  /// بنظام 24 أصلاً فيتوحّد الشكلان.
+  ///
+  /// وما لا وقت فيه يُعرض تاريخاً وحده بلا فاصل معلّق.
+  static String stampShort(String? raw) {
+    final s = stamp(raw);
+    if (s.isEmpty) return '';
+    final i = s.indexOf(' ');
+    if (i < 0) return s;
+    final date = s.substring(0, i);
+    final time = s.substring(i + 1);
+    final hhmm = time.length >= 5 ? time.substring(0, 5) : time;
+    return '$date  ·  $hhmm';
+  }
+
   /// طابع اللحظة الحالية للعرض: «31/08/2026 21:55».
   ///
   /// الساعة بنظام 24 لا AM/PM — قرار المالك، ويسري على كل موضع تظهر فيه
@@ -87,6 +123,18 @@ class Fmt {
     final d = digits.replaceAll(RegExp(r'\D'), '');
     if (d.length < 9) return d;
     return '${d.substring(0, 2)} ${d.substring(2, 5)} ${d.substring(5, 9)}';
+  }
+
+  /// الرقم مستوراً وسطه: `92 **** 3709`.
+  ///
+  /// يُعرَض في شاشة رمز التحقّق حيث الغرض تأكيد أن الرمز ذهب إلى الرقم
+  /// الصحيح، لا عرض الرقم كاملاً على شاشة قد يراها من يقف بجانب الوكيل.
+  /// الطرفان يكفيان للتعرّف — وهما ما لا يشترك فيه رقمان عادةً.
+  static String phoneMasked(String digits) {
+    final d = digits.replaceAll(RegExp(r'\D'), '');
+    // أقصر من تسع خانات ليس رقماً كاملاً — يُعرض كما هو بلا ادّعاء ستر.
+    if (d.length < 9) return phone(d);
+    return '${d.substring(0, 2)} **** ${d.substring(5, 9)}';
   }
 
   /// للإرسال إلى الخادم: 9 خانات تبدأ بـ 9، **بلا بادئة 218**.

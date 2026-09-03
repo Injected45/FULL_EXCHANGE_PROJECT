@@ -48,7 +48,7 @@ class SecurityScreen extends ConsumerWidget {
                       Row(
                         children: [
                           IconTile(
-                            icon: const Icon(Icons.smartphone_rounded,
+                            icon: Icon(Icons.smartphone_rounded,
                                 size: 19, color: R.primaryGradEnd),
                           ),
                           const SizedBox(width: 13),
@@ -246,7 +246,7 @@ class _Bullet extends StatelessWidget {
               margin: const EdgeInsetsDirectional.only(top: 8, end: 10),
               width: 5,
               height: 5,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                   color: R.primary, shape: BoxShape.circle),
             ),
             Expanded(

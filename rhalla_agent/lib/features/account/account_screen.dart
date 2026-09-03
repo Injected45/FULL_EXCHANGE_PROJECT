@@ -9,6 +9,8 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../branding/brand_mark.dart';
+import '../branding/branding_controller.dart';
 
 class AccountScreen extends ConsumerWidget {
   const AccountScreen({super.key});
@@ -72,6 +74,14 @@ class AccountScreen extends ConsumerWidget {
                     children: [
                       // «الإشعارات · مفعّلة» حُذف: لا شيء مُوصَّل — Pusher
                       // غير مربوط بعد — فكان الصف يدّعي ما لا يحدث.
+                      //
+                      // «هوية الشركة» يراها الجميع ولا يعدّلها إلا الحساب
+                      // الرئيسي — والخادم هو من يمنع، لا إخفاء الصفّ.
+                      _Row(
+                        icon: Icons.palette_outlined,
+                        label: 'هوية الشركة',
+                        onTap: () => context.push('/branding'),
+                      ),
                       _Row(
                         icon: Icons.shield_outlined,
                         label: 'الخصوصية والأمان',
@@ -112,7 +122,13 @@ class AccountScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                Text('رحلة · الرحالة للصرافة', style: T.meta),
+                // تذييل الحساب باسم الشركة كذلك — «كل شيء باسمها ظاهرياً»
+                // بقرار المالك. و«رحلة» تبقى: هي اسم التطبيق لا اسم الشركة.
+                Text(
+                  'رحلة · ${ref.watch(brandingControllerProvider).branding.displayName}',
+                  textAlign: TextAlign.center,
+                  style: T.meta,
+                ),
                 const SizedBox(height: 6),
                 Directionality(
                   textDirection: TextDirection.ltr,
@@ -224,7 +240,7 @@ class _ProfileHeader extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.fromLTRB(R.padScreen, top + 16, R.padScreen, 44),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: R.headerGradient,
         borderRadius:
             BorderRadius.vertical(bottom: Radius.circular(R.rHeaderBottom)),
@@ -233,10 +249,11 @@ class _ProfileHeader extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
+          // نفس علامة الشاشة الرئيسية — شعار الشركة إن وُجد.
           PositionedDirectional(
             top: -40,
             end: -30,
-            child: RhallaLogo(size: 220, color: R.whiteA(.09)),
+            child: const BrandWatermark(size: 220),
           ),
           RiseIn.small(
             child: Row(

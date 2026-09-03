@@ -138,7 +138,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   child: Floaty(
                     seconds: 2.8,
                     dy: 6,
-                    child: const RhallaLogo(size: 54, color: R.primaryGradEnd),
+                    child: RhallaLogo(size: 54, color: R.primaryGradEnd),
                   ),
                 ),
               ],
@@ -155,7 +155,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               // كانت 210، فطفح السطر الثاني من النص الشارح بـ 14px.
               height: 240,
               padding: const EdgeInsets.fromLTRB(30, 0, 30, 26),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,

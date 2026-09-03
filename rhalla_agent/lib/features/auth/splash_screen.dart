@@ -88,7 +88,7 @@ class _SplashScreenState extends State<SplashScreen>
                               color: R.whiteA(.62),
                               border: Border.all(color: R.whiteA(.9)),
                             ),
-                            child: const Center(
+                            child: Center(
                               child: RhallaLogo(size: 82, color: R.primary),
                             ),
                           ),

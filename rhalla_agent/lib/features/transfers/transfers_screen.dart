@@ -8,8 +8,7 @@ import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
-import '../auth/auth_controller.dart';
-import 'delivery_log.dart';
+import 'agent_incoming_repository.dart';
 import 'delivery_receipt_screen.dart';
 import 'transfers_repository.dart';
 
@@ -25,23 +24,23 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
   final _search = TextEditingController();
   String _query = '';
 
-  /// الخادم يعيد كل الحوالات دفعة واحدة (رُصد 522 صفاً).
-  /// نعرض دفعات ونزيد عند الطلب بدل تجميد القائمة.
+  /// عدد ما تعرضه الصفحة الواحدة. الترقيم في الخادم لا في الهاتف.
   static const _pageSize = 20;
   int _shown = _pageSize;
 
-  /// 0 = بانتظار التسليم · 1 = سلَّمتُها
-  int _tab = 0;
+  IncomingTab _tab = IncomingTab.pending;
 
-  bool get _isPending => _tab == 0;
+  /// آخر صفحة وصلت — تُبقي الأعداد ثابتة أثناء التحميل بدل أن تومض صفراً.
+  IncomingPage? _lastPage;
 
-  /// مصدرٌ واحد للتبويبين — الدفتر المحلّي هو من يفرزهما.
+  /// الحالة كلّها من قاعدة الخادم — لا دفتر على الجهاز.
   ///
-  /// كان تبويب «سلَّمتُها» يُطلب من `InternalEx_SelectType_View_statetosForok`
-  /// وهو سِجل تسليم في المنظومة الرئيسية يعيد **صفر صفوف** لحساب وكيل.
-  /// وطلبٌ أقلّ على الخادم أيضاً.
-  AutoDisposeFutureProvider<List<IncomingTransfer>> get _provider =>
-      incomingTransfersProvider;
+  /// كان الفرز يقوم على `deliveryLogProvider` في التخزين المحلّي: يضيع
+  /// بحذف التطبيق أو تغيير الهاتف، ولا يراه الوكيل إن دخل من جهاز آخر.
+  /// و«خطّ الأساس» فيه كان يُخفي كل ما وصل قبل أول تشغيل — وهو ما أخفى
+  /// حوالةً معتمدة فعلاً. الملف باقٍ ولا يُستعمل هنا.
+  AutoDisposeFutureProvider<IncomingPage> get _provider =>
+      agentIncomingProvider(IncomingQuery(_tab, _query));
 
   @override
   void dispose() {
@@ -59,66 +58,41 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
     });
   });
 
-  /// فاتورة الحوالة — عرض فقط، لا تُغيّر شيئاً.
-  void _openReceipt(IncomingTransfer t) => Navigator.of(context, rootNavigator: true)
+  /// فاتورة الحوالة — ومنها يُسجَّل التسليم.
+  void _openReceipt(AgentIncomingTransfer t) => Navigator.of(context, rootNavigator: true)
       .push(MaterialPageRoute(builder: (_) => DeliveryReceiptScreen(transfer: t)));
 
-  /// مسح السجل — بحاجز تأكيد، فهو زرّ لا رجعة فيه.
-  Future<void> _confirmReset() async {
-    final ok = await showModalBottomSheet<bool>(
-      context: context,
-      useRootNavigator: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _ResetSheet(),
-    );
-    if (ok != true || !mounted) return;
-    await ref.read(deliveryLogProvider.notifier).resetAll();
-    if (!mounted) return;
-    setState(() => _shown = _pageSize);
-    _toast('أُفرِغ السجل — يبدأ من أول حوالة جديدة', ok: true);
-  }
-
-  void _toast(String msg, {required bool ok}) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(msg, style: T.plex(13, FontWeight.w500, color: Colors.white)),
-        backgroundColor: ok ? R.primaryGradEnd : R.error,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      ));
-  }
+  // مسح السجل المحلّي زال مع الدفتر المحلّي — راجع _provider.
 
   @override
   Widget build(BuildContext context) {
-    final user = ref.watch(authControllerProvider).user;
     final async = ref.watch(_provider);
-    final log = ref.watch(deliveryLogProvider);
+
+    // الأعداد تأتي مع كل صفحة من الخادم — هو من يعرف ما في التبويبات
+    // الأخرى، والعدّ في الهاتف كان يكذب مع أول ترقيم صفحات.
+    // ويُحتفظ بآخر قيمة أثناء التحميل حتى لا تومض الأعداد صفراً.
+    final page = async.valueOrNull ?? _lastPage ?? IncomingPage.empty;
+    if (async.hasValue) _lastPage = async.value;
 
     return Screen(
       child: Column(
         children: [
           RhallaAppBar(
-            title: 'الحوالات',
-            subtitle: '${user?.branchName ?? ''} · التسليم والمتابعة',
-            trailing: log.delivered.isEmpty
-                ? null
-                : IconButton(
-                    tooltip: 'مسح السجل',
-                    onPressed: _confirmReset,
-                    icon: Icon(Icons.delete_sweep_outlined,
-                        size: 21, color: R.inkA(.55)),
-                    constraints:
-                        const BoxConstraints(minWidth: 44, minHeight: 44),
-                  ),
+            title: 'الحوالات الواردة',
+            // بلا سطر فرعي — قرار المالك (2 سبتمبر 2026): لا اسم الوكيل ولا
+            // «التسليم والمتابعة». اسم الفرع يبقى ظاهراً في تبويب الحساب.
+            // لا زرّ «مسح السجل»: السجل صار في قاعدة الخادم، ومسحُه من
+            // الهاتف كان يمحو دليل من سُلِّم.
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(R.padScreen, 18, R.padScreen, 0),
             child: _Tabs(
-              index: _tab,
+              index: _tab.index,
+              pendingCount: page.pending,
+              deliveredCount: page.delivered,
+              cancelledCount: page.cancelled,
               onChanged: (i) => setState(() {
-                _tab = i;
+                _tab = IncomingTab.values[i];
                 _shown = _pageSize;
               }),
             ),
@@ -141,35 +115,13 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                 message: '$e',
                 onRetry: () => ref.invalidate(_provider),
               ),
-              data: (server) {
-                // خطّ الأساس يُلتقط من أول قائمة تصل — بعده تبدأ الشاشة
-                // فارغة وتعمل من أول حوالة جديدة. راجع DeliveryState.baseline.
-                if (!log.ready) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    ref
-                        .read(deliveryLogProvider.notifier)
-                        .captureBaseline(server.map((t) => t.code));
-                  });
-                  return const _Loading();
-                }
-
-                // الفرز محلّي بالكامل: الخادم لا يعرف شيئاً عن هذا الدفتر.
-                final scope = server.where((t) => !log.isHidden(t.code));
-                final list = scope
-                    .where((t) =>
-                        _isPending ? !log.isDelivered(t.code) : log.isDelivered(t.code))
-                    .where((t) => t.matches(_query))
-                    .toList();
-
-                if (!_isPending) {
-                  // الأحدث تسليماً أولاً.
-                  list.sort((a, b) => (log.deliveredAt(b.code) ?? DateTime(0))
-                      .compareTo(log.deliveredAt(a.code) ?? DateTime(0)));
-                }
+              data: (result) {
+                // الفرز والترتيب والبحث كلّها في الخادم — لا شيء يُعاد
+                // حسابه هنا، فلا يفترق ما يُعرَض عمّا هو محفوظ.
+                final list = result.items;
 
                 if (list.isEmpty) {
-                  return _Empty(
-                      searching: _query.isNotEmpty, pending: _isPending);
+                  return _Empty(searching: _query.isNotEmpty, tab: _tab);
                 }
 
                 final visible = list.take(_shown).toList();
@@ -191,9 +143,11 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                           child: Row(
                             children: [
                               Text(
-                                  _isPending
-                                      ? 'بانتظار التسليم'
-                                      : 'سلَّمتُها',
+                                  switch (_tab) {
+                                    IncomingTab.pending => 'بانتظار التسليم',
+                                    IncomingTab.delivered => 'تم التسليم',
+                                    IncomingTab.cancelled => 'الملغاة',
+                                  },
                                   style: T.section),
                               const SizedBox(width: 10),
                               _Badge(count: list.length),
@@ -201,8 +155,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                           ),
                         );
                       }
-                      // آخر عنصر: تنبيه دائم بأن هذا دفتر على هذا الجهاز.
-                      if (i == visible.length + 2) return const _LocalNote();
+                      if (i == visible.length + 2) return const SizedBox.shrink();
                       if (i == visible.length + 1) {
                         if (visible.length >= list.length) {
                           return const SizedBox.shrink();
@@ -216,13 +169,13 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                       return RiseIn.small(
                         delay: Duration(milliseconds: 30 * ((i - 1) % _pageSize)),
                         child: _TransferRow(
-                          t: t,
-                          // سِجل التسليم للقراءة — لا يُسلَّم ما سُلِّم.
-                          // لا تراجع عن التسليم — منع نهائي بأمر المالك.
-                          // الفاتورة نفسها في التبويبين — وزرّ التسجيل
-                          // داخلها لمن لم يُسجَّل بعد.
+                          t: t.legacy,
+                          // الفاتورة نفسها في التبويبات الثلاث، وزرّ التسجيل
+                          // داخلها لمن لم يُسجَّل بعد. ولا تراجع عن التسليم
+                          // — منع نهائي بأمر المالك.
                           onTap: () => _openReceipt(t),
-                          done: !_isPending,
+                          done: t.isDelivered,
+                          cancelled: t.isCancelled,
                         ),
                       );
                     },
@@ -237,16 +190,35 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
   }
 }
 
-/// شريط التبويب — بانتظار التسليم / سلَّمتُها.
+/// شريط التبويب — بانتظار التسليم / تم التسليم، وبجانب كلٍّ عددُه.
+///
+/// المسمّيات تصف **حالة الحوالة** لا فعل المستخدم (قرار المالك، 2 سبتمبر
+/// 2026): «تم التسليم» لا «سلَّمتُها». الحالة تُقرأ في أي سياق — سجلّ،
+/// إشعار، تقرير — أما صيغة المتكلّم فتقرأ خطأً حين يقرؤها غير من سلَّم.
 class _Tabs extends StatelessWidget {
-  const _Tabs({required this.index, required this.onChanged});
+  const _Tabs({
+    required this.index,
+    required this.onChanged,
+    required this.pendingCount,
+    required this.deliveredCount,
+    required this.cancelledCount,
+  });
 
   final int index;
   final ValueChanged<int> onChanged;
 
+  /// العددان يُشتقّان من الدفتر نفسه الذي يبني القائمتين، فلا يفترقان عنهما
+  /// ولا يحتاجان تحديثاً يدوياً بعد كل تسليم.
+  final int pendingCount;
+  final int deliveredCount;
+
+  /// ما ألغته الرحالة ولم يكن قد سُلِّم — تقاطعٌ يحسبه الخادم لا حالةٌ ثالثة
+  /// في العمود، وإلا تنازع تسليمُ الوكيل وإلغاءُ المنظومة خانةً واحدة.
+  final int cancelledCount;
+
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(5),
+        padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
           color: R.whiteA(.62),
           border: Border.all(color: R.whiteA(.9)),
@@ -255,14 +227,20 @@ class _Tabs extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-                child: _tab('بانتظار التسليم', 0, Icons.schedule_rounded)),
+                child: _tab('بانتظار التسليم', 0, Icons.schedule_rounded,
+                    pendingCount)),
             const SizedBox(width: 5),
-            Expanded(child: _tab('سلَّمتُها', 1, Icons.check_rounded)),
+            Expanded(
+                child:
+                    _tab('تم التسليم', 1, Icons.check_rounded, deliveredCount)),
+            const SizedBox(width: 5),
+            Expanded(
+                child: _tab('الملغاة', 2, Icons.block_rounded, cancelledCount)),
           ],
         ),
       );
 
-  Widget _tab(String label, int i, IconData icon) {
+  Widget _tab(String label, int i, IconData icon, int count) {
     final on = i == index;
     return Material(
       color: Colors.transparent,
@@ -280,14 +258,23 @@ class _Tabs extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(icon,
-                  size: 16, color: on ? Colors.white : R.inkA(.45)),
-              const SizedBox(width: 7),
+                  size: 14, color: on ? Colors.white : R.inkA(.45)),
+              const SizedBox(width: 5),
               Flexible(
                 child: Text(label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: T.kufi(12, FontWeight.w600,
+                    style: T.kufi(10.5, FontWeight.w600,
                         color: on ? Colors.white : R.inkA(.55))),
+              ),
+              const SizedBox(width: 4),
+              // العدد بين قوسين لاتينيّين واتّجاه LTR: الرقم داخل قوسين في
+              // فقرة عربية ينقلب ترتيبه فيظهر «(8» و«)».
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Text('($count)',
+                    style: T.kufi(10.5, FontWeight.w600,
+                        color: on ? R.whiteA(.85) : R.inkA(.42))),
               ),
             ],
           ),
@@ -329,7 +316,7 @@ class _SearchField extends StatelessWidget {
                 decoration: InputDecoration(
                   isDense: true,
                   border: InputBorder.none,
-                  hintText: 'ابحث برمز الحوالة أو رقم المستفيد',
+                  hintText: 'ابحث برقم الحوالة أو رقم هاتف المستفيد',
                   hintStyle: T.plex(12.5, FontWeight.w400, color: R.inkA(.42)),
                 ),
               ),
@@ -349,22 +336,36 @@ class _SearchField extends StatelessWidget {
 }
 
 class _TransferRow extends StatelessWidget {
-  const _TransferRow({required this.t, required this.onTap, this.done = false});
+  const _TransferRow({
+    required this.t,
+    required this.onTap,
+    this.done = false,
+    this.cancelled = false,
+  });
 
   final IncomingTransfer t;
   final VoidCallback? onTap;
 
-  /// صف في سِجل التسليم — لا إجراء عليه.
+  /// سُجِّل تسليمها للمستفيد.
   final bool done;
+
+  /// ألغتها الرحالة. تُميَّز بالأحمر حتى في «تم التسليم»: الوكيل دفع مالها،
+  /// ومعرفته بالإلغاء تعنيه فوراً.
+  final bool cancelled;
 
   @override
   Widget build(BuildContext context) => GlassRow(
         onTap: onTap,
         children: [
-          done
+          cancelled
+              ? IconTile(
+                  background: R.error.withValues(alpha: .12),
+                  icon: Icon(Icons.block_rounded, size: 19, color: R.error),
+                )
+              : done
               ? IconTile(
                   background: R.primaryA(.14),
-                  icon: const Icon(Icons.check_rounded,
+                  icon: Icon(Icons.check_rounded,
                       size: 19, color: R.primaryGradEnd),
                 )
               : IconTile(
@@ -479,10 +480,12 @@ class _Loading extends StatelessWidget {
 }
 
 class _Empty extends StatelessWidget {
-  const _Empty({required this.searching, this.pending = true});
+  const _Empty({required this.searching, required this.tab});
 
   final bool searching;
-  final bool pending;
+  final IncomingTab tab;
+
+  bool get pending => tab == IncomingTab.pending;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -491,24 +494,56 @@ class _Empty extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Floaty(child: RhallaLogo(size: 64, color: R.primaryA(.3))),
+              // أيقونة تصف الحالة لا شعار الشركة: الشعار نفسه في التبويبين
+              // لا يقول أيّهما فارغ ولماذا.
+              Floaty(
+                child: Container(
+                  width: 108,
+                  height: 108,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: R.primaryA(.07),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    searching
+                        ? Icons.search_off_rounded
+                        : switch (tab) {
+                            IncomingTab.pending => Icons.pending_actions_rounded,
+                            IncomingTab.delivered => Icons.task_alt_rounded,
+                            IncomingTab.cancelled => Icons.block_rounded,
+                          },
+                    size: 46,
+                    color: R.primaryA(.55),
+                  ),
+                ),
+              ),
               const SizedBox(height: 22),
               Text(
                 searching
                     ? 'لا نتائج لهذا البحث'
-                    : pending
-                        ? 'لا توجد حوالات بانتظار التسليم'
-                        : 'لم تُسلِّم أي حوالة بعد',
+                    : switch (tab) {
+                        IncomingTab.pending =>
+                          'لا توجد حوالات بانتظار التسليم حالياً',
+                        IncomingTab.delivered =>
+                          'لا توجد حوالات تم تسليمها بعد',
+                        IncomingTab.cancelled => 'لا توجد حوالات ملغاة',
+                      },
                 textAlign: TextAlign.center,
                 style: T.kufi(15, FontWeight.w600, height: 1.5),
               ),
               const SizedBox(height: 10),
               Text(
                 searching
-                    ? 'جرّب رمزاً أو رقماً آخر.'
-                    : pending
-                        ? 'كل ما وصل إلى فرعك تمّ تسليمه. الحوالات الجديدة تظهر هنا فور وصولها.'
-                        : 'ما تُسلِّمه من تبويب «بانتظار التسليم» يُسجَّل هنا.',
+                    ? 'جرّب رقم حوالة أو رقم هاتف آخر.'
+                    : switch (tab) {
+                        IncomingTab.pending =>
+                          'ستظهر هنا الحوالات الجديدة المحالة إليك فور استلامها',
+                        IncomingTab.delivered =>
+                          'ستظهر هنا الحوالات التي تم تسليمها للمستفيدين',
+                        IncomingTab.cancelled =>
+                          'ستظهر هنا الحوالات التي ألغتها الرحالة قبل تسليمها',
+                      },
                 textAlign: TextAlign.center,
                 style: T.plex(12.5, FontWeight.w400, color: R.inkA(.55), height: 1.7),
               ),
@@ -563,84 +598,3 @@ class _Failed extends StatelessWidget {
 ///
 /// دائمٌ لا يُغلَق عمداً — الوكيل قد يبني عليه ترتيب يومه، فيجب أن يعرف
 /// أنه يزول مع إعادة التثبيت، وأنه لا علاقة له بالحسابات.
-class _LocalNote extends StatelessWidget {
-  const _LocalNote();
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.info_outline_rounded, size: 15, color: R.inkA(.38)),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'سِجل تنظيمي على هذا الجهاز وحده — لا يمسّ حسابات المنظومة. '
-                'ويُفرَغ تماماً عند إعادة تثبيت التطبيق أو مسح بياناته، '
-                'فيبدأ من أول حوالة جديدة.',
-                style: T.plex(10.5, FontWeight.w400,
-                    color: R.inkA(.45), height: 1.75),
-              ),
-            ),
-          ],
-        ),
-      );
-}
-
-/// حاجز التأكيد قبل مسح السجل.
-class _ResetSheet extends StatelessWidget {
-  const _ResetSheet();
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.fromLTRB(22, 22, 22, 26),
-        decoration: BoxDecoration(
-          color: R.whiteA(.94),
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(R.rNav)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 44,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: R.inkA(.16),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-            ),
-            const SizedBox(height: 22),
-            Center(
-              child: Text('عفواً — هل تريد حذف البيانات؟',
-                  textAlign: TextAlign.center,
-                  style: T.kufi(17, FontWeight.w700, color: R.error)),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'سيُفرَغ سِجل التسليم على هذا الجهاز ويبدأ من جديد، '
-              'ويعمل من أول حوالة تصل بعد المسح.\n'
-              'لا أثر لهذا على حسابات المنظومة ولا على الحوالات نفسها.',
-              textAlign: TextAlign.center,
-              style: T.plex(12.5, FontWeight.w400, color: R.inkA(.6), height: 1.7),
-            ),
-            const SizedBox(height: 22),
-            PrimaryButton(
-              label: 'نعم، احذف',
-              onPressed: () => Navigator.of(context).pop(true),
-            ),
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              style: TextButton.styleFrom(minimumSize: const Size(44, 48)),
-              child: Text('لا',
-                  style: T.plex(13.5, FontWeight.w600, color: R.inkA(.6))),
-            ),
-          ],
-        ),
-      );
-}

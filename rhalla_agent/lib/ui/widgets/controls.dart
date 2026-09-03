@@ -14,13 +14,19 @@ class PrimaryButton extends StatelessWidget {
     this.onPressed,
     this.loading = false,
     this.icon,
+    this.trailing,
     this.height = 56,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final bool loading;
+
+  /// قبل النصّ — أي يمينه في واجهة عربية.
   final Widget? icon;
+
+  /// بعد النصّ — أي يساره. سهم المتابعة في شاشات الدخول يقع هنا.
+  final Widget? trailing;
 
   /// 56 في كل مكان. تُخفَّض في الشاشات المزدحمة وحدها — لا تنزل تحت 48،
   /// وهو الحدّ الذي يبقى دونه الزرّ صعب الإصابة بالإبهام.
@@ -69,6 +75,10 @@ class PrimaryButton extends StatelessWidget {
                         children: [
                           if (icon != null) ...[icon!, const SizedBox(width: 10)],
                           Text(label, style: T.cta),
+                          if (trailing != null) ...[
+                            const SizedBox(width: 10),
+                            trailing!,
+                          ],
                         ],
                       ),
               ),
@@ -166,7 +176,7 @@ class RhallaAppBar extends StatelessWidget {
             if (onBack != null) ...[
               CircleIconButton(
                 onPressed: onBack,
-                child: const Icon(Icons.arrow_back_ios_new, size: 16, color: R.ink),
+                child: Icon(Icons.arrow_back_ios_new, size: 16, color: R.ink),
               ),
               const SizedBox(width: 14),
             ],
@@ -356,6 +366,29 @@ mixin HardwareDigits<T extends StatefulWidget> on State<T> {
   }
 }
 
+/// شعار واتساب — الأصل الرسمي كما زوّده المالك، لا رسمٌ مقلّد.
+///
+/// يُعرَض كما هو بلا تلوين ولا قصّ ولا تغيير نِسب: شروط استعمال العلامة
+/// تمنع ذلك. والملف يحمل القرص الأخضر وحلقته البيضاء، فلا يُلفّ بحاوية
+/// ملوّنة.
+///
+/// موضع واحد يخدم شاشتَي الهاتف والرمز، فتبديل الأصل لاحقاً سطرٌ واحد.
+class WhatsAppMark extends StatelessWidget {
+  const WhatsAppMark({super.key, this.size = 26});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Image.asset(
+        'assets/brand/whatsapp.png',
+        width: size,
+        height: size,
+        // الشعار مربّع، و contain يمنع أي تشويه لو تغيّر الأصل لاحقاً.
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+      );
+}
+
 /// علم ليبيا المبسّط.
 class LibyaFlag extends StatelessWidget {
   const LibyaFlag({super.key});
@@ -432,10 +465,19 @@ class _BlinkingCaretState extends State<BlinkingCaret>
 
 /// خانات رمز التحقّق — قيم الحالات مأخوذة من منطق مكوّن التصميم.
 class OtpBoxes extends StatelessWidget {
-  const OtpBoxes({super.key, required this.value, this.length = 6});
+  const OtpBoxes({
+    super.key,
+    required this.value,
+    this.length = 6,
+    this.error = false,
+  });
 
   final String value;
   final int length;
+
+  /// رمز رفضه الخادم: تُصبغ الخانات بالأحمر وتبقى أرقامها كما هي. مسحُها
+  /// كان يمنع الوكيل من رؤية ما أدخل ليقارنه برسالة واتساب.
+  final bool error;
 
   @override
   Widget build(BuildContext context) => Directionality(
@@ -443,7 +485,7 @@ class OtpBoxes extends StatelessWidget {
         child: Row(
           children: [
             for (var i = 0; i < length; i++) ...[
-              if (i > 0) const SizedBox(width: 9),
+              if (i > 0) const SizedBox(width: 11),
               Expanded(child: _cell(i)),
             ],
           ],
@@ -457,21 +499,31 @@ class OtpBoxes extends StatelessWidget {
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      height: 50,
+      height: 62,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: R.whiteA(filled ? .9 : .5),
         borderRadius: BorderRadius.circular(R.rOtp),
         border: Border.all(
           width: 1.5,
-          color: active
-              ? R.primary
-              : filled
-                  ? R.primaryA(.35)
-                  : R.whiteA(.9),
+          color: error
+              ? (active || filled
+                  ? R.error
+                  : R.error.withValues(alpha: .3))
+              : active
+                  ? R.primary
+                  : filled
+                      ? R.primaryA(.35)
+                      : R.whiteA(.9),
         ),
         boxShadow: active
-            ? [BoxShadow(color: R.primaryA(.13), blurRadius: 0, spreadRadius: 4)]
+            ? [
+                BoxShadow(
+                  color: (error ? R.error : R.primary).withValues(alpha: .13),
+                  blurRadius: 0,
+                  spreadRadius: 4,
+                )
+              ]
             : [
                 BoxShadow(
                   color: const Color(0xFF032D21).withValues(alpha: .06),
@@ -480,7 +532,13 @@ class OtpBoxes extends StatelessWidget {
                 )
               ],
       ),
-      child: Text(ch, style: T.kufi(24, FontWeight.w600)),
+      // الخانة النشطة الفارغة تحمل مؤشّراً نابضاً: الإطار الأخضر وحده يقول
+      // «هنا»، والمؤشّر يقول «واكتب الآن».
+      child: filled
+          ? Text(ch, style: T.kufi(24, FontWeight.w600))
+          : active
+              ? const BlinkingCaret(height: 26)
+              : const SizedBox.shrink(),
     );
   }
 }

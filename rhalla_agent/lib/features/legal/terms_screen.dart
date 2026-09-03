@@ -41,13 +41,13 @@ class TermsScreen extends ConsumerWidget {
         children: [
           RhallaAppBar(
             title: 'الشروط والأحكام',
-            subtitle: 'شركة الرحالة للصرافة',
+            subtitle: 'شركة الرحالة للحوالات المالية',
             onBack: () => context.pop(),
           ),
           Expanded(
             child: async.when(
               loading: () =>
-                  const Center(child: CircularProgressIndicator(color: R.primary)),
+                  Center(child: CircularProgressIndicator(color: R.primary)),
               error: (e, _) => _Failed(
                 message: '$e',
                 onRetry: () => ref.invalidate(termsProvider),

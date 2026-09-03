@@ -11,7 +11,8 @@ import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
-import 'delivery_log.dart';
+import '../../core/net/api_envelope.dart';
+import 'agent_incoming_repository.dart';
 import 'receipt.dart';
 import 'transfers_repository.dart';
 
@@ -24,7 +25,7 @@ import 'transfers_repository.dart';
 class DeliveryReceiptScreen extends ConsumerStatefulWidget {
   const DeliveryReceiptScreen({super.key, required this.transfer});
 
-  final IncomingTransfer transfer;
+  final AgentIncomingTransfer transfer;
 
   @override
   ConsumerState<DeliveryReceiptScreen> createState() =>
@@ -48,14 +49,21 @@ class _DeliveryReceiptScreenState extends ConsumerState<DeliveryReceiptScreen>
     // الرمز من الخادم لا مكتوباً في الكود — قاعدة المشروع.
     final currency =
         ref.watch(authControllerProvider).user?.currencyCode ?? 'د.ل';
-    // نفس الفاتورة في التبويبين — والفرق زرٌّ واحد لمن لم يُسجَّل بعد.
-    final done = ref.watch(deliveryLogProvider).isDelivered(t.code);
+    // نفس الفاتورة في كل سياق — والفرق زرٌّ واحد لمن لم يُسجَّل بعد.
+    //
+    // الحالة وحدها تحكم، لا الشاشة التي جاء منها الوكيل (قرار المالك،
+    // 3 سبتمبر 2026): حوالةٌ «بانتظار التسليم» تُسلَّم من «آخر العمليات» كما
+    // تُسلَّم من «الحوالات الواردة»، وحوالةٌ «تم التسليم» تُعرض ولا زرّ لها
+    // في الحالتين. مصدرٌ واحد للقرار لا مصدران يمكن أن يختلفا.
+    //
+    // والحالة من الخادم لا من دفتر الجهاز: هي ما يبقى بعد حذف التطبيق.
+    final done = t.isDelivered;
 
     return Screen(
       child: Column(
         children: [
           RhallaAppBar(
-            title: 'فاتورة حوالة داخلية',
+            title: 'فاتورة حوالة محلية',
             onBack: () => context.pop(),
             trailing: IconButton(
               tooltip: 'طباعة',
@@ -72,7 +80,7 @@ class _DeliveryReceiptScreenState extends ConsumerState<DeliveryReceiptScreen>
                 RepaintBoundary(
                   key: receiptKey,
                   child: _Invoice(
-                      t: t,
+                      t: t.legacy,
                       currency: currency,
                       onCall: _call,
                       onCopy: _copyPhone),
@@ -83,7 +91,8 @@ class _DeliveryReceiptScreenState extends ConsumerState<DeliveryReceiptScreen>
                     label: 'تسجيل التسليم',
                     icon: const Icon(Icons.check_rounded,
                         size: 18, color: Colors.white),
-                    onPressed: receiptBusy ? null : _markDelivered,
+                    onPressed: (receiptBusy || _sending) ? null : _markDelivered,
+                    loading: _sending,
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -117,8 +126,17 @@ class _DeliveryReceiptScreenState extends ConsumerState<DeliveryReceiptScreen>
   }
 
   /// تسجيل التسليم من داخل الفاتورة — بعد أن رأى الوكيل البيانات كاملة،
-  /// لا قبلها. ولا استدعاء للخادم: دفتر محلّي.
+  /// لا قبلها.
+  ///
+  /// النقل إلى «تم التسليم» لا يقع في الواجهة: يُرسَل الطلب، وإن أكّده
+  /// الخادم أُبطلت الذاكرة المؤقّتة فتُعاد القراءة من قاعدته. وإن انقطعت
+  /// الشبكة تبقى الحوالة حيث هي ويرى الوكيل أن التسجيل لم يكتمل — لا حالةٌ
+  /// «مسلَّمة» في الهاتف وحده لا يعرفها الخادم.
+  bool _sending = false;
+
   Future<void> _markDelivered() async {
+    if (_sending) return;
+
     final ok = await showModalBottomSheet<bool>(
       context: context,
       useRootNavigator: true,
@@ -126,10 +144,25 @@ class _DeliveryReceiptScreenState extends ConsumerState<DeliveryReceiptScreen>
       builder: (_) => _ConfirmDeliver(name: widget.transfer.receiverName),
     );
     if (ok != true || !mounted) return;
-    await ref.read(deliveryLogProvider.notifier)
-        .markDelivered(widget.transfer.code);
-    if (!mounted) return;
-    Navigator.of(context).pop();
+
+    // قفلٌ في الواجهة فوق تحايُد الخادم: ضغطتان سريعتان لا ترسلان طلبين.
+    setState(() => _sending = true);
+    try {
+      await ref
+          .read(agentIncomingRepositoryProvider)
+          .deliver(widget.transfer.id);
+      if (!mounted) return;
+      ref.invalidate(agentIncomingProvider);
+      Navigator.of(context).pop();
+    } on ApiFailure catch (e) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      receiptToast(e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      receiptToast('تعذّر تسجيل التسليم — تحقّق من الاتصال وأعد المحاولة.');
+    }
   }
 
   void _copyPhone() {
@@ -253,9 +286,12 @@ class _ConfirmDeliver extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: T.plex(13, FontWeight.w500, color: R.inkA(.65), height: 1.7)),
             const SizedBox(height: 16),
+            // نصّ المالك حرفياً (3 سبتمبر 2026): جملةٌ واحدة تقول للوكيل ما
+            // عليه فعله قبل الضغط. النصّ السابق كان يشرح **آلية** التسجيل
+            // (دفتر الوكيل، لا رجعة فيه) — وهي معلومةٌ للمبرمج لا للواقف
+            // أمام مستفيد. والقيد نفسه ما زال مفروضاً في الخادم.
             const WarnBanner(
-              text: 'تسجيل في دفترك وحدك — لا يمسّ حسابات المنظومة، '
-                  'ولا رجعة فيه: لا تعود الحوالة إلى «بانتظار التسليم».',
+              text: 'تأكّد من تسليم الحوالة للمستفيد قبل تسجيل التسليم.',
             ),
             const SizedBox(height: 20),
             PrimaryButton(

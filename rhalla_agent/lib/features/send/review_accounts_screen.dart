@@ -229,7 +229,7 @@ class _ReviewAccountsScreenState extends ConsumerState<ReviewAccountsScreen> {
           Container(
             padding:
                 const EdgeInsets.fromLTRB(R.padScreen, 14, R.padScreen, 22),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,

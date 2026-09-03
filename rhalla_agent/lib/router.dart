@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import 'features/account/account_screen.dart';
 import 'features/account/security_screen.dart';
+import 'features/branding/branding_controller.dart';
+import 'features/branding/branding_screen.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/auth/otp_screen.dart';
@@ -32,6 +34,11 @@ final _rootKey = GlobalKey<NavigatorState>();
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authControllerProvider);
 
+  // هوية الشركة تُقرأ هنا لا لتُعرض، بل لتُؤخَّر شاشاتُ ما بعد الدخول حتى
+  // تستقرّ — انظر التعليق على `BrandingState.settled`.
+  final brandSettled =
+      ref.watch(brandingControllerProvider.select((s) => s.settled));
+
   return GoRouter(
     navigatorKey: _rootKey,
     initialLocation: '/',
@@ -56,6 +63,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         }
         return inAuthFlow && loc != '/splash' ? null : '/phone';
       }
+
+      // مسجّل دخول، والهوية لم تستقرّ بعد ⇦ يبقى في شاشة البداية.
+      //
+      // ثانيةٌ أو ثانيتان هنا خيرٌ من شاشةٍ تُبنى بلون الرحالة ثم لا تتلوّن:
+      // فروع الهيكل محفوظة بـ `GlobalKey` في `go_router`، فما بُني مرّة لا
+      // يُعاد بناؤه. وللانتظار سقفٌ في `BrandingController._gate`.
+      if (!brandSettled) return loc == '/splash' ? null : '/splash';
 
       // مسجّل دخول — لا يبقى في مسار المصادقة.
       if (inAuthFlow) return '/';
@@ -99,6 +113,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/security',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const SecurityScreen(),
+      ),
+      GoRoute(
+        path: '/branding',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const BrandingScreen(),
       ),
 
       // مسار إنشاء الحوالة — فوق الهيكل، خارج التبويبات.

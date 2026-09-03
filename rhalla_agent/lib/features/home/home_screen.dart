@@ -4,12 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/feature_flags.dart';
 import '../../core/format/fmt.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/glass.dart';
+import '../branding/brand_mark.dart';
 import '../auth/auth_controller.dart';
+import '../transfers/agent_incoming_repository.dart';
+import '../transfers/delivery_receipt_screen.dart';
 import 'home_repository.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -46,24 +50,35 @@ class HomeScreen extends ConsumerWidget {
             ),
           ),
 
-          Padding(
-            padding: const EdgeInsets.fromLTRB(R.padScreen, 0, R.padScreen, 0),
-            child: snap.when(
-              loading: () => const _LimitSkeleton(),
-              error: (e, _) => _ErrorCard(message: '$e', onRetry: () => ref.invalidate(homeSnapshotProvider)),
-              data: (s) => _DailyLimit(
+          if (kShowDailyLimit)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(R.padScreen, 0, R.padScreen, 0),
+              child: snap.when(
+                loading: () => const _LimitSkeleton(),
+                error: (e, _) => _ErrorCard(
+                    message: '$e',
+                    onRetry: () => ref.invalidate(homeSnapshotProvider)),
+                data: (s) => _DailyLimit(
                   ceiling: s.limits.daily,
                   currency: user?.currencyCode ?? 'د.ل',
                 ),
+              ),
             ),
-          ),
 
           Padding(
             padding: const EdgeInsets.fromLTRB(R.padScreen, 22, R.padScreen, 120),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('آخر العمليات', style: T.section),
+                Row(
+                  children: [
+                    Text('آخر العمليات', style: T.section),
+                    const Spacer(),
+                    // «عرض الكل» يفتح كشف الحساب — وهو الشاشة التي تعرض
+                    // التاريخ كاملاً، فلا تكرار.
+                    _SeeAllButton(onTap: () => context.push('/statement')),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 snap.when(
                   loading: () => const _RowsSkeleton(),
@@ -76,7 +91,10 @@ class HomeScreen extends ConsumerWidget {
                               if (i > 0) const SizedBox(height: R.gapRow),
                               RiseIn.small(
                                 delay: Duration(milliseconds: 60 * i),
-                                child: _MovementRow(m: s.movements[i]),
+                                child: _MovementRow(
+                                  m: s.movements[i],
+                                  currency: user?.currencyCode ?? 'د.ل',
+                                ),
                               ),
                             ],
                           ],
@@ -116,7 +134,7 @@ class _Header extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.fromLTRB(R.padScreen, top + 16, R.padScreen, 44),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: R.headerGradient,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(R.rHeaderBottom)),
       ),
@@ -124,10 +142,13 @@ class _Header extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
+          // علامة الشركة خلف الترويسة — شعارها إن رفعته، وإلا شعار الرحالة.
+          // شفافيةٌ خفيفة على صورة الشركة أيضاً، وإلا صارت صورةً بارزة تنافس
+          // بيانات الحساب فوقها بدل أن تكون خلفية.
           PositionedDirectional(
             top: -40,
             end: -30,
-            child: RhallaLogo(size: 220, color: R.whiteA(.09)),
+            child: const BrandWatermark(size: 220),
           ),
           Column(
             children: [
@@ -161,10 +182,12 @@ class _Header extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: T.kufi(16, FontWeight.w600, color: Colors.white)),
-                          const SizedBox(height: 8),
-                          Text(role,
-                              style: T.plex(11.5, FontWeight.w400,
-                                  color: R.whiteA(.82))),
+                          if (kShowAgentRole) ...[
+                            const SizedBox(height: 8),
+                            Text(role,
+                                style: T.plex(11.5, FontWeight.w400,
+                                    color: R.whiteA(.82))),
+                          ],
                         ],
                       ),
                     ),
@@ -226,7 +249,7 @@ class _Header extends StatelessWidget {
                           ],
                         ),
                       ),
-                    if (accId != null) ...[
+                    if (kShowAccountBadge && accId != null) ...[
                       const SizedBox(height: 15),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
@@ -279,7 +302,7 @@ class _ActionsCard extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(
-                      child: _Action(Icons.arrow_upward_rounded, 'داخلية',
+                      child: _Action(Icons.arrow_upward_rounded, 'محلية',
                           primary: true,
                           onTap: () => context.push('/send/internal')),
                     ),
@@ -293,11 +316,13 @@ class _ActionsCard extends StatelessWidget {
                       child: _Action(Icons.check_rounded, 'تسليم',
                           onTap: () => context.go('/transfers')),
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: _Action(Icons.swap_horiz_rounded, 'بين الحسابات',
-                          onTap: () => context.push('/send/accounts')),
-                    ),
+                    if (kShowAccountsTransfer) ...[
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: _Action(Icons.swap_horiz_rounded, 'بين الحسابات',
+                            onTap: () => context.push('/send/accounts')),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -401,26 +426,148 @@ class _DailyLimit extends StatelessWidget {
   }
 }
 
-class _MovementRow extends StatelessWidget {
-  const _MovementRow({required this.m});
+class _MovementRow extends ConsumerStatefulWidget {
+  const _MovementRow({required this.m, required this.currency});
 
   final Movement m;
+  final String currency;
+
+  @override
+  ConsumerState<_MovementRow> createState() => _MovementRowState();
+}
+
+class _MovementRowState extends ConsumerState<_MovementRow> {
+  bool _opening = false;
+
+  Movement get m => widget.m;
+  String get currency => widget.currency;
+
+  /// يفتح فاتورة الحوالة — الشاشة نفسها التي تفتحها قائمة «الحوالات
+  /// الواردة»، لا نسخةً ثانية عنها.
+  ///
+  /// الحركة تحمل رقم الحوالة لا بياناتها، فتُجلب بالرقم. وما لا يُوجد —
+  /// حوالة صادرة من حساب الوكيل مثلاً — لا فاتورة استلام له، ويُقال ذلك
+  /// صراحةً بدل فتح شاشة فارغة.
+  ///
+  /// والفاتورة تُفتح كاملةً بزرّ التسليم (قرار المالك، 3 سبتمبر 2026): حوالةٌ
+  /// «بانتظار التسليم» تُسلَّم من هنا كما تُسلَّم من «الحوالات الواردة»،
+  /// و«تم التسليم» تُعرض بلا زرّ. الحالة هي التي تحكم لا الشاشة — والقرار
+  /// كلّه في مكان واحد داخل الفاتورة.
+  Future<void> _open() async {
+    if (_opening || !m.isTransfer) return;
+    setState(() => _opening = true);
+
+    try {
+      final t = await ref
+          .read(agentIncomingRepositoryProvider)
+          .findByCode(m.code);
+      if (!mounted) return;
+
+      if (t == null) {
+        _say('لا توجد فاتورة استلام لهذه الحركة — الحوالة ليست واردة إليك.');
+        return;
+      }
+      await Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(
+          builder: (_) => DeliveryReceiptScreen(transfer: t),
+        ),
+      );
+
+      // تسليمٌ سُجِّل في الفاتورة يجب أن يظهر في الصفّ الذي فُتحت منه، وإلا
+      // بقي الوسم «بانتظار التسليم» أمام وكيلٍ سلّم للتوّ — فيسلّم مرّتين.
+      // الإبطال هنا لا في الفاتورة: الاتجاه features/home ← features/transfers
+      // وليس العكس.
+      if (mounted) ref.invalidate(homeSnapshotProvider);
+    } catch (_) {
+      if (mounted) _say('تعذّر فتح الحوالة — تحقّق من الاتصال.');
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
+  void _say(String msg) => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content:
+          Text(msg, style: T.plex(13, FontWeight.w500, color: Colors.white)),
+      backgroundColor: R.inkA(.9),
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ));
+
+  /// وسم الحالة — من **دفتر تسليم الوكيل**، لا من حالة المنظومة.
+  ///
+  /// قرار المالك (2 سبتمبر 2026): ما يظهر هنا هو ما تقوله شاشة «الحوالات
+  /// الواردة» — «بانتظار التسليم» / «تم التسليم» / «ملغاة» — لا حالة الحوالة
+  /// بين الوكيل والرحالة.
+  ///
+  /// السببان مختلفان تماماً: «مسلمه» في المنظومة تعني أن الحوالة وصلت إلى
+  /// الوكيل، بينما «تم التسليم» تعني أنه دفع المال للمستفيد. عرضُ الأولى
+  /// مكانَ الثانية يجعل الوكيل يقرأ أنه سلّم مالاً لم يسلّمه — وهو أخطر خلطٍ
+  /// ممكن في هذه الشاشة.
+  ///
+  /// وحركةٌ خارج ذلك الدفتر — حوالة صادرة، أو عمولة — لا حالة تسليم لها،
+  /// فتُوسم باتجاهها كما كانت.
+  String get _badge {
+    if (m.isCommission) return 'عمولة';
+    if (!m.isTransfer) return m.isCredit ? 'إيداع' : 'خصم';
+
+    final badge = m.agentBadge;
+    if (badge.isNotEmpty) return badge;
+
+    return m.isCredit ? 'واردة' : 'صادرة';
+  }
+
+  /// الملغاة حمراء دائماً ولو كانت الحركة واردة.
+  ///
+  /// لونُ الاتجاه وحده يجعل حوالةً ملغاة تبدو خضراء عاديّة، والوكيل قد يدفع
+  /// مالها. اللون هنا تحذير، لا زينة.
+  RowTone get _tone {
+    if (m.isTransfer && m.agentBadge == 'ملغاة') return RowTone.debit;
+    return m.isCredit ? RowTone.credit : RowTone.debit;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final tone = m.isCredit ? RowTone.credit : RowTone.debit;
+    final tone = _tone;
+    // العمولة ليست حركة اتجاه — لها رمزها الخاص كما في التصميم.
+    final isFee = m.isCommission;
 
     return GlassRow(
       dense: true,
       tone: tone,
+      onTap: m.isTransfer ? _open : null,
       children: [
-        IconTile(
-          size: 32,
-          background: tone.tile,
-          icon: Icon(
-            m.isCredit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-            size: 15,
-            color: tone.ink,
+        // الأيقونة وتحتها وسمُ الحالة — كتلة واحدة كما في التصميم.
+        SizedBox(
+          // 74 لا 54: «بانتظار التسليم» أطول من «مسلمه»، والوسم لا يُقصّ.
+          width: 74,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconTile(
+                size: 32,
+                background: tone.tile,
+                icon: Icon(
+                  isFee
+                      ? Icons.savings_outlined
+                      : m.isCredit
+                          ? Icons.arrow_downward_rounded
+                          : Icons.arrow_upward_rounded,
+                  size: 15,
+                  color: tone.ink,
+                ),
+              ),
+              const SizedBox(height: 4),
+              // سطران بلا قصّ: حذف كلمةٍ من حالة الحوالة ممنوع، وسطرٌ ثانٍ
+              // أهون من «بانتظار الت…».
+              Text(_badge,
+                  maxLines: 2,
+                  textAlign: TextAlign.center,
+                  style: T.plex(9, FontWeight.w600,
+                      color: tone.ink, height: 1.35)),
+            ],
           ),
         ),
         const SizedBox(width: 11),
@@ -429,25 +576,76 @@ class _MovementRow extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(m.title.isEmpty ? 'حركة حساب' : m.title,
+              Text(m.title.isEmpty ? 'حركة حساب' : Fmt.localName(m.title),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: T.plex(12.5, FontWeight.w600, color: tone.ink)),
+              if (m.isTransfer) ...[
+                const SizedBox(height: 2),
+                // الرقم كتلة LTR: رقمٌ داخل جملة عربية ينقلب ترتيبه.
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Text('${m.code}  :رقم الحوالة',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style:
+                          T.plex(10, FontWeight.w400, color: R.inkA(.55))),
+                ),
+              ],
               const SizedBox(height: 3),
               // التاريخ يبقى محايداً: تلوينه يُذهب التدرّج ويجعل الصفّ صاخباً.
-              Text(m.date,
-                  style: T.plex(10.5, FontWeight.w400, color: R.inkA(.5))),
+              Row(
+                children: [
+                  Icon(Icons.calendar_today_rounded,
+                      size: 10, color: R.inkA(.45)),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      Fmt.stampShort(m.time.isNotEmpty ? m.time : m.date),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          T.plex(10.5, FontWeight.w400, color: R.inkA(.5)),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
         const SizedBox(width: 8),
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Text(
-            Fmt.moneyWithSign(m.amount, credit: m.isCredit),
-            style: T.kufi(13.5, FontWeight.w700, color: tone.ink),
-          ),
+        // المبلغ وتحته رمز العملة — والرمز يأتي من الخادم لا مكتوباً هنا.
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Text(
+                Fmt.moneyWithSign(m.amount, credit: m.isCredit),
+                style: T.kufi(13.5, FontWeight.w700, color: tone.ink),
+              ),
+            ),
+            const SizedBox(height: 1),
+            Text(currency,
+                style: T.plex(9.5, FontWeight.w400, color: tone.ink)),
+          ],
         ),
+        // السهم يَعِد بفتح شيء، فلا يظهر إلا حيث يوجد ما يُفتح.
+        if (m.isTransfer) ...[
+          const SizedBox(width: 4),
+          _opening
+              ? SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation(tone.ink)),
+                )
+              : Icon(Icons.expand_more_rounded,
+                  size: 18, color: R.inkA(.4)),
+        ],
       ],
     );
   }
@@ -555,6 +753,39 @@ class _ErrorCard extends StatelessWidget {
                   style: T.plex(12.5, FontWeight.w600, color: R.primaryGradEnd)),
             ),
           ],
+        ),
+      );
+}
+
+/// «عرض الكل ›» بجانب عنوان آخر العمليات.
+///
+/// السهم إلى اليسار — جهة المتابعة في واجهة عربية.
+class _SeeAllButton extends StatelessWidget {
+  const _SeeAllButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: R.primaryA(.08),
+        borderRadius: BorderRadius.circular(R.rPill),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(R.rPill),
+          child: Padding(
+            // 36 ارتفاعاً بالحشوة — أقلّ من 44 لأنه اختصارٌ مكرّر: الشاشة
+            // نفسها في شريط التنقّل السفلي بهدف إصابة كامل.
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('عرض الكل',
+                    style: T.plex(11.5, FontWeight.w600, color: R.primaryDark)),
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_left_rounded, size: 16, color: R.primaryDark),
+              ],
+            ),
+          ),
         ),
       );
 }

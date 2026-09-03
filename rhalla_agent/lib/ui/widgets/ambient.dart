@@ -102,7 +102,7 @@ class _AmbientBackgroundState extends State<AmbientBackground>
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: const BoxDecoration(gradient: R.screenBackground),
+      decoration: BoxDecoration(gradient: R.screenBackground),
       child: Stack(
         children: [
           Positioned.fill(

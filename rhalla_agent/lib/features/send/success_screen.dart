@@ -55,14 +55,14 @@ class _TransferDoneScreenState extends ConsumerState<TransferDoneScreen>
   /// اسم ملفّ الطباعة والمشاركة. لا رمز يُعرض في هذه الشاشة، فالمستفيد
   /// هو ما يميّز الملف للوكيل حين يبحث عنه في هاتفه لاحقاً.
   String get _fileName => widget.transfer.receiverName.isEmpty
-      ? 'داخلية'
+      ? 'محلية'
       : widget.transfer.receiverName;
 
   Future<void> _print() => printReceipt(name: _fileName);
 
   Future<void> _share() => shareReceipt(
         name: _fileName,
-        text: 'حوالة داخلية إلى ${widget.transfer.receiverName}',
+        text: 'حوالة محلية إلى ${widget.transfer.receiverName}',
       );
 
   Future<void> _call() async {

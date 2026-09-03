@@ -229,6 +229,111 @@ class RhallaLogo extends StatelessWidget {
       );
 }
 
+/// قرص الحالة — علامة صحّ خضراء أو ✕ حمراء، بهالةٍ حولها.
+///
+/// شكل واحد للحالتين عمداً: النجاح والفشل يقعان في المكان نفسه من الشاشة،
+/// فيقرأ الوكيل النتيجة من اللون والرمز بلا أن يبحث عنها.
+class StatusDisc extends StatelessWidget {
+  const StatusDisc.success({super.key, this.size = 96})
+      : _ok = true;
+
+  const StatusDisc.failure({super.key, this.size = 96})
+      : _ok = false;
+
+  final double size;
+  final bool _ok;
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = _ok ? R.primary : R.error;
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // الهالة: قرص شفيف أوسع من الرمز يفصله عن الخلفية.
+          Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: tint.withValues(alpha: .10),
+            ),
+          ),
+          Container(
+            width: size * .70,
+            height: size * .70,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: tint,
+              boxShadow: [
+                BoxShadow(
+                  color: tint.withValues(alpha: .36),
+                  blurRadius: 30,
+                  offset: const Offset(0, 14),
+                )
+              ],
+            ),
+            child: Icon(
+              _ok ? Icons.check_rounded : Icons.close_rounded,
+              size: size * .34,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// ترويسة العلامة — القرص الأخضر واسم الشركة تحته.
+///
+/// تُصدَّر شاشات الدخول بها بقرار المالك (2 سبتمبر 2026): الوكيل يرى اسم من
+/// يتعامل معه قبل أن يُدخل رقمه.
+///
+/// الاسم **«شركة الرحالة للحوالات المالية»** لا «للصرافة». التغيير ليس
+/// تجميلاً: صفة «الصرافة» تتعارض مع موافقات مصرف ليبيا المركزي وقد تُوقع
+/// الشركة في مشكلة نظامية. فلا يُعاد اللفظ القديم إلى أي شاشة.
+class BrandLockup extends StatelessWidget {
+  const BrandLockup({super.key, this.logoSize = 64});
+
+  final double logoSize;
+
+  /// الاسم النظامي كاملاً. مكتوب هنا مرّة واحدة، فتغييره لاحقاً موضع واحد.
+  static const companyName = 'شركة الرحالة للحوالات المالية';
+
+  @override
+  Widget build(BuildContext context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: logoSize,
+            height: logoSize,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: R.whiteA(.75),
+              border: Border.all(color: R.primaryA(.28), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: R.primaryA(.18),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                )
+              ],
+            ),
+            alignment: Alignment.center,
+            child: RhallaLogo(size: logoSize * .62, color: R.primary),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            companyName,
+            textAlign: TextAlign.center,
+            style: T.kufi(13, FontWeight.w700, color: R.primaryDark),
+          ),
+        ],
+      );
+}
+
 /// خلفية الشاشة — بلا كتل متحركة (تأتي من AmbientBackground فوق الـ Navigator).
 class Screen extends StatelessWidget {
   const Screen({super.key, required this.child, this.bottomBar});

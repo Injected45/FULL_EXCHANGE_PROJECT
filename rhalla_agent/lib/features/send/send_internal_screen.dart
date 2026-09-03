@@ -190,7 +190,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
       child: Column(
         children: [
           RhallaAppBar(
-            title: 'حوالة داخلية',
+            title: 'حوالة محلية',
             subtitle: 'داخل ليبيا · $currency',
             onBack: () => context.pop(),
           ),
@@ -402,7 +402,7 @@ class _SendInternalScreenState extends ConsumerState<SendInternalScreen> {
           Container(
             padding:
                 const EdgeInsets.fromLTRB(R.padScreen, 6, R.padScreen, 8),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -623,7 +623,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
           Expanded(
             child: async.when(
               loading: () =>
-                  const Center(child: CircularProgressIndicator(color: R.primary)),
+                  Center(child: CircularProgressIndicator(color: R.primary)),
               error: (e, _) => Center(
                 child: Text('$e',
                     textAlign: TextAlign.center,

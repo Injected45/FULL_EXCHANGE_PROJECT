@@ -6,17 +6,87 @@ class R {
   R._();
 
   // ─── العلامة ───────────────────────────────────────────────
-  static const primary = Color(0xFF00B17A);
-  static const primaryGradStart = Color(0xFF00C489);
-  static const primaryGradEnd = Color(0xFF00875E);
-  static const primaryDark = Color(0xFF00603F);
-  static const credit = Color(0xFF00A570); // مبلغ وارد
-  static const ink = Color(0xFF0A261E); // onSurface
+  //
+  // هذه القيم **تتغيّر** بهوية الشركة بعد الدخول (انظر `applyBrand`)، ولذلك
+  // هي `static` قابلة للإسناد لا `static const`.
+  //
+  // ولمَ إسنادٌ عامّ لا موفّرٌ يُقرأ في كل شاشة؟ لأن كل شاشة في التطبيق تقرأ
+  // `R.primary` مباشرةً، فتحويلها إلى موفّر يعني تعديل عشرات الملفات وفرصةً
+  // لنسيان واحدة فتبقى بلون الرحالة داخل تطبيق شركة أخرى. والجلسة الواحدة
+  // لا تحمل إلا شركةً واحدة، فلا تعارض.
+  //
+  // ⚠ ولذلك `resetBrand()` **واجبة** عند الخروج: بغيرها يظهر لون الشركة
+  // السابقة في شاشة الدخول، وشاشة الدخول هوية «الرحالة» الرسمية بقرار المالك.
+  static Color primary = _dPrimary;
+  static Color primaryGradStart = _dGradStart;
+  static Color primaryGradEnd = _dGradEnd;
+  static Color primaryDark = _dPrimaryDark;
+  static Color credit = _dCredit; // مبلغ وارد
+  static Color ink = _dInk; // onSurface
 
   // ─── الخلفيات ──────────────────────────────────────────────
-  static const bgTop = Color(0xFFF3FAF7);
-  static const bgBottom = Color(0xFFEAF4F0);
-  static const scrimBottom = Color(0xFFF1F8F5);
+  static Color bgTop = _dBgTop;
+  static Color bgBottom = _dBgBottom;
+  static Color scrimBottom = _dScrim;
+
+  // ─── هوية الرحالة الافتراضية ───────────────────────────────
+  // تُحفظ منفصلةً لأن `resetBrand` تحتاج الأصل بعد أن دهسته هوية شركة.
+  static const _dPrimary = Color(0xFF00B17A);
+  static const _dGradStart = Color(0xFF00C489);
+  static const _dGradEnd = Color(0xFF00875E);
+  static const _dPrimaryDark = Color(0xFF00603F);
+  static const _dCredit = Color(0xFF00A570);
+  static const _dInk = Color(0xFF0A261E);
+  static const _dBgTop = Color(0xFFF3FAF7);
+  static const _dBgBottom = Color(0xFFEAF4F0);
+  static const _dScrim = Color(0xFFF1F8F5);
+
+  /// اللون المقروء فوق اللون الأساسي — يحسبه الخادم ويُسنده التطبيق.
+  ///
+  /// أبيض في كل ثيمات الرحالة، لكن شركةً بلونٍ فاتح تحتاج نصّاً داكناً وإلا
+  /// اختفت كتابة كل زرّ رئيسي في التطبيق.
+  static Color onPrimary = const Color(0xFFFFFFFF);
+
+  /// هل الجلسة تعرض هوية شركة أم هوية الرحالة الرسمية؟
+  static bool get isBranded => primary != _dPrimary;
+
+  /// إسناد ألوان الشركة. تُستدعى مرّة عند الدخول ومرّة عند تغيير الهوية.
+  ///
+  /// التدرّجان يُشتقّان من اللون الأساسي والثانوي لا يُطلبان منفصلين: طلبُ
+  /// أربعة ألوان من مدير فرعٍ ينتهي بتدرّجٍ لا ينسجم، واشتقاقُهما يُبقي
+  /// شكل التطبيق كما صُمّم مهما كان لون الشركة.
+  static void applyBrand({
+    required Color primaryColor,
+    required Color secondaryColor,
+    required Color backgroundColor,
+    required Color textColor,
+    required Color onPrimaryColor,
+  }) {
+    primary = secondaryColor;
+    primaryGradStart = secondaryColor;
+    primaryGradEnd = primaryColor;
+    primaryDark = primaryColor;
+    credit = primaryColor;
+    ink = textColor;
+    onPrimary = onPrimaryColor;
+    bgTop = backgroundColor;
+    bgBottom = backgroundColor;
+    scrimBottom = backgroundColor;
+  }
+
+  /// العودة إلى هوية «شركة الرحالة» — واجبة عند الخروج.
+  static void resetBrand() {
+    primary = _dPrimary;
+    primaryGradStart = _dGradStart;
+    primaryGradEnd = _dGradEnd;
+    primaryDark = _dPrimaryDark;
+    credit = _dCredit;
+    ink = _dInk;
+    onPrimary = const Color(0xFFFFFFFF);
+    bgTop = _dBgTop;
+    bgBottom = _dBgBottom;
+    scrimBottom = _dScrim;
+  }
 
   // ─── الخطأ والتنبيه ────────────────────────────────────────
   static const error = Color(0xFFC43B2E);
@@ -45,18 +115,27 @@ class R {
   static Color primaryA(double a) => primary.withValues(alpha: a);
 
   // ─── التدرجات ──────────────────────────────────────────────
-  static const primaryGradient = LinearGradient(
-    begin: Alignment(0.6, -1),
-    end: Alignment(-0.6, 1),
-    colors: [primaryGradStart, primaryGradEnd],
-  );
+  // التدرّجات صارت `get` لا `const` لأن ألوانها تتغيّر بهوية الشركة.
+  static LinearGradient get primaryGradient => LinearGradient(
+        begin: const Alignment(0.6, -1),
+        end: const Alignment(-0.6, 1),
+        colors: [primaryGradStart, primaryGradEnd],
+      );
 
-  static const headerGradient = LinearGradient(
-    begin: Alignment(0.5, -1),
-    end: Alignment(-0.5, 1),
-    colors: [primaryGradStart, Color(0xFF008A5D), Color(0xFF006B47)],
-    stops: [0.0, 0.55, 1.0],
-  );
+  /// تدرّج الترويسة ثلاثيّ الوقفات، ووقفته الوسطى تُحسب مزجاً بين الطرفين
+  /// لا لوناً ثابتاً — لونٌ أخضر ثابت في المنتصف يشوّه ترويسة شركةٍ زرقاء.
+  static LinearGradient get headerGradient => LinearGradient(
+        begin: const Alignment(0.5, -1),
+        end: const Alignment(-0.5, 1),
+        // بألوان الرحالة يعطي هذا 00C489 → 008D60 → 00603F، وهو عملياً
+        // التدرّج الأصلي (00C489 → 008A5D → 006B47) — فلم يتغيّر شكل الترويسة.
+        colors: [
+          primaryGradStart,
+          Color.lerp(primaryGradStart, primaryDark, .55)!,
+          primaryDark,
+        ],
+        stops: const [0.0, 0.55, 1.0],
+      );
 
   static LinearGradient glassGradient({double from = .82, double to = .55}) =>
       LinearGradient(
@@ -65,11 +144,11 @@ class R {
         colors: [whiteA(from), whiteA(to)],
       );
 
-  static const screenBackground = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [bgTop, bgBottom],
-  );
+  static LinearGradient get screenBackground => LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [bgTop, bgBottom],
+      );
 
   // ─── نصف القطر ─────────────────────────────────────────────
   static const rPill = 99.0;
