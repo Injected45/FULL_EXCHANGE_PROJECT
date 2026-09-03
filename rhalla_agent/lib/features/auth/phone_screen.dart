@@ -155,6 +155,21 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen>
             ),
           ),
 
+          // المسار الثاني — دخول الموظف.
+          //
+          // زرٌّ نصّي لا زرّ رئيسي: الوكيل هو المسار الغالب، والموظف يدخل
+          // مرّة واحدة عند التفعيل ثم يبقى داخلاً. وإبرازهما معاً يجعل
+          // الوكيل يتردّد كل مرّة أمام خيارين متساويين.
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: TextButton(
+              onPressed: _sending ? null : () => context.push('/employee/activate'),
+              style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
+              child: Text('الدخول كموظف',
+                  style: T.plex(13, FontWeight.w600, color: R.primaryDark)),
+            ),
+          ),
+
           NumericKeypad(onDigit: _push, onDelete: _pop),
         ],
       ),

@@ -12,6 +12,10 @@ use App\Http\Controllers\Api\OtpController;
 use App\Http\Controllers\Api\BankVisaTransferController;;
 use App\Http\Controllers\Api\AgentIncomingTransfersController;
 use App\Http\Controllers\Api\CompanyBrandingController;
+use App\Http\Controllers\Api\EmployeeActivationController;
+use App\Http\Controllers\Api\EmployeeAdminController;
+use App\Http\Controllers\Api\EmployeeController;
+use App\Http\Controllers\Api\EmployeeReportsController;
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
@@ -82,6 +86,51 @@ Route::get('device/exchange/AppTerms_get',  [ MobiledepositController::class , '
 Route::get('company/branding/logo/{name}',
     [ CompanyBrandingController::class , 'logo' ])
     ->where('name', '[A-Za-z0-9_.\-]+');
+
+
+/* ── تفعيل الموظف ─────────────────────────────────────────────────────
+ * خارج التوثيق عمداً: الموظف لا يملك رمزاً بعد. حمايتها الطبقات الثلاث —
+ * كود الإدارة + رمز التحقّق + ربط الجهاز — وحدّ معدّل على الرقم.
+ */
+Route::post('device/employee/activation/request',
+    [ EmployeeActivationController::class , 'requestOtp' ]);
+Route::post('device/employee/activation/verify',
+    [ EmployeeActivationController::class , 'verifyOtp'  ]);
+
+/* مسارات الموظف بعد التفعيل — حارسها `employee` لا `auth:sanctum`.
+ *
+ * الصلاحية تُكتب في الوسيط نفسه: `employee:KEY`. وهي **الحارس الحقيقي** —
+ * إخفاء الزرّ في التطبيق تجميل، والرفض هنا. وما لا صلاحية له يعود 403
+ * ويُسجَّل في السجلّ الأمني.
+ */
+Route::middleware('employee')->group(function () {
+    Route::get ('device/employee/me',     [ EmployeeController::class , 'me' ]);
+    Route::post('device/employee/logout', [ EmployeeActivationController::class , 'logout' ]);
+});
+
+Route::get ('device/employee/transfers/incoming',
+    [ EmployeeController::class , 'incoming' ])
+    ->middleware('employee:VIEW_INCOMING_TRANSFERS');
+
+Route::post('device/employee/transfers/{id}/deliver',
+    [ EmployeeController::class , 'deliver' ])
+    ->middleware('employee:DELIVER_TRANSFER')->whereNumber('id');
+
+Route::get ('device/employee/cashbox',
+    [ EmployeeController::class , 'cashbox' ])
+    ->middleware('employee:VIEW_OWN_CASHBOX');
+
+Route::post('device/employee/cashbox/entry',
+    [ EmployeeController::class , 'addEntry' ])
+    ->middleware('employee:CASHBOX_ENTRY');
+
+Route::post('device/employee/shift/start',
+    [ EmployeeController::class , 'startShift' ])
+    ->middleware('employee:START_SHIFT');
+
+Route::post('device/employee/shift/close',
+    [ EmployeeController::class , 'closeShift' ])
+    ->middleware('employee:CLOSE_SHIFT');
 
 
 Route::middleware('auth:sanctum')->group(function ()
@@ -244,5 +293,29 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
   Route::put ('company/branding',       [ CompanyBrandingController::class , 'update' ]);
   Route::post('company/branding/logo',  [ CompanyBrandingController::class , 'uploadLogo' ]);
   Route::post('company/branding/reset', [ CompanyBrandingController::class , 'reset'  ]);
+
+  //
+  // -- إدارة الموظفين ونقاط البيع: للحساب الرئيسي وحده --------------------
+  //
+  // الوكيل يُشتقّ من التوثيق ولا يُقرأ من الطلب، وكل استعلام مقيَّد به.
+  // ونقاط البيع تُقرأ من `AuthorizedUsers` القائم — لا جدول موازٍ.
+  Route::get ('employees',                      [ EmployeeAdminController::class , 'index' ]);
+  Route::post('employees',                      [ EmployeeAdminController::class , 'store' ]);
+  Route::get ('employees/permissions/catalog',  [ EmployeeAdminController::class , 'permissionCatalog' ]);
+  Route::get ('employees/points-of-sale',       [ EmployeeAdminController::class , 'pointsOfSale' ]);
+  Route::get ('employees/devices',              [ EmployeeAdminController::class , 'devices' ]);
+  Route::post('employees/devices/{id}/revoke',  [ EmployeeAdminController::class , 'revokeDevice' ])->whereNumber('id');
+  Route::put ('employees/{id}',                 [ EmployeeAdminController::class , 'update' ])->whereNumber('id');
+  Route::post('employees/{id}/status',          [ EmployeeAdminController::class , 'setStatus' ])->whereNumber('id');
+  Route::post('employees/{id}/activation-code', [ EmployeeAdminController::class , 'issueCode' ])->whereNumber('id');
+  Route::put ('employees/{id}/permissions',     [ EmployeeAdminController::class , 'setPermissions' ])->whereNumber('id');
+
+  // تقارير تشغيلية — قراءة فقط، ولا تمسّ رصيداً ولا قيداً.
+  Route::get('employees/dashboard',
+      [ EmployeeReportsController::class , 'dashboard' ]);
+  Route::get('employees/reports/points-of-sale',
+      [ EmployeeReportsController::class , 'pointsOfSale' ]);
+  Route::get('employees/{id}/statement',
+      [ EmployeeReportsController::class , 'employeeStatement' ])->whereNumber('id');
 
 });

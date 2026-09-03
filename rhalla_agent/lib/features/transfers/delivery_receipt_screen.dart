@@ -23,9 +23,17 @@ import 'transfers_repository.dart';
 /// وهو مصدر أعطال معروف (حروف منفصلة أو معكوسة). أما التصوير فيلتقط ما
 /// يراه الوكيل حرفياً بخطّ التطبيق نفسه — فما يُطبع هو ما يُرى.
 class DeliveryReceiptScreen extends ConsumerStatefulWidget {
-  const DeliveryReceiptScreen({super.key, required this.transfer});
+  const DeliveryReceiptScreen({
+    super.key,
+    required this.transfer,
+    this.commission,
+  });
 
   final AgentIncomingTransfer transfer;
+
+  /// عمولة معروفة من سياق آخر — تُمرَّر من «آخر العمليات» حيث تُجمع العمولة
+  /// من صفوف الحركة. وحين تكون null تُؤخذ عمولة الدفتر.
+  final double? commission;
 
   @override
   ConsumerState<DeliveryReceiptScreen> createState() =>
@@ -82,6 +90,7 @@ class _DeliveryReceiptScreenState extends ConsumerState<DeliveryReceiptScreen>
                   child: _Invoice(
                       t: t.legacy,
                       currency: currency,
+                      commission: widget.commission ?? t.commission,
                       onCall: _call,
                       onCopy: _copyPhone),
                 ),
@@ -179,12 +188,16 @@ class _Invoice extends StatelessWidget {
   const _Invoice({
     required this.t,
     required this.currency,
+    required this.commission,
     required this.onCall,
     required this.onCopy,
   });
 
   final IncomingTransfer t;
   final String currency;
+
+  /// عمولة هذه الحوالة — من الخادم لا محسوبةً هنا (بند 15).
+  final double commission;
   final VoidCallback onCall;
   final VoidCallback onCopy;
 
@@ -244,8 +257,23 @@ class _Invoice extends StatelessWidget {
             const SizedBox(height: 14),
             Divider(color: R.inkA(.07), height: 1),
             const SizedBox(height: 14),
+            // قيمة الحوالة تبقى **الرقم الرئيسي** ولا يحلّ الإجمالي محلّها
+            // (بند 17): العميل يسأل عن قيمة حوالته لا عن مجموع ما خُصم.
             ReceiptRow('قيمة الحوالة', Fmt.money(t.amount),
                 ltr: true, strong: true, currency: currency),
+
+            // العمولة والإجمالي — يظهران متى كانت للحوالة عمولة فعلية.
+            // وحوالةٌ بلا عمولة لا تُعرض لها أسطرٌ بأصفار: صفرٌ يُقرأ رقماً،
+            // والرقم الذي لا يعني شيئاً يشوّش على ما يعني.
+            if (commission > 0) ...[
+              ReceiptRow('العمولة', Fmt.money(commission),
+                  ltr: true, currency: currency),
+              const SizedBox(height: 6),
+              Divider(color: R.inkA(.07), height: 1),
+              const SizedBox(height: 6),
+              ReceiptRow('إجمالي العملية', Fmt.money(t.amount + commission),
+                  ltr: true, strong: true, currency: currency),
+            ],
           ],
         ),
       );

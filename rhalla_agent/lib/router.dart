@@ -6,6 +6,16 @@ import 'features/account/account_screen.dart';
 import 'features/account/security_screen.dart';
 import 'features/branding/branding_controller.dart';
 import 'features/branding/branding_screen.dart';
+import 'features/employees/employee_devices_screen.dart';
+import 'features/employees/employee_permissions_screen.dart';
+import 'features/employees/employee_reports_screen.dart';
+import 'features/employees/employees_repository.dart';
+import 'features/employees/employees_screen.dart';
+import 'features/employee_app/employee_activation_screen.dart';
+import 'features/employee_app/employee_home_screen.dart';
+import 'features/employee_app/employee_session.dart';
+import 'features/employee_app/employee_shift_screens.dart';
+import 'features/employee_app/employee_transfers_screen.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/auth/otp_screen.dart';
@@ -39,15 +49,38 @@ final routerProvider = Provider<GoRouter>((ref) {
   final brandSettled =
       ref.watch(brandingControllerProvider.select((s) => s.settled));
 
+  // وضع الموظف — مسارٌ مستقلّ تماماً عن مسار الوكيل.
+  //
+  // ⚠ الفصل بين السياقين شرط أمني (بند 22): جلسة موظف لا تُرقّى إلى مسؤول.
+  // ولذلك لا تشارك الشاشتان تبويباً ولا هيكلاً، والراوتر يحسم أيّهما قبل كل
+  // شيء آخر.
+  final emp = ref.watch(employeeAuthProvider);
+  final employeeIn = emp.status == EmpSessionStatus.signedIn;
+
   return GoRouter(
     navigatorKey: _rootKey,
     initialLocation: '/',
     refreshListenable: _AuthListenable(ref),
     redirect: (context, state) {
       final loc = state.matchedLocation;
+      final inEmployeeArea = loc.startsWith('/employee/');
+
+      // الموظف الداخل يبقى في مساره ولا يرى شاشة وكيل واحدة.
+      if (employeeIn) {
+        return inEmployeeArea && loc != '/employee/activate'
+            ? null
+            : '/employee/home';
+      }
+
+      // شاشة التفعيل مفتوحة قبل الدخول — وهي المدخل الوحيد لمسار الموظف.
+      if (loc == '/employee/activate') return null;
+
+      // موظفٌ خرج أو أُلغي جهازه: لا يبقى في شاشات الموظف.
+      if (inEmployeeArea) return '/phone';
 
       // لم تُقرأ الحالة من التخزين بعد.
-      if (auth.status == AuthStatus.unknown) {
+      if (auth.status == AuthStatus.unknown ||
+          emp.status == EmpSessionStatus.unknown) {
         return loc == '/splash' ? null : '/splash';
       }
 
@@ -80,6 +113,38 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      // ── مسار الموظف ────────────────────────────────────────────────
+      GoRoute(
+        path: '/employee/activate',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeActivationScreen(),
+      ),
+      GoRoute(
+        path: '/employee/home',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeHomeScreen(),
+      ),
+      GoRoute(
+        path: '/employee/transfers',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeTransfersScreen(),
+      ),
+      GoRoute(
+        path: '/employee/cashbox',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeCashboxScreen(),
+      ),
+      GoRoute(
+        path: '/employee/shift/start',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const StartShiftScreen(),
+      ),
+      GoRoute(
+        path: '/employee/shift/close',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const CloseShiftScreen(),
+      ),
+
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
       GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingScreen()),
       GoRoute(path: '/phone', builder: (_, _) => const PhoneScreen()),
@@ -118,6 +183,31 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/branding',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const BrandingScreen(),
+      ),
+
+      // إدارة الموظفين — للحساب الرئيسي، والخادم يرفض (403) لغيره.
+      GoRoute(
+        path: '/employees',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeesScreen(),
+      ),
+      GoRoute(
+        path: '/employees/reports',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeReportsScreen(),
+      ),
+      GoRoute(
+        path: '/employees/devices',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeDevicesScreen(),
+      ),
+      GoRoute(
+        // الموظف يُمرَّر في `extra`: صلاحياته الحالية معروضة سلفاً في القائمة،
+        // فجلبها مرّة ثانية طلبٌ بلا فائدة.
+        path: '/employees/:id/permissions',
+        parentNavigatorKey: _rootKey,
+        builder: (_, s) =>
+            EmployeePermissionsScreen(employee: s.extra as Employee),
       ),
 
       // مسار إنشاء الحوالة — فوق الهيكل، خارج التبويبات.
@@ -197,5 +287,8 @@ final routerProvider = Provider<GoRouter>((ref) {
 class _AuthListenable extends ChangeNotifier {
   _AuthListenable(Ref ref) {
     ref.listen(authControllerProvider, (_, _) => notifyListeners());
+    // جلسة الموظف تُحرّك الراوتر كما تُحرّكه جلسة الوكيل: بغير هذا يبقى
+    // الموظف على شاشة التفعيل بعد نجاحها حتى ينقر شيئاً.
+    ref.listen(employeeAuthProvider, (_, _) => notifyListeners());
   }
 }

@@ -50,10 +50,19 @@ class AgentIncomingTransfersService
             ? 'InternalEx_SelectType_View_not_BRanchId'
             : 'InternalEx_SelectType_View_not_coustmers';
 
+        // ترشيح الاعتماد باستعلامٍ ثانٍ لا بـ JOIN — قياسٌ لا ذوق.
+        //
+        // العرض مرشَّحاً بالفرع وحده يعود في 0.05 ثانية، وبإضافة
+        // `JOIN InternalEx` على البيانات نفسها صار 16.9 ثانية: المخطِّط
+        // يجسّد العرض لكل الفروع قبل الربط بدل أن يدفع ترشيح الفرع إلى
+        // داخله. وكشف الحساب يستدعي هذه المزامنة عند كل فتح للشاشة الرئيسية،
+        // فكان الطلب يتجاوز مهلة PHP (60 ثانية) ويسقط، وتبقى «آخر العمليات»
+        // هياكلَ تحميل إلى الأبد.
+        //
+        // والقراءتان الصغيرتان تعطيان النتيجة نفسها حرفياً: صفوف الفرع التي
+        // حالتها في `InternalEx` «معتمدة» (2) — الشرط لم يتغيّر، موضعُه فقط.
         $rows = DB::table("$viewName as a")
-            ->join('InternalEx as t', 't.Code', '=', 'a.Code')
             ->where('a.BranchDeliveredID', '=', $branchId)
-            ->where('t.ConfirmType', '=', 2)
             ->select([
                 'a.Code',
                 'a.RecievedName',
@@ -68,6 +77,23 @@ class AgentIncomingTransfersService
                 'a.BranchDeliveredID',
             ])
             ->get();
+
+        if ($rows->isNotEmpty()) {
+            // على دفعات: `IN` في SQL Server يقف عند 2100 وسيط، وفرعٌ نشط
+            // رُصد عليه 522 حوالة — الحدّ قريب بما يكفي ليُبلَغ لا ليُتجاهل.
+            $approved = collect();
+            foreach ($rows->pluck('Code')->unique()->chunk(1000) as $chunk) {
+                $approved = $approved->merge(
+                    DB::table('InternalEx')
+                        ->whereIn('Code', $chunk->values())
+                        ->where('ConfirmType', '=', 2)
+                        ->pluck('Code')
+                );
+            }
+            $approved = $approved->flip();
+
+            $rows = $rows->filter(fn ($r) => $approved->has($r->Code))->values();
+        }
 
         if ($rows->isEmpty()) {
             $this->refreshCoreState($agentId);
@@ -313,7 +339,21 @@ class AgentIncomingTransfersService
                 ]);
 
             if ($affected === 0) {
-                return ['changed' => false, 'row' => $row];
+                /* سبقنا إليها طلبٌ آخر بين القراءة والتحديث.
+                 *
+                 * الشرط `status = PENDING` في التحديث نفسه هو ما يمنع التسليم
+                 * المزدوج: طلبان متزامنان يتسلسلان على قفل الصفّ، فيعيد الثاني
+                 * تقييم الشرط بعد التزام الأول فلا يصيب شيئاً. قِيس بثلاثة
+                 * طلبات متزامنة على الصفّ نفسه: واحدٌ نجح، وصفٌّ تاريخيّ واحد.
+                 *
+                 * و`$row` هنا **قراءةٌ قديمة** التُقطت قبل فوز غيرنا، فحالتها
+                 * ما زالت «بانتظار التسليم». إعادتها كما هي كانت تعطي الخاسر
+                 * رسالة «مسجّلة كمسلَّمة سلفاً» وحمولةً تقول عكسها، فيبقى
+                 * الزرّ في تطبيقه صالحاً لحوالةٍ سُلّمت. تُقرأ من جديد.
+                 */
+                $fresh = DB::table('agent_incoming_transfers')->where('id', $id)->first();
+
+                return ['changed' => false, 'row' => $fresh ?: $row];
             }
 
             DB::table('transfer_status_history')->insert([

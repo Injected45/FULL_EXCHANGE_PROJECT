@@ -34,6 +34,8 @@ class Movement {
     this.deliveryStatus = '',
     this.agentStatus = '',
     this.agentCoreType,
+    this.isCommissionRow = false,
+    this.commission,
   });
 
   final String title;
@@ -88,12 +90,35 @@ class Movement {
   /// حركة ليست حوالة (عمولة، إقفال ميزانية) — لا رقم لها ولا حالة تسليم.
   bool get isTransfer => code.isNotEmpty && !isCommission;
 
+  /// هذا الصفّ **هو** عمولة — يقولها الخادم لا التطبيق.
+  ///
+  /// حسمُها في الخادم يجعل تعريف العمولة واحداً: ما يخفيه التطبيق هو نفسه
+  /// ما يجمعه الخادم في `CommissionAmount`. تعريفان يفترقان عند أول حالة.
+  final bool isCommissionRow;
+
+  /// عمولة هذه الحوالة، مجموعةً من صفوف العمولة التي تحمل رقمها.
+  ///
+  /// **null تعني «لم تصل بعد»، و0.0 تعني «بلا عمولة»** — والفرق مقصود
+  /// (بند 22): عرضُ صفرٍ قبل وصول البيانات يقول للوكيل ما لا نعرفه.
+  final double? commission;
+
   /// عمولة التحويل.
   ///
   /// تحمل رقم الحوالة الأمّ، فحالةُ تلك الحوالة تنعكس عليها ويظهر على
   /// العمولة وسم «غير مسلمه» — وهو مربك: العمولة خُصمت فعلاً ولا تُسلَّم
   /// لأحد. لذلك تُميَّز بنوعها لا بحالة أمّها.
-  bool get isCommission => title.contains('عمولة');
+  ///
+  /// يُقدَّم قول الخادم على تخمين النصّ، ويبقى النصّ احتياطاً لردٍّ قديم.
+  bool get isCommission => isCommissionRow || title.contains('عمولة');
+
+  /// هل لهذه الحوالة عمولة فعليّة؟
+  bool get hasCommission => (commission ?? 0) > 0;
+
+  /// إجمالي العملية = قيمة الحوالة + العمولة (بند 17).
+  ///
+  /// ⚠ لا يحلّ محلّ قيمة الحوالة ولا يُعرض مكانها: القيمة الأصلية تبقى هي
+  /// الرقم الرئيسي، وهذا رقمٌ ثانٍ بجانبه.
+  double get operationTotal => amount + (commission ?? 0);
 
   bool get isDelivered => deliveryStatus.contains('مسلمه') &&
       !deliveryStatus.contains('غير');
@@ -119,6 +144,10 @@ class Movement {
       deliveryStatus: '${j['DeliveryStatus'] ?? ''}'.trim(),
       agentStatus: '${j['AgentStatus'] ?? ''}'.trim(),
       agentCoreType: _intOrNull(j['AgentCoreType']),
+      isCommissionRow: '${j['IsCommission'] ?? ''}' == '1',
+      // غياب المفتاح = خادمٌ قديم لم يُحدَّث بعد ⇦ null «لم يصل»، لا 0.
+      commission:
+          j.containsKey('CommissionAmount') ? Fmt.num_(j['CommissionAmount']) : null,
     );
   }
 

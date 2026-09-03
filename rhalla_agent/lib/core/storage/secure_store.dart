@@ -36,9 +36,59 @@ class SecureStore {
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
   );
 
-  Future<String?> readToken() => _s.read(key: _kToken);
-  Future<void> writeToken(String v) => _s.write(key: _kToken, value: v);
+  /// رمز الجلسة الفعّالة — رمز الوكيل أو رمز الموظف.
+  ///
+  /// ⚠ **واحد لا اثنان.** التطبيق إمّا في وضع الوكيل أو وضع الموظف ولا يجمع
+  /// بينهما: الفصل بين سياقَي التوثيق شرطٌ أمني (بند 22 من مستند الموظفين)،
+  /// وأقصر طريق لخرقه أن يحمل الجهاز رمزين ويختار `ApiClient` أحدهما بخطأ.
+  ///
+  /// ولذلك [writeEmployeeToken] تمحو رمز الوكيل، و[writeToken] تمحو رمز
+  /// الموظف — لا تتعايشان في التخزين أصلاً.
+  Future<String?> readToken() async =>
+      (await _s.read(key: _kEmployeeToken)) ?? (await _s.read(key: _kToken));
+
+  Future<void> writeToken(String v) async {
+    await _s.delete(key: _kEmployeeToken);
+    await _s.delete(key: _kEmployee);
+    await _s.write(key: _kToken, value: v);
+  }
+
   Future<void> clearToken() => _s.delete(key: _kToken);
+
+  /* ── جلسة الموظف ─────────────────────────────────────────────── */
+
+  static const _kEmployeeToken = 'employee_token';
+  static const _kEmployee = 'employee_json';
+
+  Future<String?> readEmployeeToken() => _s.read(key: _kEmployeeToken);
+
+  Future<void> writeEmployeeToken(String v) async {
+    await _s.delete(key: _kToken);
+    await _s.delete(key: _kUser);
+    await _s.write(key: _kEmployeeToken, value: v);
+  }
+
+  Future<Map<String, dynamic>?> readEmployee() async {
+    final raw = await _s.read(key: _kEmployee);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return (jsonDecode(raw) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> writeEmployee(Map<String, dynamic> e) =>
+      _s.write(key: _kEmployee, value: jsonEncode(e));
+
+  /// خروج الموظف — يمحو رمزه وبياناته ولا يمسّ معرّف الجهاز.
+  ///
+  /// معرّف الجهاز يبقى دائماً: الخادم يربط به التفعيل، وتغييره يفقد الموظف
+  /// جهازه المعتمد ويحتاج كوداً جديداً بلا سبب.
+  Future<void> clearEmployee() async {
+    await _s.delete(key: _kEmployeeToken);
+    await _s.delete(key: _kEmployee);
+  }
 
   Future<Map<String, dynamic>?> readUser() async {
     final raw = await _s.read(key: _kUser);

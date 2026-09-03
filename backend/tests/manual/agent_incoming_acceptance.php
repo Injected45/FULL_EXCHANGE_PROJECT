@@ -77,6 +77,21 @@ if (!$row) {
     $check('التسليم الأول يغيّر الحالة', $r1['changed'] === true);
     $check('التسليم المكرّر لا يغيّر شيئاً', $r2['changed'] === false);
 
+    /* الطلب الخاسر يعيد الحالة الحقيقية لا قراءةً قديمة.
+     *
+     * ما يمنع التسليم المزدوج هو شرط `status = PENDING` داخل التحديث نفسه:
+     * طلبان متزامنان يتسلسلان على قفل الصفّ، فيعيد الثاني تقييم الشرط بعد
+     * التزام الأول فلا يصيب شيئاً. قِيس بثلاثة طلبات متزامنة على الصفّ
+     * الواحد: نجح واحدٌ فقط، وكُتب صفٌّ تاريخيّ واحد.
+     *
+     * وهذا الفحص يحرس النصف الثاني: أن يجد الخاسر في الرد «تم التسليم» لا
+     * «بانتظار التسليم» — وإلا بقي زرّ التسليم صالحاً في تطبيقه لحوالةٍ
+     * سُلّمت، وهو أسوأ من رفضٍ صريح.
+     */
+    $check('الطلب الخاسر يرى الحالة الحقيقية',
+        $r2['row']->status === AgentIncomingTransfersService::DELIVERED,
+        $r2['row']->status);
+
     $hist = DB::table('transfer_status_history')->where('transfer_id', $row->id)->count();
     $check('سجلّ واحد في تاريخ الحالات', $hist === 1, "rows=$hist");
 
@@ -84,6 +99,30 @@ if (!$row) {
     $check('الحالة DELIVERED', $fresh->status === AgentIncomingTransfersService::DELIVERED);
     $check('وقت التسليم مسجّل من الخادم', $fresh->delivered_at !== null);
     $check('منفّذ التسليم مسجّل', (int) $fresh->delivered_by === $agentId);
+
+    /* إعادة الحالة كما كانت قبل الاختبار.
+     *
+     * الاختبار يسلّم حوالةً حقيقية في دفتر الوكيل، وبلا هذا يجدها المالك
+     * «تم التسليم» في تطبيقه بعد كل تشغيل — تسليمٌ لم يقع، وهو أسوأ من
+     * اختبارٍ لا يعمل. والصفّ التاريخي يُحذف معها لأنه يوثّق حدثاً لم يقع.
+     *
+     * لا شيء مالي هنا: الجدولان من إضافات هذه الميزة، والبصمة أعلاه تثبت
+     * أن المحافظ والقيود لم تُمسّ أصلاً.
+     */
+    DB::table('agent_incoming_transfers')->where('id', $row->id)->update([
+        'status'       => AgentIncomingTransfersService::PENDING,
+        'delivered_at' => null,
+        'delivered_by' => null,
+        'updated_at'   => now(),
+    ]);
+    DB::table('transfer_status_history')->where('transfer_id', $row->id)
+        ->where('device_id', 'test-device')->delete();
+
+    $restored = DB::table('agent_incoming_transfers')->where('id', $row->id)->first();
+    $check('الاختبار أعاد الحوالة كما وجدها',
+        $restored->status === AgentIncomingTransfersService::PENDING
+        && $restored->delivered_at === null,
+        $row->transfer_number);
 }
 
 /* ---------- 4) البند 11: لا أثر مالي ---------- */

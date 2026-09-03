@@ -140,3 +140,22 @@ void expectAllVisible(List<String> labels) {
     expect(find.text(label), findsOneWidget, reason: 'غاب «$label»');
   }
 }
+
+/// يقبل تمريراً قصيراً بسقفٍ معلَن — لشاشةٍ لا تسع هاتف 360×640 بلا تشويه.
+///
+/// الفرق عن [expectNoScroll] مقصود: «لا تمرير» هدفٌ صحيح لأغلب الشاشات،
+/// لكن شاشة المراجعة تحمل خمسة صفوف بيانات + الإجماليات + رمز التحقّق +
+/// تحذيراً + زرّين. ضغطُها إلى صفر على أصغر جهاز يعني تصغير خطوط المبالغ،
+/// وتصغيرُ رقمٍ يقرؤه صرّافٌ ليرسل مالاً مقايضةٌ خاسرة.
+///
+/// فالسقف هنا **حارس انحدار**: يمنع الشاشة من أن تكبر أكثر، ويفشل بمجرّد
+/// تجاوزها إيّاه. وكل المحتوى يبقى قابلاً للوصول بالتمرير.
+void expectBoundedScroll(ScrollableState scrollable, double maxDp) {
+  final overflow = scrollable.position.maxScrollExtent;
+  expect(
+    overflow <= maxDp,
+    isTrue,
+    reason: 'التمرير ${overflow.toStringAsFixed(1)} dp تجاوز السقف المسموح '
+        '$maxDp dp — الشاشة كبرت، أعد تقليصها.',
+  );
+}

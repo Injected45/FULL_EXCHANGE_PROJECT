@@ -129,6 +129,76 @@ class GlassButton extends StatelessWidget {
       );
 }
 
+/// زرّ ثانويّ مصمَت — نظيرُ [PrimaryButton] حين يقف الفعلان جنباً إلى جنب.
+///
+/// [GlassButton] لا يصلح هنا: هو أبيضُ شفّاف بحافةٍ بيضاء، مصمَّمٌ ليقف فوق
+/// خلفيةٍ ملوّنة. وفوق ورقةٍ بيضاء يكاد يختفي، فلا يبدو زرّاً. فهذا يستعمل
+/// تلوين العلامة الخفيف نفسه الذي تستعمله صناديق الشاشة (`primaryA`)، فيُقرأ
+/// ثانوياً بلا أن يضيع.
+///
+/// وارتفاعه 56 كارتفاع [PrimaryButton] عمداً: زرّان متجاوران بارتفاعين
+/// مختلفين يبدوان خطأً في التخطيط لا تدرّجاً في الأهمية.
+class SecondaryButton extends StatelessWidget {
+  const SecondaryButton({
+    super.key,
+    required this.label,
+    this.onPressed,
+    this.icon,
+    this.height = 56,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  /// قبل النصّ — أي يمينه في واجهة عربية، كما في [PrimaryButton].
+  final Widget? icon;
+
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+
+    return Opacity(
+      opacity: enabled ? 1 : .45,
+      child: Material(
+        color: R.primaryA(.10),
+        borderRadius: BorderRadius.circular(R.rPill),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(R.rPill),
+          onTap: enabled
+              ? () {
+                  HapticFeedback.lightImpact();
+                  onPressed!();
+                }
+              : null,
+          child: Ink(
+            height: height,
+            decoration: BoxDecoration(
+              border: Border.all(color: R.primaryA(.30)),
+              borderRadius: BorderRadius.circular(R.rPill),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (icon != null) ...[icon!, const SizedBox(width: 8)],
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: T.kufi(14, FontWeight.w700, color: R.primaryDark),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// زر أيقونة دائري — الرجوع والمشاركة.
 class CircleIconButton extends StatelessWidget {
   const CircleIconButton({super.key, required this.child, this.onPressed});

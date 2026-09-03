@@ -83,22 +83,34 @@ class HomeScreen extends ConsumerWidget {
                 snap.when(
                   loading: () => const _RowsSkeleton(),
                   error: (_, _) => const SizedBox.shrink(),
-                  data: (s) => s.movements.isEmpty
-                      ? const _EmptyMovements()
-                      : Column(
-                          children: [
-                            for (var i = 0; i < s.movements.length; i++) ...[
-                              if (i > 0) const SizedBox(height: R.gapRow),
-                              RiseIn.small(
-                                delay: Duration(milliseconds: 60 * i),
-                                child: _MovementRow(
-                                  m: s.movements[i],
-                                  currency: user?.currencyCode ?? 'د.ل',
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+                  // العمولة ليست عمليةً مستقلّة في هذه الشاشة (قرار المالك،
+                  // 3 سبتمبر 2026): تُحجب بطاقتها هنا وتظهر سطراً داخل
+                  // بطاقة حوالتها.
+                  //
+                  // ⚠ والحجب **عرضٌ فقط**: صفّ العمولة يبقى قيداً مستقلاً في
+                  // المنظومة ويبقى في ردّ الخادم، ويظهر كاملاً في كشف الحساب —
+                  // كشفٌ يُخفي خصماً ليس كشفاً.
+                  data: (s) {
+                    final shown =
+                        s.movements.where((m) => !m.isCommission).toList();
+
+                    if (shown.isEmpty) return const _EmptyMovements();
+
+                    return Column(
+                      children: [
+                        for (var i = 0; i < shown.length; i++) ...[
+                          if (i > 0) const SizedBox(height: R.gapRow),
+                          RiseIn.small(
+                            delay: Duration(milliseconds: 60 * i),
+                            child: _MovementRow(
+                              m: shown[i],
+                              currency: user?.currencyCode ?? 'د.ل',
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -469,7 +481,10 @@ class _MovementRowState extends ConsumerState<_MovementRow> {
       }
       await Navigator.of(context, rootNavigator: true).push(
         MaterialPageRoute(
-          builder: (_) => DeliveryReceiptScreen(transfer: t),
+          // العمولة تُمرَّر كما جمعها الخادم لهذه الحركة (بند 15): الواجهة
+          // لا تعيد احتسابها، ولا تأخذ رقماً من سياق آخر.
+          builder: (_) =>
+              DeliveryReceiptScreen(transfer: t, commission: m.commission),
         ),
       );
 
@@ -538,6 +553,8 @@ class _MovementRowState extends ConsumerState<_MovementRow> {
       dense: true,
       tone: tone,
       onTap: m.isTransfer ? _open : null,
+      // سطر العمولة داخل الوحدة البصرية نفسها — لا بطاقة مستقلّة.
+      footer: m.isTransfer ? _CommissionLine(m: m, currency: currency) : null,
       children: [
         // الأيقونة وتحتها وسمُ الحالة — كتلة واحدة كما في التصميم.
         SizedBox(
@@ -580,7 +597,9 @@ class _MovementRowState extends ConsumerState<_MovementRow> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: T.plex(12.5, FontWeight.w600, color: tone.ink)),
-              if (m.isTransfer) ...[
+              // مخفيّ مؤقّتاً — انظر `kShowTransferCodeInMovements`. الرقم
+              // نفسه باقٍ في `m.code`، وبه تُفتح الفاتورة وفيها يظهر كاملاً.
+              if (m.isTransfer && kShowTransferCodeInMovements) ...[
                 const SizedBox(height: 2),
                 // الرقم كتلة LTR: رقمٌ داخل جملة عربية ينقلب ترتيبه.
                 Directionality(
@@ -788,4 +807,85 @@ class _SeeAllButton extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// سطر عمولة الحوالة — تابعٌ لها لا عمليةٌ مستقلّة.
+///
+/// قرار المالك (3 سبتمبر 2026): بعد إخفاء رقم الحوالة صار المستخدم لا يعرف
+/// أي عمولة تتبع أي حوالة، فجُمعتا في وحدةٍ بصرية واحدة.
+///
+/// ثلاثة قيود مقصودة تجعله يُقرأ تابعاً لا مستقلاً:
+///   • **لا سهم ولا نقر**: العمولة لا تُفتح وحدها (بند 8). ما يفتح التفاصيل
+///     هو سهم الحوالة فوقها كما كان.
+///   • **خطّ رابط وإزاحة**: `└` والإزاحة يقولان بصرياً «هذه تتبع ما فوقها».
+///   • **حجمٌ ولونٌ أخفّ**: وزنٌ بصريّ أقلّ من قيمة الحوالة (بند 7).
+///
+/// و«بدون عمولة» تُعرض ولا تُحذف: قاعدة المشروع ألّا يُحذف من الشاشة شيء،
+/// وغيابُ السطر يترك الوكيل يتساءل هل العمولة صفر أم لم تصل.
+class _CommissionLine extends StatelessWidget {
+  const _CommissionLine({required this.m, required this.currency});
+
+  final Movement m;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    // ⚠ لا يُعرض صفرٌ قبل وصول البيانات (بند 22): null تعني «لم تصل».
+    if (m.commission == null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Row(
+          children: [
+            const SizedBox(width: 74 + 11),
+            Text('…',
+                style: T.plex(10.5, FontWeight.w400, color: R.inkA(.3))),
+          ],
+        ),
+      );
+    }
+
+    final has = m.hasCommission;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          // إزاحة بعرض عمود الأيقونة والوسم — فيبدأ السطر تحت نصّ الحوالة
+          // لا تحت حافّة البطاقة.
+          const SizedBox(width: 74 + 11),
+          Text('└',
+              style: T.plex(11, FontWeight.w400,
+                  color: R.inkA(has ? .35 : .22))),
+          const SizedBox(width: 6),
+          Icon(Icons.savings_outlined,
+              size: 11, color: R.inkA(has ? .5 : .3)),
+          const SizedBox(width: 5),
+          Expanded(
+            child: has
+                // رمز العملة يسار الرقم دائماً — قاعدة المشروع، ولذلك الكتلة
+                // كلّها LTR والرمز أوّل أبنائها.
+                ? Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('عمولة الحوالة: ',
+                            style: T.plex(10.5, FontWeight.w400,
+                                color: R.inkA(.55))),
+                        Text('$currency ',
+                            style: T.plex(10, FontWeight.w400,
+                                color: R.inkA(.5))),
+                        Text(Fmt.money(m.commission!),
+                            style: T.kufi(11.5, FontWeight.w700,
+                                color: R.inkA(.7))),
+                      ],
+                    ),
+                  )
+                : Text('بدون عمولة',
+                    style: T.plex(10.5, FontWeight.w400, color: R.inkA(.38))),
+          ),
+        ],
+      ),
+    );
+  }
 }

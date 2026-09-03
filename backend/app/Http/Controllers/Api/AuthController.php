@@ -353,6 +353,31 @@ public function otpLogin(Request $request)
     $phoneTo   = '218' . $phone;                  // الصيغة المخزّنة في Code_OtpTB
     $deviceId  = $request->device_id;
 
+    /* ⚠ حظر أجهزة الموظفين من الدخول كمسؤول — بند 20، وقبل أي شيء آخر.
+     *
+     * الفحص هنا لا في نهاية الدالة: جهازٌ محظور يجب ألّا يستهلك رمز تحقّق
+     * ولا يقترب من إصدار رمز. والحظر يسري ولو كانت البيانات كلّها صحيحة —
+     * الرقم والرمز وكل شيء — لأن سببه الجهاز لا الهوية.
+     *
+     * ولا يُرفع بخروجٍ ولا بإلغاء جهاز ولا بحذف التطبيق: مصدره
+     * `device_registry` وهو سجلٌّ لا يُحذف منه.
+     */
+    $deviceHash = \App\Services\Employees\DeviceRegistryService::hash($deviceId);
+    if (app(\App\Services\Employees\DeviceRegistryService::class)->isEmployeeDevice($deviceHash)) {
+        app(\App\Services\Employees\EmployeeAuditLogger::class)->security(
+            'ADMIN_LOGIN_FROM_EMPLOYEE_DEVICE',
+            'محاولة دخول كمسؤول من جهاز مصنّف كجهاز موظف',
+            ['phone' => $phone, 'device_hash' => $deviceHash,
+             'ip' => $request->ip(), 'severity' => 'CRITICAL']
+        );
+
+        return $this->sendError(
+            'لا يمكن استخدام هذا الجهاز للدخول كمسؤول، لارتباطه مسبقاً بحساب موظف.',
+            'EmployeeDeviceBlocked',
+            403
+        );
+    }
+
     return DB::transaction(function () use ($phone, $phoneTo, $deviceId, $request) {
 
         // 1) الرمز — يُقرأ داخل قفل حتى لا يُستهلك مرتين على التوازي.

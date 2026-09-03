@@ -122,6 +122,7 @@ class GlassRow extends StatelessWidget {
     this.onTap,
     this.tone = RowTone.none,
     this.dense = false,
+    this.footer,
   });
 
   final List<Widget> children;
@@ -136,23 +137,46 @@ class GlassRow extends StatelessWidget {
   static const denseHeight = 56.0;
   final bool dense;
 
+  /// سطرٌ تابع أسفل الصفّ، **داخل الحاوية نفسها**.
+  ///
+  /// أُضيف لعرض عمولة الحوالة تحتها في وحدةٍ بصرية واحدة (قرار المالك،
+  /// 3 سبتمبر 2026). وحين يكون `null` يبقى الصفّ كما كان حرفياً — بارتفاعه
+  /// الثابت وحشوه — فلا يتغيّر شكل أي صفٍّ قائم.
+  final Widget? footer;
+
   @override
   Widget build(BuildContext context) {
+    final row = SizedBox(
+      height: dense ? denseHeight : null,
+      child: Row(children: children),
+    );
+
     final body = ClipRRect(
       borderRadius: BorderRadius.circular(R.rRow),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: R.blurRow, sigmaY: R.blurRow),
         child: Container(
-          height: dense ? denseHeight : null,
           constraints: dense ? null : const BoxConstraints(minHeight: 44),
-          padding: EdgeInsets.symmetric(
-              horizontal: dense ? 13 : 16, vertical: dense ? 0 : 14),
+          padding: EdgeInsets.fromLTRB(
+            dense ? 13 : 16,
+            dense ? 0 : 14,
+            dense ? 13 : 16,
+            // الحشو السفلي يظهر مع السطر التابع فقط: بدونه يبقى الصفّ
+            // المضغوط بارتفاعه الثابت كما صُمّم.
+            dense ? (footer == null ? 0 : 10) : 14,
+          ),
           decoration: BoxDecoration(
             color: tone.fill,
             border: Border.all(color: tone.border),
             borderRadius: BorderRadius.circular(R.rRow),
           ),
-          child: Row(children: children),
+          child: footer == null
+              ? row
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [row, footer!],
+                ),
         ),
       ),
     );

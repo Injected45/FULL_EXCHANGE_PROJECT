@@ -77,6 +77,13 @@ class AccountScreen extends ConsumerWidget {
                       //
                       // «هوية الشركة» يراها الجميع ولا يعدّلها إلا الحساب
                       // الرئيسي — والخادم هو من يمنع، لا إخفاء الصفّ.
+                      // «الموظفون» للوكيل الرئيسي وحده — والخادم يرفض لغيره.
+                      if (user?.isMainAgent == true)
+                        _Row(
+                          icon: Icons.groups_2_outlined,
+                          label: 'الموظفون',
+                          onTap: () => context.push('/employees'),
+                        ),
                       _Row(
                         icon: Icons.palette_outlined,
                         label: 'هوية الشركة',

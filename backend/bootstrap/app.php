@@ -12,7 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        //
+        // حارس جلسة الموظف — منفصل تماماً عن `auth:sanctum`.
+        // الفصل مقصود: رمز موظف لا يفتح مسار مسؤول ولو أخطأ أحدٌ في الوسم.
+        $middleware->alias([
+            'employee' => \App\Http\Middleware\AuthenticateEmployee::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

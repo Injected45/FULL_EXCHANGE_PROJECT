@@ -26,10 +26,10 @@ const kGapLabel = 6.0;
 const kGapRule = 8.0;
 
 /// بين صفوف البيانات داخل بطاقة الملخّص.
-const kGapRow = 8.0;
+const kGapRow = 5.0;
 
 /// حشوة البطاقة — بدل حشوة `GlassCard` الافتراضية (18 × 16).
-const kCardPad = EdgeInsets.symmetric(horizontal: 16, vertical: 10);
+const kCardPad = EdgeInsets.symmetric(horizontal: 16, vertical: 9);
 
 /// ارتفاع الزرّ الرئيسي في هذا المسار. لا ينزل تحت 48، وهو الحدّ الذي يصير
 /// الزرّ دونه صعب الإصابة بالإبهام.

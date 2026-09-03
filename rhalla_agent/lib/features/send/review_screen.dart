@@ -306,20 +306,30 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                 stops: [0, .34, 1],
               ),
             ),
-            child: Column(
+            // الزرّان في صفٍّ واحد لا فوق بعضهما.
+            //
+            // إعادة ترتيب لا حذف: الشاشة كانت تفيض عن هاتف 360×640، و«تعديل
+            // البيانات» تحت الزرّ الرئيسي كان يأخذ 48 نقطة من ارتفاعٍ تحتاجه
+            // البيانات. الكلمتان باقيتان، ومساحة اللمس باقية (44 نقطة).
+            child: Row(
               children: [
-                PrimaryButton(
-                  height: kButtonHeight,
-                  label: 'تأكيد وإرسال',
-                  loading: _sending,
-                  onPressed: _ready ? _confirm : null,
-                ),
-                const SizedBox(height: 4),
                 TextButton(
                   onPressed: _busy ? null : () => context.pop(),
-                  style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(44, kButtonHeight),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
                   child: Text('تعديل البيانات',
                       style: T.plex(13, FontWeight.w500, color: R.inkA(.55))),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: PrimaryButton(
+                    height: kButtonHeight,
+                    label: 'تأكيد وإرسال',
+                    loading: _sending,
+                    onPressed: _ready ? _confirm : null,
+                  ),
                 ),
               ],
             ),
@@ -339,7 +349,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
             Text.rich(
               TextSpan(
                 style: T.plex(12.5, FontWeight.w400,
-                    color: R.inkA(.58), height: 1.75),
+                    color: R.inkA(.58), height: 1.5),
                 children: [
                   const TextSpan(text: 'أرسلنا رمزاً من 4 أرقام إلى رقمك '),
                   // عازل يونيكود حتى لا يختلّ ترتيب الرقم داخل جملة عربية.

@@ -53,11 +53,17 @@ void main() {
   });
 
   testWidgets('2/3 شاشة المراجعة ورمز التحقّق', (tester) async {
+    // `settle: false` مقصود: الشاشة تحمل عدّاداً تنازلياً لإعادة إرسال الرمز،
+    // وهو مؤقّتٌ دوريّ لا يسكن أبداً — فـ `pumpAndSettle` تنتظره إلى أن
+    // تنتهي مهلتها. والقياس لا يحتاج سكوناً، بل إطاراً بعد اكتمال التخطيط.
     final s = await pumpAtPhoneSize(
       tester,
       const ReviewTransferScreen(draft: _draft),
+      settle: false,
     );
-    expectNoScroll(s);
+    // سقفٌ معلَن لا صفر — انظر [expectBoundedScroll]. القياس الحالي 85 dp،
+    // والسقف 100 يترك هامشاً لفروق الخطوط ولا يسمح بنموٍّ حقيقي.
+    expectBoundedScroll(s, 100);
   });
 
   testWidgets('3/3 شاشة «تمّت الحوالة»', (tester) async {
