@@ -120,8 +120,13 @@ class ReceiptRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(k, style: T.plex(12, FontWeight.w400, color: R.inkA(.55))),
-          const SizedBox(width: 14),
+          // التسمية مرنة تلتفّ ولا تُقتطع: بعضها طويل («تاريخ ووقت التحويل»)
+          // وقد يضيق الصفّ بخطٍّ أكبر في إعدادات الجهاز. والالتفاف أهون من
+          // الاقتطاع — اسم الحقل لا يُبتر.
+          Flexible(
+            child: Text(k, style: T.plex(12, FontWeight.w400, color: R.inkA(.55))),
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child:
                 Align(alignment: AlignmentDirectional.centerEnd, child: value),

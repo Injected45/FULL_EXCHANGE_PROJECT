@@ -14,6 +14,7 @@ import '../branding/brand_mark.dart';
 import '../auth/auth_controller.dart';
 import '../transfers/agent_incoming_repository.dart';
 import '../transfers/delivery_receipt_screen.dart';
+import '../transfers/outgoing_receipt_screen.dart';
 import 'home_repository.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -65,56 +66,11 @@ class HomeScreen extends ConsumerWidget {
               ),
             ),
 
-          Padding(
-            padding: const EdgeInsets.fromLTRB(R.padScreen, 22, R.padScreen, 120),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text('آخر العمليات', style: T.section),
-                    const Spacer(),
-                    // «عرض الكل» يفتح كشف الحساب — وهو الشاشة التي تعرض
-                    // التاريخ كاملاً، فلا تكرار.
-                    _SeeAllButton(onTap: () => context.push('/statement')),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                snap.when(
-                  loading: () => const _RowsSkeleton(),
-                  error: (_, _) => const SizedBox.shrink(),
-                  // العمولة ليست عمليةً مستقلّة في هذه الشاشة (قرار المالك،
-                  // 3 سبتمبر 2026): تُحجب بطاقتها هنا وتظهر سطراً داخل
-                  // بطاقة حوالتها.
-                  //
-                  // ⚠ والحجب **عرضٌ فقط**: صفّ العمولة يبقى قيداً مستقلاً في
-                  // المنظومة ويبقى في ردّ الخادم، ويظهر كاملاً في كشف الحساب —
-                  // كشفٌ يُخفي خصماً ليس كشفاً.
-                  data: (s) {
-                    final shown =
-                        s.movements.where((m) => !m.isCommission).toList();
-
-                    if (shown.isEmpty) return const _EmptyMovements();
-
-                    return Column(
-                      children: [
-                        for (var i = 0; i < shown.length; i++) ...[
-                          if (i > 0) const SizedBox(height: R.gapRow),
-                          RiseIn.small(
-                            delay: Duration(milliseconds: 60 * i),
-                            child: _MovementRow(
-                              m: shown[i],
-                              currency: user?.currencyCode ?? 'د.ل',
-                            ),
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
+          // «آخر العمليات» لم تعد هنا (قرار المالك، 3 سبتمبر 2026): كانت
+          // تعرض الوارد والصادر معاً في الواجهة، وهو تكرارٌ لما في شاشة
+          // «الحوالات» وضغطٌ على أوّل شاشة يراها الوكيل. صارت الواجهة
+          // رصيداً وأزراراً وسقفاً يومياً، والتفاصيل خلف زرّ «الحوالات».
+          const SizedBox(height: 120),
         ],
       ),
     );
@@ -325,8 +281,8 @@ class _ActionsCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     Expanded(
-                      child: _Action(Icons.check_rounded, 'تسليم',
-                          onTap: () => context.go('/transfers')),
+                      child: _Action(Icons.swap_vert_rounded, 'الحوالات',
+                          onTap: () => context.push('/transfers')),
                     ),
                     if (kShowAccountsTransfer) ...[
                       const SizedBox(width: 6),
@@ -370,11 +326,17 @@ class _Action extends StatelessWidget {
               children: [
                 Icon(icon, size: 19, color: primary ? Colors.white : R.primaryGradEnd),
                 const SizedBox(height: 8),
+                // سطران لا سطر: «الحوالات الواردة» أطول من أن تسع ثُلث الصفّ
+                // في سطرٍ واحد (قرار المالك، 3 سبتمبر 2026 — الاسم أدقّ من
+                // «تسليم»)، والاقتطاع كان سيعرض «الحوالات الو…».
+                // والارتفاع 74 يسع أيقونةً وسطرين بلا تغيير.
                 Text(
                   label,
-                  maxLines: 1,
+                  maxLines: 2,
+                  textAlign: TextAlign.center,
                   overflow: TextOverflow.ellipsis,
                   style: T.kufi(12, FontWeight.w600,
+                      height: 1.25,
                       color: primary ? Colors.white : R.primaryDark),
                 ),
               ],
@@ -438,17 +400,17 @@ class _DailyLimit extends StatelessWidget {
   }
 }
 
-class _MovementRow extends ConsumerStatefulWidget {
-  const _MovementRow({required this.m, required this.currency});
+class MovementRow extends ConsumerStatefulWidget {
+  const MovementRow({super.key, required this.m, required this.currency});
 
   final Movement m;
   final String currency;
 
   @override
-  ConsumerState<_MovementRow> createState() => _MovementRowState();
+  ConsumerState<MovementRow> createState() => _MovementRowState();
 }
 
-class _MovementRowState extends ConsumerState<_MovementRow> {
+class _MovementRowState extends ConsumerState<MovementRow> {
   bool _opening = false;
 
   Movement get m => widget.m;
@@ -476,7 +438,23 @@ class _MovementRowState extends ConsumerState<_MovementRow> {
       if (!mounted) return;
 
       if (t == null) {
-        _say('لا توجد فاتورة استلام لهذه الحركة — الحوالة ليست واردة إليك.');
+        // ليست في دفتر الوارد ⇒ حوالةٌ أرسلها الوكيل. تُقرأ من المنظومة
+        // وتُفتح بفاتورة «صادرة» — بلا زرّ تسليم.
+        //
+        // كان السهم هنا يقول «لا توجد فاتورة استلام» ويقف، وهو صحيحٌ حرفياً
+        // ومُربك عملياً: الحوالة أمام الوكيل في القائمة، فيقرأ الرفض عطباً.
+        final out = await ref
+            .read(agentIncomingRepositoryProvider)
+            .findOutgoing(m.code);
+        if (!mounted) return;
+
+        if (out == null) {
+          _say('لا توجد فاتورة لهذه الحركة.');
+          return;
+        }
+        await Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(builder: (_) => OutgoingReceiptScreen(transfer: out)),
+        );
         return;
       }
       await Navigator.of(context, rootNavigator: true).push(
@@ -524,6 +502,16 @@ class _MovementRowState extends ConsumerState<_MovementRow> {
   ///
   /// وحركةٌ خارج ذلك الدفتر — حوالة صادرة، أو عمولة — لا حالة تسليم لها،
   /// فتُوسم باتجاهها كما كانت.
+  /// وسم البطاقة، بثلاث أولويات.
+  ///
+  /// 1. **دفتر تسليم الوكيل** للواردة — قرار المالك (2 سبتمبر 2026): «هل
+  ///    دفعتُ المال للمستفيد؟» لا «أين الحوالة بيني وبين الرحالة؟».
+  /// 2. **حالة المنظومة** لما هو خارج ذلك الدفتر — أي الصادرة (قرار المالك،
+  ///    4 سبتمبر 2026). والاسم يُعرض **كما كتبته المنظومة حرفياً**: «مرسلة
+  ///    مع مندوب» و«غير مسلمه» حالتان مختلفتان، واختصارهما إلى «صادرة»
+  ///    يُخفي عن الوكيل أين حوالته الآن.
+  /// 3. **الاتجاه** إن لم يعرف عنها شيئاً — حركة ليست حوالة، أو حوالة قديمة
+  ///    لا صفّ لها في `InternalEx`.
   String get _badge {
     if (m.isCommission) return 'عمولة';
     if (!m.isTransfer) return m.isCredit ? 'إيداع' : 'خصم';
@@ -531,15 +519,35 @@ class _MovementRowState extends ConsumerState<_MovementRow> {
     final badge = m.agentBadge;
     if (badge.isNotEmpty) return badge;
 
+    if (m.deliveryStatus.isNotEmpty) return m.deliveryStatus;
+
     return m.isCredit ? 'واردة' : 'صادرة';
   }
 
-  /// الملغاة حمراء دائماً ولو كانت الحركة واردة.
+  /// الملغاة حمراء دائماً ولو كانت الحركة واردة، والمسلَّمة خضراء ولو كانت
+  /// خصماً على الحساب.
   ///
   /// لونُ الاتجاه وحده يجعل حوالةً ملغاة تبدو خضراء عاديّة، والوكيل قد يدفع
-  /// مالها. اللون هنا تحذير، لا زينة.
+  /// مالها. اللون هنا تحذير، لا زينة — ولذلك تعلو **مرحلةُ** الحوالة على
+  /// اتجاه المال في تحديده.
   RowTone get _tone {
     if (m.isTransfer && m.agentBadge == 'ملغاة') return RowTone.debit;
+
+    // حوالة صادرة: المرحلة هي التي تلوّن.
+    if (m.isTransfer && m.agentBadge.isEmpty) {
+      switch (m.stage) {
+        case CoreStage.cancelled:
+        case CoreStage.cancelling:
+          return RowTone.debit;
+        case CoreStage.delivered:
+          return RowTone.credit;
+        case CoreStage.pending:
+        case CoreStage.onWay:
+        case CoreStage.unknown:
+          break;
+      }
+    }
+
     return m.isCredit ? RowTone.credit : RowTone.debit;
   }
 
@@ -670,23 +678,6 @@ class _MovementRowState extends ConsumerState<_MovementRow> {
   }
 }
 
-class _EmptyMovements extends StatelessWidget {
-  const _EmptyMovements();
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 40),
-        child: Column(
-          children: [
-            RhallaLogo(size: 56, color: R.primaryA(.3)),
-            const SizedBox(height: 18),
-            Text('لا توجد حركة على الحساب بعد',
-                style: T.kufi(15, FontWeight.w600, height: 1.5)),
-          ],
-        ),
-      );
-}
-
 class _LimitSkeleton extends StatelessWidget {
   const _LimitSkeleton();
 
@@ -709,8 +700,8 @@ class _LimitSkeleton extends StatelessWidget {
       );
 }
 
-class _RowsSkeleton extends StatelessWidget {
-  const _RowsSkeleton();
+class MovementsSkeleton extends StatelessWidget {
+  const MovementsSkeleton({super.key});
 
   @override
   Widget build(BuildContext context) => Column(
@@ -778,36 +769,6 @@ class _ErrorCard extends StatelessWidget {
 
 /// «عرض الكل ›» بجانب عنوان آخر العمليات.
 ///
-/// السهم إلى اليسار — جهة المتابعة في واجهة عربية.
-class _SeeAllButton extends StatelessWidget {
-  const _SeeAllButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-        color: R.primaryA(.08),
-        borderRadius: BorderRadius.circular(R.rPill),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(R.rPill),
-          child: Padding(
-            // 36 ارتفاعاً بالحشوة — أقلّ من 44 لأنه اختصارٌ مكرّر: الشاشة
-            // نفسها في شريط التنقّل السفلي بهدف إصابة كامل.
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('عرض الكل',
-                    style: T.plex(11.5, FontWeight.w600, color: R.primaryDark)),
-                const SizedBox(width: 4),
-                Icon(Icons.chevron_left_rounded, size: 16, color: R.primaryDark),
-              ],
-            ),
-          ),
-        ),
-      );
-}
 
 /// سطر عمولة الحوالة — تابعٌ لها لا عمليةٌ مستقلّة.
 ///

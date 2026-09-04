@@ -281,6 +281,12 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
   // ومساعدة الوكيل على معرفة ما سلّمه وما لم يسلّمه.
   Route::get('agent/incoming-transfers',
       [ AgentIncomingTransfersController::class , 'index' ]);
+  Route::get('agent/outgoing-transfers/pending',
+      [ AgentIncomingTransfersController::class , 'pendingOutgoing' ]);
+
+  Route::get('agent/outgoing-transfers/{code}',
+      [ AgentIncomingTransfersController::class , 'outgoingByCode' ])->where('code', '[A-Za-z0-9-]+');
+
   Route::post('agent/incoming-transfers/{id}/deliver',
       [ AgentIncomingTransfersController::class , 'deliver' ])->whereNumber('id');
 

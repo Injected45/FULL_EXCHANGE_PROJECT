@@ -2234,6 +2234,15 @@ return $this->sendResponse( $results , 'Success');
              JOIN InternalEx_Stautes s ON s.ConfirmType = ie.ConfirmType
             WHERE ie.Code = a.ISID) AS DeliveryStatus,
 
+          -- رقم الحالة نفسه، لا اسمها وحده.
+          --
+          -- الاسم للعرض والرقم للتلوين والترشيح: `InternalEx_Stautes` فيها
+          -- اسمان متطابقان لرقمين (3 و4 كلاهما «قيد الإلغاء»)، فالترشيح
+          -- بالاسم يخلطهما. والأرقام هي عقد المنظومة الثابت، والأسماء نصٌّ
+          -- قد يُحرَّر في الجدول.
+          (SELECT TOP 1 ie.ConfirmType FROM InternalEx ie
+            WHERE ie.Code = a.ISID) AS CoreConfirmType,
+
           -- حالة التسليم كما في شاشة «الحوالات الواردة» — وهي التي تُعرض.
           --
           -- قرار المالك (2 سبتمبر 2026): وسم الحوالة في «آخر العمليات» يُبنى
@@ -2260,11 +2269,25 @@ return $this->sendResponse( $results , 'Success');
           -- للعمولة، فلا يفترق ما يخفيه التطبيق عمّا يجمعه الخادم.
           CASE WHEN d.OperationType LIKE N'%عمولة%' THEN 1 ELSE 0 END AS IsCommission,
 
+          -- من نفّذ الحركة — للكشف المطبوع.
+          --
+          -- `transfer_attributions` هو الوحيد الذي يعرف ذلك: النسبة تُكتب
+          -- بجانب القيد لا داخله، فلا عمود في `EX24AccSafeActivityTb` يحمل
+          -- منفّذاً. و`employee_id` فارغةً تعني أن الوكيل نفسه نفّذها.
+          --
+          -- استعلامٌ فرعي لا JOIN — للسبب المشروح أعلاه — ورخيصٌ لأنه يقع
+          -- على الفهرس الفريد (transfer_number, action).
+          (SELECT TOP 1 ISNULL(e.full_name, N'الوكيل')
+             FROM transfer_attributions ta
+             LEFT JOIN employees e ON e.id = ta.employee_id
+            WHERE ta.agent_id = ? AND ta.transfer_number = a.ISID
+            ORDER BY ta.occurred_at DESC) AS ExecutedBy,
+
           -- المبلغ الخام للصفّ، يُستعمل لجمع العمولة أدناه دون إعادة قراءة
           -- الجدول. مالياً هو `Values_to` نفسه، وإنما بلا قلب الإشارة الذي
           -- يفرضه نوع الحساب — والجمع يعني قيمة العمولة لا اتجاهها.
           CASE WHEN a.Debit > a.Credit THEN a.Debit ELSE a.Credit END AS RawValue
-      ", [$userId, $userId])
+      ", [$userId, $userId, $userId])
       ->get();
 
       /* جمع العمولة على رقم الحوالة — المرور الوحيد.

@@ -3,8 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format/fmt.dart';
-import '../../core/net/api_client.dart';
-import '../../core/net/api_envelope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
@@ -12,21 +10,12 @@ import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
 import '../home/home_repository.dart';
+import '../home/home_screen.dart';
+import '../branding/branding_controller.dart';
+import '../transfers/receipt.dart';
+import 'statement_pdf.dart';
 
-/// الكشف الكامل. الخادم يعيد **كل** التاريخ بلا ترقيم (رُصد 3345 صفاً)،
-/// فنجلب مرة ونعرض دفعات.
-final statementProvider = FutureProvider.autoDispose<List<Movement>>((ref) async {
-  final api = ref.watch(apiClientProvider);
-  try {
-    final env = await api.get('/device/local/account/statment');
-    return env.rows.map(Movement.fromJson).toList();
-  } on ApiFailure catch (e) {
-    if (e.isEmptyResult) return const [];
-    rethrow;
-  }
-});
-
-enum _Filter { all, credit, debit }
+enum _Filter { all, credit, debit, cancelled }
 
 class StatementScreen extends ConsumerStatefulWidget {
   const StatementScreen({super.key});
@@ -39,6 +28,73 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
   _Filter _filter = _Filter.all;
   static const _pageSize = 30;
   int _shown = _pageSize;
+
+  /// بناء الـ PDF عملٌ ثقيل نسبياً — والزرّ يُقفل أثناءه حتى لا يُبنى
+  /// كشفان معاً على ضغطتين متتاليتين.
+  bool _busy = false;
+
+  /// يصدّر **ما هو معروض**: المرشَّح الحالي وكل صفوفه، لا الصفحة المرئية.
+  ///
+  /// `_shown` ترقيمٌ للعرض لا للبيانات — وكشفٌ مطبوع ينتهي عند الصف الثلاثين
+  /// لأن الوكيل لم يضغط «عرض المزيد» كشفٌ ناقص لا يُكتشف نقصُه.
+  Future<void> _export(List<Movement> all, String currency) async {
+    final rows = switch (_filter) {
+      _Filter.all => all,
+      _Filter.credit => all.where((m) => m.isCredit).toList(),
+      _Filter.debit => all.where((m) => !m.isCredit).toList(),
+      // «ملغاة» ترشيحٌ بحالة المنظومة لا باتّجاه المال، فتتقاطع مع الوارد
+      // والصادر ولا تُطرح منهما: حوالةٌ ملغاة تبقى في «الوارد» لأنها دخلت
+      // الحساب فعلاً، والإجماليات فوق الشاشة تبقى صحيحة.
+      _Filter.cancelled => all.where((m) => m.isCancelledByCore).toList(),
+    };
+
+    if (rows.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('لا حركات في هذا النطاق',
+              style: T.plex(13, FontWeight.w500, color: Colors.white)),
+          backgroundColor: R.inkA(.92),
+          behavior: SnackBarBehavior.floating,
+        ));
+      return;
+    }
+
+    final scope = switch (_filter) {
+      _Filter.all => StatementPdf.kAll,
+      _Filter.credit => StatementPdf.kCredit,
+      _Filter.debit => StatementPdf.kDebit,
+      _Filter.cancelled => StatementPdf.kCancelled,
+    };
+
+    setState(() => _busy = true);
+    try {
+      final user = ref.read(authControllerProvider).user;
+      final brand = ref.read(brandingControllerProvider).branding;
+
+      final bytes = await StatementPdf.build(
+        rows: rows,
+        scope: scope,
+        currency: currency,
+        // هوية الشركة لا هوية الرحالة — كما في الفواتير.
+        companyName: brand.displayName,
+        companyNameEn: brand.companyNameEn,
+        accountLabel: user == null
+            ? null
+            : 'حساب ${user.accId}'
+                '${(user.branchName ?? '').isEmpty ? '' : ' · ${user.branchName}'}',
+      );
+
+      if (!mounted) return;
+      await Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(
+          builder: (_) => PrintPreview(bytes: bytes, name: 'كشف-$scope'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +109,23 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
             title: 'كشف الحساب',
             subtitle: user == null ? null : 'ACC ${user.accId} · ${user.branchName ?? ''}',
             onBack: () => context.pop(),
+            // زرّ التصدير في الرأس لا أسفل القائمة: الكشف قد يمتدّ مئات
+            // الصفوف، وزرٌّ في نهايته يعني تمريراً طويلاً للوصول إليه.
+            // ويُصدَّر **المرشَّح المعروض** — فما يُطبع هو ما يُرى.
+            trailing: CircleIconButton(
+              onPressed: async.hasValue && !_busy
+                  ? () => _export(async.value!, currency)
+                  : null,
+              child: _busy
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: R.primaryDark),
+                    )
+                  : Icon(Icons.picture_as_pdf_outlined,
+                      size: 18, color: R.ink),
+            ),
           ),
           Expanded(
             child: async.when(
@@ -63,11 +136,23 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
                 onRetry: () => ref.invalidate(statementProvider),
               ),
               data: (all) {
+                // العمولة لا بطاقةَ لها في العرض (قرار المالك، 4 سبتمبر
+                // 2026): تظهر سطراً داخل بطاقة حوالتها كما في «آخر العمليات»،
+                // فتُقرأ الحوالة وعمولتها وحدةً واحدة بدل صفّين متباعدين.
+                //
+                // ⚠ حجبٌ في الشاشة **لا في الكشف**: `_export` يبني الـ PDF من
+                // `all` بلا هذا الترشيح، فالكشف المطبوع يبقى كامل الصفوف —
+                // ورقةٌ محاسبية تُخفي خصماً ليست كشفاً. والرصيد في كل صفّ
+                // يأتي من الخادم كما هو، فلا يتغيّر بحجب بطاقة.
                 final rows = switch (_filter) {
                   _Filter.all => all,
                   _Filter.credit => all.where((m) => m.isCredit).toList(),
                   _Filter.debit => all.where((m) => !m.isCredit).toList(),
-                };
+                  _Filter.cancelled =>
+                    all.where((m) => m.isCancelledByCore).toList(),
+                }
+                    .where((m) => !m.isCommission)
+                    .toList();
                 final visible = rows.take(_shown).toList();
                 final groups = _groupByDate(visible);
 
@@ -112,7 +197,7 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
                         ),
                         for (var i = 0; i < g.value.length; i++) ...[
                           if (i > 0) const SizedBox(height: R.gapRow),
-                          _MovementRow(m: g.value[i], currency: currency),
+                          MovementRow(m: g.value[i], currency: currency),
                         ],
                         const SizedBox(height: 16),
                       ],
@@ -231,21 +316,29 @@ class _Filters extends StatelessWidget {
   final ValueChanged<_Filter> onChanged;
 
   @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          for (final f in _Filter.values) ...[
-            if (f != _Filter.all) const SizedBox(width: 8),
-            _Chip(
-              label: switch (f) {
-                _Filter.all => 'الكل',
-                _Filter.credit => 'وارد',
-                _Filter.debit => 'صادر',
-              },
-              on: f == value,
-              onTap: () => onChanged(f),
-            ),
+  // تمريرٌ أفقيّ خلف الصفّ: أربع شرائح تسع الشاشة المتوسّطة، لكن خطّاً
+  // أكبر في إعدادات الجهاز أو مرشِّحاً خامساً غداً يفيض الصفّ ويُظهر شريط
+  // العطل الأصفر. والتمرير لا يُرى ما دام المحتوى يسع.
+  Widget build(BuildContext context) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const ClampingScrollPhysics(),
+        child: Row(
+          children: [
+            for (final f in _Filter.values) ...[
+              if (f != _Filter.all) const SizedBox(width: 8),
+              _Chip(
+                label: switch (f) {
+                  _Filter.all => 'الكل',
+                  _Filter.credit => 'وارد',
+                  _Filter.debit => 'صادر',
+                  _Filter.cancelled => 'ملغاة',
+                },
+                on: f == value,
+                onTap: () => onChanged(f),
+              ),
+            ],
           ],
-        ],
+        ),
       );
 }
 
@@ -281,60 +374,6 @@ class _Chip extends StatelessWidget {
           ),
         ),
       );
-}
-
-class _MovementRow extends StatelessWidget {
-  const _MovementRow({required this.m, required this.currency});
-
-  final Movement m;
-  final String currency;
-
-  @override
-  Widget build(BuildContext context) {
-    final tone = m.isCredit ? RowTone.credit : RowTone.debit;
-
-    final meta = T.plex(10.5, FontWeight.w400, color: R.inkA(.5));
-
-    return GlassRow(
-      dense: true,
-      tone: tone,
-      children: [
-        Expanded(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(m.title.isEmpty ? 'حركة حساب' : Fmt.localName(m.title),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: T.plex(12.5, FontWeight.w600, color: tone.ink)),
-              const SizedBox(height: 3),
-              // الرصيد بعد الحركة يبقى محايداً: هو ليس صادراً ولا وارداً،
-              // وتلوينه بلون الحركة يوهم أنه جزء منها.
-              Row(
-                children: [
-                  Text('الرصيد', style: meta),
-                  const SizedBox(width: 5),
-                  Directionality(
-                    textDirection: TextDirection.ltr,
-                    child: Text(Fmt.money(m.balance), style: meta),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 10),
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Text(
-            Fmt.moneyWithSign(m.amount, credit: m.isCredit),
-            style: T.kufi(13.5, FontWeight.w700, color: tone.ink),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _Empty extends StatelessWidget {

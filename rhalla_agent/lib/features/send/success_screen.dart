@@ -257,8 +257,8 @@ class _Invoice extends StatelessWidget {
             const ReceiptHeader(),
             const SizedBox(height: kGap),
             // وقت الخادم بالمباعدة نفسها المستعملة في فاتورة التسليم.
-            ReceiptRow('تاريخ التحويل',
-                Fmt.stamp(t.insertedAt, separator: '    '),
+            ReceiptRow('تاريخ ووقت التحويل',
+                Fmt.stamp(t.insertedAt, separator: '  '),
                 ltr: true),
             if (senderName.isNotEmpty)
               ReceiptRow('اسم المرسل', senderName, strong: true),

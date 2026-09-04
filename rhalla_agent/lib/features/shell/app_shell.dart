@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/keyboard.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
-import '../auth/auth_controller.dart';
 import 'auto_refresh.dart';
 
 class AppShell extends ConsumerWidget {
@@ -16,10 +16,6 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // تبويب نقاط البيع للوكيل الرئيسي فقط — نقطة البيع نفسها لا تراه،
-    // والخادم يرد 403 على نقاطه أصلاً.
-    final isMain = ref.watch(authControllerProvider).user?.isMainAgent ?? false;
-
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -34,11 +30,16 @@ class AppShell extends ConsumerWidget {
             bottom: 14,
             child: _NavBar(
               index: navigationShell.currentIndex,
-              showPos: isMain,
-              onTap: (i) => navigationShell.goBranch(
-                i,
-                initialLocation: i == navigationShell.currentIndex,
-              ),
+              // إغلاق اللوحة قبل تبديل التبويب: فروع الهيكل تبقى حيّة في
+              // `go_router`، فحقلٌ مركَّز في تبويبٍ غادرَه الوكيل يُبقي اللوحة
+              // مفتوحة فوق تبويبٍ آخر لا حقل فيه.
+              onTap: (i) {
+                hideKeyboard();
+                navigationShell.goBranch(
+                  i,
+                  initialLocation: i == navigationShell.currentIndex,
+                );
+              },
             ),
           ),
         ],
@@ -48,18 +49,16 @@ class AppShell extends ConsumerWidget {
 }
 
 class _NavBar extends StatelessWidget {
-  const _NavBar({required this.index, required this.onTap, required this.showPos});
+  const _NavBar({required this.index, required this.onTap});
 
   final int index;
   final ValueChanged<int> onTap;
-  final bool showPos;
 
   @override
   Widget build(BuildContext context) {
     final items = <_NavItem>[
       const _NavItem('الرئيسية', Icons.home_outlined, Icons.home_rounded),
-      const _NavItem('الحوالات', Icons.swap_horiz_rounded, Icons.swap_horiz_rounded),
-      if (showPos) const _NavItem('نقاط البيع', Icons.storefront_outlined, Icons.storefront_rounded),
+      const _NavItem('التقارير', Icons.assessment_outlined, Icons.assessment_rounded),
       const _NavItem('الحساب', Icons.person_outline_rounded, Icons.person_rounded),
     ];
 

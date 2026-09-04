@@ -6,6 +6,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import 'ambient.dart';
+import '../../core/keyboard.dart';
 
 /// بطاقة زجاجية — الأساس البصري لكل شيء في هذا التطبيق.
 class GlassCard extends StatelessWidget {
@@ -368,17 +369,30 @@ class Screen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.transparent,
-        body: Stack(
-          children: [
-            SafeArea(bottom: false, child: child),
-            if (bottomBar != null)
-              PositionedDirectional(
-                start: 16,
-                end: 16,
-                bottom: 14,
-                child: bottomBar!,
-              ),
-          ],
+        // لمسةٌ في الفراغ تُغلق لوحة المفاتيح (قرار المالك، 4 سبتمبر 2026).
+        //
+        // اللوحة كانت تبقى مفتوحة بعد مغادرة الحقل فتأكل نصف الشاشة: يكتب
+        // الوكيل في البحث ثم يبدّل التبويب، فيختفي الحقل من الشجرة **ولا
+        // يُفقد التركيز** — والنظام يُبقي اللوحة لأن لا أحد أخبره أن الحقل
+        // انصرف.
+        //
+        // `translucent` لا `opaque`: الأزرار والحقول تلتقط لمساتها أولاً،
+        // ولا يصل إلى هنا إلا ما لم يلتقطه أحد — أي اللمس في الفراغ.
+        body: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => hideKeyboard(),
+          child: Stack(
+            children: [
+              SafeArea(bottom: false, child: child),
+              if (bottomBar != null)
+                PositionedDirectional(
+                  start: 16,
+                  end: 16,
+                  bottom: 14,
+                  child: bottomBar!,
+                ),
+            ],
+          ),
         ),
       );
 }

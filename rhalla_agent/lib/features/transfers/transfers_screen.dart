@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/format/fmt.dart';
+import '../../core/keyboard.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
@@ -11,6 +13,9 @@ import '../../ui/widgets/glass.dart';
 import 'agent_incoming_repository.dart';
 import 'delivery_receipt_screen.dart';
 import 'transfers_repository.dart';
+import '../auth/auth_controller.dart';
+import '../home/home_repository.dart';
+import '../home/home_screen.dart';
 
 /// تبويب الحوالات — إدخال رمز للتسليم، وقائمة ما ينتظر التسليم في الفرع.
 class TransfersScreen extends ConsumerStatefulWidget {
@@ -29,6 +34,9 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
   int _shown = _pageSize;
 
   IncomingTab _tab = IncomingTab.pending;
+
+  /// القسم الأعلى: واردة (افتراضياً) أو صادرة.
+  bool _outgoing = false;
 
   /// آخر صفحة وصلت — تُبقي الأعداد ثابتة أثناء التحميل بدل أن تومض صفراً.
   IncomingPage? _lastPage;
@@ -78,12 +86,38 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
       child: Column(
         children: [
           RhallaAppBar(
-            title: 'الحوالات الواردة',
+            title: 'الحوالات',
+            // زرّ رجوع لأنها لم تعد تبويباً في الشريط (قرار المالك، 3 سبتمبر
+            // 2026): تُدفع من زرّ «الحوالات» في الرئيسية، وشاشةٌ مدفوعة بلا
+            // رجوع تحبس الوكيل فيها.
+            onBack: () => context.pop(),
             // بلا سطر فرعي — قرار المالك (2 سبتمبر 2026): لا اسم الوكيل ولا
             // «التسليم والمتابعة». اسم الفرع يبقى ظاهراً في تبويب الحساب.
             // لا زرّ «مسح السجل»: السجل صار في قاعدة الخادم، ومسحُه من
             // الهاتف كان يمحو دليل من سُلِّم.
           ),
+
+          // واردة | صادرة — القسمة العليا (قرار المالك، 3 سبتمبر 2026).
+          //
+          // الواردة تبقى **كما هي حرفياً**: تبويباتها الثلاثة وبحثها وبطاقاتها
+          // لم يُمسّ منها شيء، وإنما صارت تحت هذا المفتاح. والصادرة انتقلت
+          // إليه من «آخر العمليات» في الواجهة، فخفّت الواجهة وزال التكرار.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(R.padScreen, 16, R.padScreen, 0),
+            child: _SectionSwitch(
+              outgoing: _outgoing,
+              // إغلاق اللوحة قبل تبديل القسم: حقل البحث يختفي مع «واردة»،
+              // وحقلٌ يُنتزع من الشجرة وهو مركَّز يترك اللوحة معلّقة.
+              onChanged: (v) {
+                hideKeyboard();
+                setState(() => _outgoing = v);
+              },
+            ),
+          ),
+
+          if (_outgoing)
+            const Expanded(child: _OutgoingList())
+          else ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(R.padScreen, 18, R.padScreen, 0),
             child: _Tabs(
@@ -184,10 +218,307 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
               },
             ),
           ),
+          ],
         ],
       ),
     );
   }
+}
+
+/// مفتاح القسم الأعلى — واردة | صادرة.
+///
+/// شريحتان لا ثلاث: القسمة هنا اتجاهُ الحوالة، وحالاتُ الواردة الثلاث تبقى
+/// في شريطها الخاصّ تحته. دمجُ المستويين في شريطٍ واحد كان يعطي خمس شرائح
+/// لا تُقرأ، ويخلط سؤال «من أين؟» بسؤال «أين وصلت؟».
+class _SectionSwitch extends StatelessWidget {
+  const _SectionSwitch({required this.outgoing, required this.onChanged});
+
+  final bool outgoing;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(
+            child: _SectionChip(
+              label: 'واردة',
+              icon: Icons.call_received_rounded,
+              on: !outgoing,
+              onTap: () => onChanged(false),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _SectionChip(
+              label: 'صادرة',
+              icon: Icons.call_made_rounded,
+              on: outgoing,
+              onTap: () => onChanged(true),
+            ),
+          ),
+        ],
+      );
+}
+
+class _SectionChip extends StatelessWidget {
+  const _SectionChip({
+    required this.label,
+    required this.icon,
+    required this.on,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool on;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: on ? Colors.transparent : R.whiteA(.7),
+        borderRadius: BorderRadius.circular(99),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(99),
+          onTap: onTap,
+          child: Ink(
+            height: 46,
+            decoration: BoxDecoration(
+              gradient: on ? R.primaryGradient : null,
+              border: on ? null : Border.all(color: R.whiteA(.9)),
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 17, color: on ? Colors.white : R.inkA(.55)),
+                const SizedBox(width: 8),
+                Text(label,
+                    style: T.kufi(13, FontWeight.w700,
+                        color: on ? Colors.white : R.inkA(.62))),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
+/// «صادرة» — الحوالات التي أرسلها الوكيل.
+///
+/// تُقرأ من كشف الحساب لا من دفتر التسليم: ذلك الدفتر للواردة وحدها
+/// (`InternalEx_SelectType_View_statetosForok` سجلّ تسليمٍ لا سجلّ إرسال —
+/// انظر CLAUDE.md). والصادر هو ما خرج من حساب الوكيل.
+///
+/// وبطاقاتها هي **بطاقات «آخر العمليات» نفسها** بلا تغيير — نُقلت من الواجهة
+/// إلى هنا، فما ألِفه الوكيل بقي كما هو.
+class _OutgoingList extends ConsumerStatefulWidget {
+  const _OutgoingList();
+
+  @override
+  ConsumerState<_OutgoingList> createState() => _OutgoingListState();
+}
+
+class _OutgoingListState extends ConsumerState<_OutgoingList> {
+  /// null = «الكل». وترتيب الشرائح يتبع رحلة الحوالة لا الأبجدية.
+  CoreStage? _stage;
+
+  static const _stages = [
+    CoreStage.pending,
+    CoreStage.onWay,
+    CoreStage.delivered,
+    CoreStage.cancelling,
+    CoreStage.cancelled,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final snap = ref.watch(statementProvider);
+    // غير المعتمدة تُجلب على حدة: لا قيد لها في كشف الحساب حتى تُعتمد.
+    // وفشلها لا يُسقط القائمة — تُعرض المعتمدة ويغيب الجديد وحده.
+    final pending = ref.watch(pendingOutgoingProvider).valueOrNull ?? const [];
+    final currency =
+        ref.watch(authControllerProvider).user?.currencyCode ?? 'د.ل';
+
+    return snap.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.fromLTRB(R.padScreen, 16, R.padScreen, 0),
+        child: MovementsSkeleton(),
+      ),
+      error: (e, _) => _Failed(
+        message: '$e',
+        onRetry: () => ref.invalidate(statementProvider),
+      ),
+      data: (rowsAll) {
+        // الصادر = حركةُ حوالةٍ خرجت من الحساب. والعمولة مستثناة لأنها تظهر
+        // سطراً داخل بطاقة حوالتها لا بطاقةً مستقلّة (قرار 3 سبتمبر 2026).
+        // غير المعتمدة أوّلاً: هي الأحدث دائماً، وهي ما يبحث عنه الوكيل
+        // فور إنشائه حوالة.
+        final all = [
+          ...pending,
+          ...rowsAll
+              .where((m) => m.isTransfer && !m.isCommission && !m.isCredit),
+        ];
+
+        if (all.isEmpty) return const _NoOutgoing();
+
+        // الأعداد تُحسب على **كل** الصادرة لا على المعروض، وإلا صار كل عدد
+        // صفراً إلا عدد الشريحة المختارة.
+        final counts = <CoreStage, int>{};
+        for (final m in all) {
+          counts[m.stage] = (counts[m.stage] ?? 0) + 1;
+        }
+
+        final rows =
+            _stage == null ? all : all.where((m) => m.stage == _stage).toList();
+
+        return Column(
+          children: [
+            // شرائح المراحل — تظهر المرحلة فقط إن كان لها حوالةٌ فعلاً.
+            //
+            // شريحةٌ فارغة تعد الوكيل بشيء ثم تريه لا شيء؛ وإخفاؤها يجعل
+            // الشريط يصف حوالاته هو، لا كتالوج المنظومة.
+            Padding(
+              padding:
+                  const EdgeInsets.fromLTRB(R.padScreen, 14, R.padScreen, 2),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const ClampingScrollPhysics(),
+                child: Row(
+                  children: [
+                    _StageChip(
+                      label: 'الكل',
+                      count: all.length,
+                      on: _stage == null,
+                      onTap: () => setState(() => _stage = null),
+                    ),
+                    for (final st in _stages)
+                      if ((counts[st] ?? 0) > 0) ...[
+                        const SizedBox(width: 8),
+                        _StageChip(
+                          label: st.label,
+                          count: counts[st]!,
+                          on: _stage == st,
+                          onTap: () => setState(() => _stage = st),
+                        ),
+                      ],
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: rows.isEmpty
+                  ? const _NoOutgoing()
+                  : RefreshIndicator(
+                      onRefresh: () async =>
+                          ref.refresh(statementProvider.future).then(
+                              (_) => ref.refresh(pendingOutgoingProvider.future)),
+                      color: R.primary,
+                      backgroundColor: Colors.white,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(
+                            R.padScreen, 14, R.padScreen, 120),
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: rows.length,
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: R.gapRow),
+                        itemBuilder: (_, i) => RiseIn.small(
+                          delay: Duration(milliseconds: 40 * i),
+                          child: MovementRow(m: rows[i], currency: currency),
+                        ),
+                      ),
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// شريحة مرحلة — الاسم وبجانبه عددُه.
+///
+/// العدد ليس زينة: الوكيل يريد أن يعرف كم حوالةً عالقة «في الطريق» قبل أن
+/// يفتحها، والرقم بجانب الاسم يجيب عن ذلك بلا ضغطة.
+class _StageChip extends StatelessWidget {
+  const _StageChip({
+    required this.label,
+    required this.count,
+    required this.on,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool on;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: on ? Colors.transparent : R.whiteA(.7),
+        borderRadius: BorderRadius.circular(99),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(99),
+          onTap: onTap,
+          child: Ink(
+            height: 40,
+            decoration: BoxDecoration(
+              gradient: on ? R.primaryGradient : null,
+              border: on ? null : Border.all(color: R.whiteA(.9)),
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 15),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(label,
+                      style: T.kufi(11.5, FontWeight.w600,
+                          color: on ? Colors.white : R.inkA(.62))),
+                  const SizedBox(width: 6),
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Text('$count',
+                        style: T.plex(11, FontWeight.w700,
+                            color: on ? R.whiteA(.85) : R.inkA(.42))),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+class _NoOutgoing extends StatelessWidget {
+  const _NoOutgoing();
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(R.padScreen),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 74,
+                height: 74,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: R.primaryA(.09),
+                ),
+                child: Icon(Icons.call_made_rounded,
+                    size: 30, color: R.primaryGradEnd),
+              ),
+              const SizedBox(height: 16),
+              Text('لا حوالات صادرة بعد',
+                  textAlign: TextAlign.center, style: T.titleSm),
+              const SizedBox(height: 8),
+              Text('ستظهر هنا كل حوالة ترسلها من الشاشة الرئيسية.',
+                  textAlign: TextAlign.center,
+                  style: T.plex(12.5, FontWeight.w400, color: R.inkA(.5))),
+            ],
+          ),
+        ),
+      );
 }
 
 /// شريط التبويب — بانتظار التسليم / تم التسليم، وبجانب كلٍّ عددُه.
@@ -349,8 +680,9 @@ class _TransferRow extends StatelessWidget {
   /// سُجِّل تسليمها للمستفيد.
   final bool done;
 
-  /// ألغتها الرحالة. تُميَّز بالأحمر حتى في «تم التسليم»: الوكيل دفع مالها،
-  /// ومعرفته بالإلغاء تعنيه فوراً.
+  /// ألغتها الرحالة — وتعلو على [done] في الأيقونة كما تعلو عليه في
+  /// التبويبات (أمر المالك، 3 سبتمبر 2026): الملغاة ملغاةٌ ولو سُلّمت،
+  /// ولا وسم ثانياً يقول إنها سُلّمت.
   final bool cancelled;
 
   @override

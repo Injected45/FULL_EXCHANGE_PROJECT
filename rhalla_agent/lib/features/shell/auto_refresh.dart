@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../home/home_repository.dart';
 import '../pos/pos_repository.dart';
-import '../statement/statement_screen.dart';
 import '../transfers/transfers_repository.dart';
 
 /// كل ما قد يتغيّر على الخادم بعد عملية تُحرّك المال.

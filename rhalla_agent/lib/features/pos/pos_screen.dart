@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/format/fmt.dart';
 import '../../core/net/api_envelope.dart';
@@ -25,7 +26,11 @@ class PosScreen extends ConsumerWidget {
       return Screen(
         child: Column(
           children: [
-            const RhallaAppBar(title: 'نقاط البيع'),
+            RhallaAppBar(
+              title: 'نقاط البيع',
+              // صارت تُدفع من تبويب الحساب لا تبويباً في الشريط، فتحتاج رجوعاً.
+              onBack: () => context.pop(),
+            ),
             Expanded(
               child: Center(
                 child: Padding(
@@ -59,6 +64,8 @@ class PosScreen extends ConsumerWidget {
           RhallaAppBar(
             title: 'نقاط البيع',
             subtitle: '${user?.branchName ?? ''} · المخوّلون لديك',
+            // صارت تُدفع من تبويب الحساب لا تبويباً في الشريط، فتحتاج رجوعاً.
+            onBack: () => context.pop(),
             trailing: _AddButton(
               onTap: () => _openAdd(context, ref),
             ),

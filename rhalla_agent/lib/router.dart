@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/keyboard.dart';
 import 'features/account/account_screen.dart';
 import 'features/account/security_screen.dart';
 import 'features/branding/branding_controller.dart';
@@ -37,6 +38,7 @@ import 'features/send/send_repository.dart';
 import 'features/send/success_screen.dart';
 import 'features/shell/app_shell.dart';
 import 'features/statement/statement_screen.dart';
+import 'features/reports/reports_screen.dart';
 import 'features/transfers/transfers_screen.dart';
 
 final _rootKey = GlobalKey<NavigatorState>();
@@ -59,6 +61,8 @@ final routerProvider = Provider<GoRouter>((ref) {
 
   return GoRouter(
     navigatorKey: _rootKey,
+    // يُغلق لوحة المفاتيح عند كل انتقال — انظر [KeyboardDismisser].
+    observers: [KeyboardDismisser()],
     initialLocation: '/',
     refreshListenable: _AuthListenable(ref),
     redirect: (context, state) {
@@ -107,7 +111,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       // مسجّل دخول — لا يبقى في مسار المصادقة.
       if (inAuthFlow) return '/';
 
-      // تبويب نقاط البيع للوكيل الرئيسي وحده؛ الخادم يرد 403 لغيره.
+      // «نقاط البيع» للوكيل الرئيسي وحده؛ الخادم يرد 403 لغيره. صارت شاشةً
+      // تُدفع لا تبويباً، والحارس باقٍ: الرابط قد يُفتح بلا مرور بالحساب.
       if (loc == '/pos' && auth.user?.isMainAgent != true) return '/';
 
       return null;
@@ -158,6 +163,21 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/statement',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const StatementScreen(),
+      ),
+      // «الحوالات الواردة» كانت تبويباً في الشريط فصارت شاشةً تُدفع — من زرّ
+      // «تسليم» في الرئيسية، ومن «التقارير». وكونُها مدفوعةً على الجذر يعني
+      // أن الرجوع يعيد الوكيل إلى حيث كان بدل أن يقفز به إلى تبويب آخر.
+      GoRoute(
+        path: '/transfers',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const TransfersScreen(),
+      ),
+      // «نقاط البيع» خرجت من شريط التبويبات (قرار المالك، 3 سبتمبر 2026):
+      // مدخلها في تبويب الحساب، وتبويبٌ ثانٍ لها تكرار. فصار الشريط ثلاثة.
+      GoRoute(
+        path: '/pos',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const PosScreen(),
       ),
       GoRoute(
         path: '/favorites',
@@ -269,11 +289,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(routes: [
             GoRoute(path: '/', builder: (_, _) => const HomeScreen()),
           ]),
+          // «التقارير» حلّ محلّ «الحوالات» في الشريط (قرار المالك، 3 سبتمبر
+          // 2026): التبويب القديم كان يفتح ما يفتحه زرّ «تسليم» في الرئيسية.
+          // و«الحوالات الواردة» انتقلت إلى مسارٍ مدفوع أعلاه — لم تُحذف.
           StatefulShellBranch(routes: [
-            GoRoute(path: '/transfers', builder: (_, _) => const TransfersScreen()),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(path: '/pos', builder: (_, _) => const PosScreen()),
+            GoRoute(path: '/reports', builder: (_, _) => const ReportsScreen()),
           ]),
           StatefulShellBranch(routes: [
             GoRoute(path: '/account', builder: (_, _) => const AccountScreen()),

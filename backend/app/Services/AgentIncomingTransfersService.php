@@ -204,10 +204,17 @@ class AgentIncomingTransfersService
     /**
      * تبويب ثالث محسوب لا مخزَّن.
      *
-     * قرار المالك (2 سبتمبر 2026): ما تلغيه الرحالة ينتقل إلى «الملغاة»،
-     * **إلا إن كان قد سُلِّم** فيبقى في «تم التسليم». فليست حالةً ثالثة في
-     * العمود `status` — لو كانت، لاحتاج تسليمُ الوكيل وإلغاءُ المنظومة أن
-     * يتنازعا خانةً واحدة. هي تقاطع: حالة الوكيل PENDING مع إلغاء المنظومة.
+     * قرار المالك (3 سبتمبر 2026، ناسخٌ لقرار 2 سبتمبر): ما تلغيه الرحالة
+     * ينتقل إلى «الملغاة» **ولو كان قد سُلِّم**. الدفتر تنظيمٌ ظاهريّ في
+     * الواجهة لا قيدٌ محاسبي، فالحالة الأحدث في المنظومة هي التي تُعرض.
+     *
+     * وليست حالةً ثالثة في العمود `status` — لو كانت، لاحتاج تسليمُ الوكيل
+     * وإلغاءُ المنظومة أن يتنازعا خانةً واحدة، فيمحو أحدهما الآخر. هي
+     * ترشيحٌ محسوب: إلغاء المنظومة يعلو، و`status` يبقى محفوظاً تحته.
+     *
+     * ولا وسم ثانياً يقول إنها سُلّمت (أمر المالك الصريح): «ملغاة» وحدها.
+     * والعمود `status` يبقى في القاعدة وفي الرد كما هو — لم يُحذف، وإنما
+     * لم يعد هو ما يُعرض.
      */
     public const CANCELLED_TAB = 'CANCELLED';
 
@@ -217,8 +224,15 @@ class AgentIncomingTransfersService
         $q = DB::table('agent_incoming_transfers')->where('agent_id', $agentId);
 
         if ($status === self::CANCELLED_TAB) {
-            $q->where('status', self::PENDING)
-              ->whereIn('core_confirm_type', self::CORE_CANCELLED);
+            // بلا شرطٍ على `status`: الملغاة تشمل المسلَّمة وغير المسلَّمة.
+            $q->whereIn('core_confirm_type', self::CORE_CANCELLED);
+        } elseif ($status === self::DELIVERED) {
+            // والمسلَّمة الملغاة تخرج من هنا، وإلا ظهرت في تبويبين معاً.
+            $q->where('status', self::DELIVERED)
+              ->where(function ($w) {
+                  $w->whereNull('core_confirm_type')
+                    ->orWhereNotIn('core_confirm_type', self::CORE_CANCELLED);
+              });
         } elseif ($status === self::PENDING) {
             // «بانتظار التسليم» لا يعرض الملغاة: الوكيل لا يُطالَب بتسليمها.
             $q->where('status', self::PENDING)
@@ -240,7 +254,44 @@ class AgentIncomingTransfersService
 
         $total = (clone $q)->count();
 
+        /* سبب الإلغاء — يُقرأ من منظومة الرحالة حيث كُتب، ولا يُنسخ إلى دفترنا.
+         *
+         * موضعه في المنظومة: `TransCancelRequestTb` يحمل `ReasonID` مشيراً إلى
+         * `AddCancelReason.NewCause` (السبب المختار من القائمة)، و`Notes` نصّاً
+         * حرّاً بجانبه. والصفّ لا يُحذف عند التأكيد — `..._DeleteRequestByID`
+         * يضع `IsActive = 0` فقط — فالسبب يبقى مقروءاً بعد اكتمال الإلغاء.
+         * ولذلك لا يُرشَّح هنا بـ `IsActive`: طلبٌ نُفِّذ وأُقفل سببُه قائم.
+         *
+         * **قراءةٌ حيّة لا نسخة**: لو نُسخ السبب إلى دفتر الوكيل لحظة المزامنة،
+         * لبقي على حاله إن صُحِّح في المنظومة بعدها — فيقرأ الوكيل سبباً
+         * تراجعت عنه الرحالة.
+         *
+         * واستعلامان فرعيّان لا JOIN: قد يوجد لرقمٍ واحد أكثر من طلب إلغاء،
+         * و JOIN عليه يضاعف صفّ الحوالة في القائمة.
+         */
         $items = $q->orderByDesc('id')
+            ->selectRaw("agent_incoming_transfers.*,
+                COALESCE(
+                    -- 1) مسار «طلب إلغاء حوالة»: المبرّر المختار من القائمة.
+                    (SELECT TOP 1 r.NewCause
+                       FROM TransCancelRequestTb tc
+                       LEFT JOIN AddCancelReason r ON r.ID = tc.ReasonID
+                      WHERE tc.ISID = agent_incoming_transfers.transfer_number
+                      ORDER BY tc.ID DESC),
+                    -- 2) المبرّر المكتوب على الحوالة نفسها (مسار التاكسي).
+                    (SELECT TOP 1 r2.NewCause
+                       FROM InternalEx ie
+                       JOIN AddCancelReason r2 ON r2.ID = ie.AddCancelReason_ID
+                      WHERE ie.Code = agent_incoming_transfers.transfer_number),
+                    -- 3) نصّ حرّ يكتبه السائق حين لا مبرّر من القائمة.
+                    (SELECT TOP 1 NULLIF(LTRIM(RTRIM(ie.AddCancelReason_NameFrom_Driver)), '')
+                       FROM InternalEx ie
+                      WHERE ie.Code = agent_incoming_transfers.transfer_number)
+                ) AS cancel_reason,
+                (SELECT TOP 1 tc.Notes
+                   FROM TransCancelRequestTb tc
+                  WHERE tc.ISID = agent_incoming_transfers.transfer_number
+                  ORDER BY tc.ID DESC) AS cancel_notes")
             ->forPage($page, $perPage)
             ->get();
 
@@ -256,9 +307,8 @@ class AgentIncomingTransfersService
     /**
      * أعداد التبويبين، والملغاة معدودةٌ على حدة.
      *
-     * «بانتظار التسليم» لا يعدّ الملغاة: العدد وعدٌ بعملٍ باقٍ على الوكيل،
-     * وحوالةٌ ملغاة ليست عملاً بل تنبيه. أما «تم التسليم» فيعدّها لأنها
-     * وقعت فعلاً مهما صار حالها بعدُ.
+     * لا تبويب يعدّ الملغاة غيرُ تبويبها: العدد وعدٌ بما في التبويب، وصفٌّ
+     * يُعدّ مرّتين يجعل مجموع التبويبات أكبر من عدد الحوالات.
      */
     public function counts(int $agentId): array
     {
@@ -272,10 +322,15 @@ class AgentIncomingTransfersService
             })
             ->count();
 
-        $delivered = (clone $base)->where('status', self::DELIVERED)->count();
+        $delivered = (clone $base)
+            ->where('status', self::DELIVERED)
+            ->where(function ($w) {
+                $w->whereNull('core_confirm_type')
+                  ->orWhereNotIn('core_confirm_type', self::CORE_CANCELLED);
+            })
+            ->count();
 
         $cancelled = (clone $base)
-            ->where('status', self::PENDING)
             ->whereIn('core_confirm_type', self::CORE_CANCELLED)
             ->count();
 

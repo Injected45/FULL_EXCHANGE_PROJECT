@@ -27,6 +27,8 @@ class AgentIncomingTransfer {
     required this.deliveredAt,
     required this.coreConfirmType,
     required this.coreStatusLabel,
+    this.cancelReason = '',
+    this.cancelNotes = '',
   });
 
   /// مفتاح الصفّ في جدول التتبّع — هو ما تُرسله نقطة التسليم.
@@ -54,6 +56,20 @@ class AgentIncomingTransfer {
   /// الحسابية، وقرار المالك ألّا يمسّها التطبيق.
   final int? coreConfirmType;
   final String coreStatusLabel;
+
+  /// سبب الإلغاء كما كُتب في منظومة الرحالة لحظة الإلغاء — لا يُصاغ هنا.
+  ///
+  /// [cancelReason] هو السبب المختار من قائمة المنظومة، و[cancelNotes] نصٌّ
+  /// حرّ يُكتب بجانبه. وكلاهما **قراءةٌ حيّة** من المنظومة لا نسخةٌ في دفتر
+  /// الوكيل: سببٌ يُصحَّح هناك يجب أن يُقرأ مصحَّحاً هنا.
+  ///
+  /// وفراغهما لا يعني «بلا سبب» بل **«لم يُسجَّل سبب»** — والفرق يُعرض
+  /// للوكيل صراحةً، فادّعاءُ أن الإلغاء بلا سبب أسوأ من الاعتراف بالجهل.
+  final String cancelReason;
+  final String cancelNotes;
+
+  bool get hasCancelReason =>
+      cancelReason.isNotEmpty || cancelNotes.isNotEmpty;
 
   bool get isDelivered => status == 'DELIVERED';
 
@@ -103,6 +119,8 @@ class AgentIncomingTransfer {
             ? null
             : int.tryParse('${j['core_confirm_type']}'),
         coreStatusLabel: '${j['core_status_label'] ?? ''}'.trim(),
+        cancelReason: '${j['cancel_reason'] ?? ''}'.trim(),
+        cancelNotes: '${j['cancel_notes'] ?? ''}'.trim(),
       );
 }
 
@@ -192,6 +210,29 @@ class AgentIncomingRepository {
   ///
   /// وتُطابق الرقم تطابقاً تامّاً: بحث الخادم `LIKE %..%`، فرقمٌ يحوي رقماً
   /// آخر كان يفتح فاتورة حوالة أخرى.
+  //
+  // ملاحظة: [findOutgoing] أدناه هو نظيرها للصادرة.
+
+  /// فاتورة حوالةٍ **أرسلها** الوكيل — ليست في دفتر الوارد فتُقرأ من المنظومة.
+  ///
+  /// الخادم يقيّدها بحساب الوكيل نفسه: لا تُعاد حوالة لا أثر لها في حركاته،
+  /// ويردّ 404 بلا تفريقٍ بين «غير موجودة» و«ليست لك».
+  Future<OutgoingTransfer?> findOutgoing(String code) async {
+    final key = code.trim();
+    if (key.isEmpty) return null;
+
+    try {
+      final env = await _api.get('/agent/outgoing-transfers/$key');
+      final j = env.row;
+      if (j == null) return null;
+      return OutgoingTransfer.fromJson(j);
+    } on ApiFailure catch (e) {
+      // 404 = ليست حوالةً صادرة لهذا الوكيل — حالةٌ عادية لا عطب.
+      if (e.statusCode == 404 || e.isEmptyResult) return null;
+      rethrow;
+    }
+  }
+
   Future<AgentIncomingTransfer?> findByCode(String code) async {
     final key = code.trim();
     if (key.isEmpty) return null;
@@ -259,3 +300,58 @@ final agentIncomingProvider = FutureProvider.autoDispose
       .watch(agentIncomingRepositoryProvider)
       .page(tab: q.tab, search: q.search, perPage: 50);
 });
+
+/// حوالةٌ أرسلها الوكيل — للعرض في فاتورة «صادرة».
+///
+/// نموذجٌ منفصل عن [AgentIncomingTransfer] عمداً: تلك صفٌّ في دفتر التسليم
+/// له معرّف وحالة تسليم، وهذه قراءةٌ من المنظومة لا تُسلَّم ولا تُسجَّل.
+/// دمجُهما كان يعني حقولاً فارغة في أحد السياقين وزرَّ تسليمٍ لا معنى له.
+class OutgoingTransfer {
+  const OutgoingTransfer({
+    required this.legacy,
+    required this.confirmType,
+    required this.statusName,
+    required this.cancelReason,
+    required this.cancelNotes,
+  });
+
+  /// جسم الفاتورة يقرأ هذا النموذج — نفسه الذي تقرأه فاتورة الواردة.
+  final IncomingTransfer legacy;
+
+  final int? confirmType;
+  final String statusName;
+  final String cancelReason;
+  final String cancelNotes;
+
+  /// 3 و4 «قيد الإلغاء» · 5 «ملغية» · 6 «ملغية مسلمة» — كما في الواردة.
+  bool get isCancelled =>
+      confirmType != null && const [3, 4, 5, 6].contains(confirmType);
+
+  bool get hasCancelReason =>
+      cancelReason.isNotEmpty || cancelNotes.isNotEmpty;
+
+  static OutgoingTransfer fromJson(Map<String, dynamic> j) => OutgoingTransfer(
+        legacy: IncomingTransfer(
+          code: '${j['Code'] ?? ''}'.trim(),
+          receiverName: '${j['RecievedName'] ?? ''}'.trim(),
+          // `RPhone1` هنا لا `RPhone`: هذه قراءةٌ من الجدول لا من الـ view.
+          receiverPhone: '${j['RPhone1'] ?? ''}'.trim(),
+          senderName: '${j['SenderName'] ?? ''}'.trim(),
+          amount: Fmt.num_(j['OverallVal']),
+          commission: Fmt.num_(j['ExVal']),
+          branchName: '${j['DeliveredBranchName'] ?? ''}'.trim(),
+          insertedAt: '${j['InsertDate'] ?? ''}'.trim(),
+          status: '${j['StatusName'] ?? ''}'.trim(),
+          // «الوجهة» = مدينة الاستلام لا الفرع (قرار المالك، 4 سبتمبر 2026).
+          //
+          // الفرع يُسنَد عند الاعتماد ويكون صفراً قبله، فكانت الوجهة تغيب عن
+          // فاتورة الحوالة الجديدة. أما المدينة فيختارها الوكيل لحظة الإنشاء
+          // (`InternalEx.DeliveryPlace`)، فتوجد في كل الحالات.
+          destination: '${j['DeliveryCityName'] ?? ''}'.trim(),
+        ),
+        confirmType: int.tryParse('${j['ConfirmType'] ?? ''}'),
+        statusName: '${j['StatusName'] ?? ''}'.trim(),
+        cancelReason: '${j['cancel_reason'] ?? ''}'.trim(),
+        cancelNotes: '${j['cancel_notes'] ?? ''}'.trim(),
+      );
+}

@@ -61,13 +61,41 @@ $foreign = collect($mine['items'])->where('agent_id', '<>', $agentId)->count();
 $check('لا تُعاد حوالات وكيل آخر', $foreign === 0, "others_in_db=$other");
 
 /* ---------- 3) التسليم: مرّة واحدة مهما تكرّر الطلب ---------- */
+/* الاختبار يصنع حوالته ويحذفها — ولا يلمس حوالةً حقيقية أبداً.
+ *
+ * كان يأخذ أول حوالة «بانتظار التسليم» في دفتر الوكيل ويسلّمها. وحتى مع
+ * إعادتها بعد الفحص، فذلك يعني أن حالة حوالةٍ حقيقية تتقلّب لأن أحداً شغّل
+ * اختباراً — والمالك يفتح تطبيقه فيرى ما لا يفهم سببه، ويشكّ في التطبيق
+ * وهو سليم. اختبارٌ يُفقد الثقة في المنظومة أسوأ من اختبارٍ لا يعمل.
+ *
+ * ورقم الحوالة هنا ظاهر الاصطناع (`TEST-ACC-…`) فلا يلتبس بحوالة، والصفّ
+ * يُحذف في كل الأحوال — حتى لو فشل فحصٌ في الطريق.
+ */
+$probeCode = 'TEST-ACC-' . date('YmdHis');
+
+DB::table('agent_incoming_transfers')->insert([
+    'agent_id'            => $agentId,
+    'transfer_number'     => $probeCode,
+    'beneficiary_name'    => 'مستفيد اختباري',
+    'beneficiary_phone'   => '900000000',
+    'sender_name'         => 'مرسل اختباري',
+    'amount'              => 1,
+    'commission'          => 0,
+    'branch_delivered_id' => 0,
+    'status'              => AgentIncomingTransfersService::PENDING,
+    'core_confirm_type'   => 2,
+    'created_at'          => now(),
+    'updated_at'          => now(),
+]);
+
 $row = DB::table('agent_incoming_transfers')
     ->where('agent_id', $agentId)
-    ->where('status', AgentIncomingTransfersService::PENDING)
+    ->where('transfer_number', $probeCode)
     ->first();
 
 if (!$row) {
-    $line('  SKIP  لا توجد حوالة بانتظار التسليم — اعتمد حوالةً ثم أعد التشغيل');
+    $line('  FAIL  تعذّر إنشاء حوالة الاختبار');
+    $fail++;
 } else {
     $trace = ['ip' => '127.0.0.1', 'device' => 'test-device', 'session' => 'test-session'];
 
@@ -100,30 +128,21 @@ if (!$row) {
     $check('وقت التسليم مسجّل من الخادم', $fresh->delivered_at !== null);
     $check('منفّذ التسليم مسجّل', (int) $fresh->delivered_by === $agentId);
 
-    /* إعادة الحالة كما كانت قبل الاختبار.
-     *
-     * الاختبار يسلّم حوالةً حقيقية في دفتر الوكيل، وبلا هذا يجدها المالك
-     * «تم التسليم» في تطبيقه بعد كل تشغيل — تسليمٌ لم يقع، وهو أسوأ من
-     * اختبارٍ لا يعمل. والصفّ التاريخي يُحذف معها لأنه يوثّق حدثاً لم يقع.
-     *
-     * لا شيء مالي هنا: الجدولان من إضافات هذه الميزة، والبصمة أعلاه تثبت
-     * أن المحافظ والقيود لم تُمسّ أصلاً.
-     */
-    DB::table('agent_incoming_transfers')->where('id', $row->id)->update([
-        'status'       => AgentIncomingTransfersService::PENDING,
-        'delivered_at' => null,
-        'delivered_by' => null,
-        'updated_at'   => now(),
-    ]);
-    DB::table('transfer_status_history')->where('transfer_id', $row->id)
-        ->where('device_id', 'test-device')->delete();
-
-    $restored = DB::table('agent_incoming_transfers')->where('id', $row->id)->first();
-    $check('الاختبار أعاد الحوالة كما وجدها',
-        $restored->status === AgentIncomingTransfersService::PENDING
-        && $restored->delivered_at === null,
-        $row->transfer_number);
 }
+
+/* حذف أثر الاختبار — يقع دائماً، حتى لو فشل فحصٌ قبله.
+ *
+ * فالصفّ اصطناعي بكامله: لم يأتِ من المنظومة، ولا يقابله مالٌ ولا قيد.
+ * وبقاؤه يعني حوالةً وهمية في تطبيق المالك.
+ */
+DB::table('transfer_status_history')->where('transfer_number', $probeCode)->delete();
+DB::table('transfer_attributions')->where('transfer_number', $probeCode)->delete();
+DB::table('agent_incoming_transfers')->where('transfer_number', $probeCode)->delete();
+
+$check('الاختبار لم يترك أثراً',
+    !DB::table('agent_incoming_transfers')->where('transfer_number', $probeCode)->exists()
+    && !DB::table('transfer_status_history')->where('transfer_number', $probeCode)->exists(),
+    $probeCode);
 
 /* ---------- 4) البند 11: لا أثر مالي ---------- */
 $after = $snapshot();

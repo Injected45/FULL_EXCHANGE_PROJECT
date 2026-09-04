@@ -34,6 +34,8 @@ class Movement {
     this.deliveryStatus = '',
     this.agentStatus = '',
     this.agentCoreType,
+    this.coreConfirmType,
+    this.executedBy = '',
     this.isCommissionRow = false,
     this.commission,
   });
@@ -68,6 +70,34 @@ class Movement {
   /// مرآة `InternalEx.ConfirmType` داخل الدفتر — منها يُعرف الإلغاء وحده.
   final int? agentCoreType;
 
+  /// رقم حالة الحوالة في منظومة الرحالة (`InternalEx.ConfirmType`).
+  ///
+  /// الرقم لا الاسم هو العقد: الجدول فيه اسمان متطابقان لرقمين مختلفين
+  /// (3 و4 كلاهما «قيد الإلغاء»)، والاسم نصٌّ قد يُحرَّر. فالتلوين والترشيح
+  /// على الرقم، والعرض بالاسم كما كتبته المنظومة.
+  final int? coreConfirmType;
+
+  /// عائلة الحالة — أربعُ عائلات تجمع إحدى عشرة حالة بلا أن تمحو أيّاً منها.
+  ///
+  /// العائلة تحكم اللون والأيقونة والترشيح **فقط**؛ والنصّ المعروض يبقى اسم
+  /// الحالة كما هو في `InternalEx_Stautes`. اختصارُ الأسماء إلى أربعة كان
+  /// سيُخفي عن الوكيل فرقاً حقيقياً — «مرسلة مع مندوب» ليست «غير مسلمه».
+  CoreStage get stage => switch (coreConfirmType) {
+        0 => CoreStage.pending,
+        1 || 7 || 8 || 9 => CoreStage.onWay,
+        2 => CoreStage.delivered,
+        3 || 4 || 10 => CoreStage.cancelling,
+        5 || 6 => CoreStage.cancelled,
+        _ => CoreStage.unknown,
+      };
+
+  /// اسم من نفّذ الحركة — للكشف المطبوع، من `transfer_attributions`.
+  ///
+  /// **فارغ يعني «لا سجلّ نسبة»، لا «الوكيل»**: حركةٌ أنشأها فرعٌ في
+  /// المنظومة أو سبقت هذه الميزة لا منفّذ معروف لها، وملؤها بالوكيل
+  /// تخميناً يضع اسمه على عملٍ قد لا يكون عمله. والكشف يطبع «—».
+  final String executedBy;
+
   /// 3 و4 «قيد الإلغاء» · 5 «ملغية» · 6 «ملغية مسلمة».
   ///
   /// «قيد الإلغاء» محسوبةٌ منها كما في شاشة الحوالات الواردة تماماً: طلب
@@ -78,11 +108,17 @@ class Movement {
   /// وسم الحالة كما تقوله شاشة «الحوالات الواردة» — أو فارغ إن لم تكن
   /// الحركة في دفتر التسليم.
   ///
-  /// الترتيب مطابق لقواعد تبويبات تلك الشاشة حرفياً: «تم التسليم» تسبق
-  /// «ملغاة» لأن الوكيل إن كان قد سلّم فقد سلّم، وإلغاءٌ لاحق لا يمحو ذلك.
+  /// الترتيب مطابق لقواعد تبويبات تلك الشاشة حرفياً: **«ملغاة» تسبق «تم
+  /// التسليم»** (قرار المالك، 3 سبتمبر 2026). الدفتر تنظيمٌ ظاهريّ في
+  /// الواجهة لا قيدٌ محاسبي، فالحالة الأحدث في المنظومة هي التي تُعرض —
+  /// وحوالةٌ أُلغيت لم يعد وضعُها «تم التسليم» مهما وقع قبل الإلغاء.
+  ///
+  /// والملغاة تُعرض «ملغاة» وحدها بلا وسمٍ ثانٍ يقول إنها سُلّمت (أمر المالك
+  /// الصريح، 3 سبتمبر 2026): هذا تقريرٌ ظاهريّ للتنظيم، والوسم المزدوج فيه
+  /// يزحمه بلا فائدة. و`status` يبقى محفوظاً في القاعدة كما هو.
   String get agentBadge {
-    if (agentStatus == 'DELIVERED') return 'تم التسليم';
     if (isCancelledByCore) return 'ملغاة';
+    if (agentStatus == 'DELIVERED') return 'تم التسليم';
     if (agentStatus == 'PENDING_DELIVERY') return 'بانتظار التسليم';
     return '';
   }
@@ -144,6 +180,8 @@ class Movement {
       deliveryStatus: '${j['DeliveryStatus'] ?? ''}'.trim(),
       agentStatus: '${j['AgentStatus'] ?? ''}'.trim(),
       agentCoreType: _intOrNull(j['AgentCoreType']),
+      coreConfirmType: _intOrNull(j['CoreConfirmType']),
+      executedBy: '${j['ExecutedBy'] ?? ''}'.trim(),
       isCommissionRow: '${j['IsCommission'] ?? ''}' == '1',
       // غياب المفتاح = خادمٌ قديم لم يُحدَّث بعد ⇦ null «لم يصل»، لا 0.
       commission:
@@ -231,3 +269,79 @@ final homeRepositoryProvider =
 final homeSnapshotProvider = FutureProvider.autoDispose<HomeSnapshot>(
   (ref) => ref.watch(homeRepositoryProvider).load(),
 );
+
+/// عائلات حالات الحوالة في منظومة الرحالة.
+///
+/// إحدى عشرة حالة في `InternalEx_Stautes` لا تُعرض كإحدى عشرة شريحة — تُجمع
+/// في خمس مراحل تصف **رحلة الحوالة** لا حالتها التقنية:
+///
+/// | العائلة | الحالات | المعنى للوكيل |
+/// |---|---|---|
+/// | [pending]    | 0 غير معتمدة | أُنشئت ولم تُعتمد بعد |
+/// | [onWay]      | 1 غير مسلمه · 7 علية طلب تاكسي · 8 تاكسي غير مرسل · 9 مرسلة مع مندوب | في الطريق، لم تصل المستفيد |
+/// | [delivered]  | 2 مسلمه | وصلت المستفيد |
+/// | [cancelling] | 3 و4 قيد الإلغاء · 10 طلب إلغاء من مندوب | طلب إلغاء لم يُبتّ |
+/// | [cancelled]  | 5 ملغية · 6 ملغية مسلمة | أُلغيت |
+///
+/// ⚠ العائلة للّون والترشيح فقط. **الاسم المعروض يبقى كما كتبته المنظومة**،
+/// فلا يفقد الوكيل الفرق بين «مرسلة مع مندوب» و«غير مسلمه» — وهو فرقٌ يعني
+/// أين الحوالة الآن.
+enum CoreStage {
+  pending('بانتظار الاعتماد'),
+  onWay('في الطريق'),
+  delivered('مسلَّمة'),
+  cancelling('قيد الإلغاء'),
+  cancelled('ملغاة'),
+
+  /// حركة ليست حوالةً في `InternalEx` — أو حوالةٌ لم يُرسل الخادم حالتها.
+  unknown('');
+
+  const CoreStage(this.label);
+
+  /// اسم العائلة — يُستعمل في شرائح الترشيح لا في وسم البطاقة.
+  final String label;
+
+  bool get known => this != CoreStage.unknown;
+}
+
+/// الكشف الكامل — كل حركات الوكيل بلا اقتطاع.
+///
+/// موضعه هنا لا في شاشة كشف الحساب: يقرأه **ثلاثةُ** مستهلكين (كشف الحساب،
+/// وتبويب «صادرة»، وتصدير الـ PDF)، ومزوّدٌ لكلٍّ منها يعني ثلاثة طلبات
+/// للبيانات نفسها.
+///
+/// و`homeSnapshotProvider` لا يصلح بديلاً: يقتطع خمس حركات للواجهة، فقائمةٌ
+/// مبنيّة عليه تعرض خمساً وتُخفي الباقي بلا أن يظهر النقص.
+///
+/// الخادم يعيد **كل** التاريخ بلا ترقيم (رُصد 3345 صفاً)، فيُجلب مرّة
+/// ويُعرض على دفعات في الشاشة.
+final statementProvider = FutureProvider.autoDispose<List<Movement>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  try {
+    final env = await api.get('/device/local/account/statment');
+    return env.rows.map(Movement.fromJson).toList();
+  } on ApiFailure catch (e) {
+    if (e.isEmptyResult) return const [];
+    rethrow;
+  }
+});
+
+/// حوالاتٌ أرسلها الوكيل ولم تُعتمد بعد.
+///
+/// مصدرها `InternalEx` لا كشف الحساب: القيد المحاسبي لا يُكتب إلا عند
+/// الاعتماد، فحوالةٌ أُنشئت للتوّ لا أثر لها في الكشف — وكان الوكيل يُدرجها
+/// ثم لا يجدها في التطبيق إطلاقاً.
+///
+/// والخادم يشكّلها بمفاتيح كشف الحساب نفسها، فتُقرأ بـ [Movement] وتُعرض
+/// ببطاقته — لا نموذج ثانٍ ولا بطاقة ثانية.
+final pendingOutgoingProvider =
+    FutureProvider.autoDispose<List<Movement>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  try {
+    final env = await api.get('/agent/outgoing-transfers/pending');
+    return env.rows.map(Movement.fromJson).toList();
+  } on ApiFailure catch (e) {
+    if (e.isEmptyResult) return const [];
+    rethrow;
+  }
+});

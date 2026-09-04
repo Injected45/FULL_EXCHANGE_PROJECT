@@ -46,7 +46,7 @@ class AccountScreen extends ConsumerWidget {
                         _Row(
                           icon: Icons.storefront_outlined,
                           label: 'نقاط البيع',
-                          onTap: () => context.go('/pos'),
+                          onTap: () => context.push('/pos'),
                         ),
                       _Row(
                         icon: Icons.star_outline_rounded,

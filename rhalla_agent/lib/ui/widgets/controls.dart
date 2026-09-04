@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/keyboard.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 
@@ -245,7 +246,12 @@ class RhallaAppBar extends StatelessWidget {
           children: [
             if (onBack != null) ...[
               CircleIconButton(
-                onPressed: onBack,
+                // إغلاق اللوحة قبل الرجوع: الشاشة التالية ترثها مفتوحة وإلا،
+                // فتُفتح بلا حقلٍ يبرّرها وتأكل نصف الشاشة.
+                onPressed: () {
+                  hideKeyboard();
+                  onBack!();
+                },
                 child: Icon(Icons.arrow_back_ios_new, size: 16, color: R.ink),
               ),
               const SizedBox(width: 14),
