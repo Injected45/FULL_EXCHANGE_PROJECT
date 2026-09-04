@@ -197,7 +197,11 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
                         ),
                         for (var i = 0; i < g.value.length; i++) ...[
                           if (i > 0) const SizedBox(height: R.gapRow),
-                          MovementRow(m: g.value[i], currency: currency),
+                          MovementRow(
+                              m: g.value[i],
+                              currency: currency,
+                              // «الرصيد بعد الحركة» — عمود الكشف المحاسبي.
+                              showBalance: true),
                         ],
                         const SizedBox(height: 16),
                       ],

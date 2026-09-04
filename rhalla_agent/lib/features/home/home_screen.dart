@@ -401,10 +401,22 @@ class _DailyLimit extends StatelessWidget {
 }
 
 class MovementRow extends ConsumerStatefulWidget {
-  const MovementRow({super.key, required this.m, required this.currency});
+  const MovementRow({
+    super.key,
+    required this.m,
+    required this.currency,
+    this.showBalance = false,
+  });
 
   final Movement m;
   final String currency;
+
+  /// «الرصيد بعد الحركة» — في كشف الحساب وحده.
+  ///
+  /// هو عمود الكشف المحاسبي: يقرأه الوكيل ليتتبّع كيف تحرّك حسابه حركةً
+  /// حركة. ولا معنى له في «صادرة» — تلك قائمة حوالات لا كشف حساب، والرصيد
+  /// فيها رقمٌ يزاحم بلا أن يُسأل عنه.
+  final bool showBalance;
 
   @override
   ConsumerState<MovementRow> createState() => _MovementRowState();
@@ -562,7 +574,16 @@ class _MovementRowState extends ConsumerState<MovementRow> {
       tone: tone,
       onTap: m.isTransfer ? _open : null,
       // سطر العمولة داخل الوحدة البصرية نفسها — لا بطاقة مستقلّة.
-      footer: m.isTransfer ? _CommissionLine(m: m, currency: currency) : null,
+      //
+      // ويظهر السطر أيضاً لحركةٍ ليست حوالة حين يُطلب الرصيد (كشف الحساب):
+      // «إقفال الميزانية» رصيدُها يعني الوكيل كما تعنيه أي حركة أخرى.
+      footer: (m.isTransfer || widget.showBalance)
+          ? _CommissionLine(
+              m: m,
+              currency: currency,
+              showBalance: widget.showBalance,
+            )
+          : null,
       children: [
         // الأيقونة وتحتها وسمُ الحالة — كتلة واحدة كما في التصميم.
         SizedBox(
@@ -784,10 +805,34 @@ class _ErrorCard extends StatelessWidget {
 /// و«بدون عمولة» تُعرض ولا تُحذف: قاعدة المشروع ألّا يُحذف من الشاشة شيء،
 /// وغيابُ السطر يترك الوكيل يتساءل هل العمولة صفر أم لم تصل.
 class _CommissionLine extends StatelessWidget {
-  const _CommissionLine({required this.m, required this.currency});
+  const _CommissionLine({
+    required this.m,
+    required this.currency,
+    this.showBalance = false,
+  });
 
   final Movement m;
   final String currency;
+  final bool showBalance;
+
+  /// «الرصيد بعد الحركة» في آخر السطر — أي يساره في واجهة عربية.
+  ///
+  /// موضعُه هنا لا سطراً مستقلاً: البطاقة وحدةٌ بصرية واحدة، وسطرٌ ثالث
+  /// يطيلها ثلث طولها في كشفٍ صفوفه بالمئات.
+  Widget _balance() => Directionality(
+        textDirection: TextDirection.ltr,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('الرصيد ',
+                style: T.plex(10, FontWeight.w400, color: R.inkA(.4))),
+            Text(' ',
+                style: T.plex(9.5, FontWeight.w400, color: R.inkA(.38))),
+            Text(Fmt.money(m.balance),
+                style: T.kufi(11, FontWeight.w700, color: R.inkA(.6))),
+          ],
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -798,8 +843,13 @@ class _CommissionLine extends StatelessWidget {
         child: Row(
           children: [
             const SizedBox(width: 74 + 11),
-            Text('…',
-                style: T.plex(10.5, FontWeight.w400, color: R.inkA(.3))),
+            Expanded(
+              child: Text('…',
+                  style: T.plex(10.5, FontWeight.w400, color: R.inkA(.3))),
+            ),
+            // فراغٌ صريح: بلا هذا يلتصق «الرصيد» بنهاية سطر العمولة حين يطول،
+          // فيُقرآن كلمةً واحدة.
+          if (showBalance) ...[const SizedBox(width: 10), _balance()],
           ],
         ),
       );
@@ -830,9 +880,15 @@ class _CommissionLine extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('عمولة الحوالة: ',
-                            style: T.plex(10.5, FontWeight.w400,
-                                color: R.inkA(.55))),
+                        // التسمية وحدها هي ما يُقتطع حين يضيق السطر بالرصيد
+                        // — والرقمان يبقيان كاملين، فهما ما يعني الوكيل.
+                        Flexible(
+                          child: Text('عمولة الحوالة: ',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: T.plex(10.5, FontWeight.w400,
+                                  color: R.inkA(.55))),
+                        ),
                         Text('$currency ',
                             style: T.plex(10, FontWeight.w400,
                                 color: R.inkA(.5))),
@@ -842,9 +898,15 @@ class _CommissionLine extends StatelessWidget {
                       ],
                     ),
                   )
-                : Text('بدون عمولة',
+                : Text(
+                    // حركةٌ ليست حوالة لا عمولة لها أصلاً — ونفيُها عنها
+                    // يقول ما لا معنى له، فيُترك موضعُها فارغاً للرصيد.
+                    m.isTransfer ? 'بدون عمولة' : '',
                     style: T.plex(10.5, FontWeight.w400, color: R.inkA(.38))),
           ),
+          // فراغٌ صريح: بلا هذا يلتصق «الرصيد» بنهاية سطر العمولة حين يطول،
+          // فيُقرآن كلمةً واحدة.
+          if (showBalance) ...[const SizedBox(width: 10), _balance()],
         ],
       ),
     );

@@ -35,6 +35,7 @@ flutter analyze                          # the only linter; it is currently clea
 flutter test                             # 26 tests: envelope_test.dart + session_expiry_test.dart
 flutter test test/envelope_test.dart --plain-name 'Fmt'   # one group; --plain-name is a substring, --name a regexp
 flutter build apk --release --dart-define=API_BASE=...    # needs android/key.properties — see below
+flutter build appbundle --release --dart-define=API_BASE=...   # what Play takes — never ship the fat APK
 ```
 
 **`--dart-define=API_BASE` is not optional in practice.** `kApiBase` in `core/net/api_client.dart` defaults to the **live production** server, so a bare `flutter run` moves real money against real accounts. Always pass the target you mean.
@@ -50,6 +51,23 @@ Two defects lived here precisely because debug builds hide them. Both are fixed;
   ```
 
 - **Release was signed with the debug keystore** (the stock `// TODO` left in place), which Google Play rejects and which would have made the app un-upgradable. `android/app/build.gradle.kts` now reads `android/key.properties` and **throws a `GradleException` when it is absent** rather than falling back — a silent fallback is how the debug-key APK got built in the first place. Copy `android/key.properties.template`, generate the keystore with the `keytool` line inside it, and keep the `.jks` and its password off this machine. **The key cannot be replaced after the first Play release.**
+
+#### APK size — the fat APK is 62 MB and 95% of that is one number
+
+Measured on a real release build (4 Sep 2026), uncompressed:
+
+| Part | Size | Note |
+|---|---|---|
+| `lib/x86_64` + `lib/arm64-v8a` + `lib/armeabi-v7a` | **60.7 MB** | three copies of the engine; a device runs **one** |
+| `classes.dex` | 0.87 MB | after R8 (was 1.33) |
+| fonts + brand assets | 1.16 MB | |
+| `res` + `resources.arsc` | 0.13 MB | after shrinking (was 0.43) |
+
+So **never hand anyone `app-release.apk`**. `--split-per-abi` gives arm64 at **21.6 MB** and armeabi-v7a at 19.7 MB; the app bundle lets Play do the same split automatically and is what Play requires anyway. Everything else is rounding error next to that.
+
+`isMinifyEnabled` + `isShrinkResources` are on, with `android/app/proguard-rules.pro`. R8 was verified against its own report rather than assumed: every plugin class survives (secure_storage 11, share 7, url_launcher 14, image_picker 34, printing 10) and the only removals inside `printing` are empty `<clinit>` bodies. If anything in printing, sharing or the image picker ever misbehaves in release **and not in debug**, R8 is the first suspect — turning both flags off is the one-line test.
+
+**Do not subset the bundled fonts to save that 1.16 MB.** Beneficiary names, city names and status labels all arrive from the database, so any Arabic glyph can appear; a subset that fits today's data renders tofu on tomorrow's.
 
 **Transport is still HTTP, and that is the remaining launch blocker.** `http://102.214.165.242:8080` is unreachable from a release build on either platform: Android blocks cleartext by default at this `targetSdk` (the `network_security_config` exception is debug-scoped), and iOS blocks it via ATS. The fix is a TLS certificate on the server — **not** `usesCleartextTraffic` and **not** an ATS exception, both of which would ship an exchange app that transmits balances and transfer codes in the clear.
 

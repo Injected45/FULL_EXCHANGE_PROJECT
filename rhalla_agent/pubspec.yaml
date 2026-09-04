@@ -21,7 +21,6 @@ dependencies:
 
   # التخزين — الرمز ومعرّف الجهاز يجب أن يكونا في التخزين الآمن لا SharedPreferences
   flutter_secure_storage: ^9.2.2
-  shared_preferences: ^2.3.3
 
   # الجهاز
   device_info_plus: ^11.2.0

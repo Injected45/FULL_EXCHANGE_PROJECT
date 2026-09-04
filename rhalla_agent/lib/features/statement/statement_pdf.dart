@@ -71,8 +71,7 @@ class StatementPdf {
         margin: const pw.EdgeInsets.fromLTRB(24, 26, 24, 30),
         textDirection: pw.TextDirection.rtl,
         header: (ctx) => ctx.pageNumber == 1
-            ? _head(scope, currency, companyName, companyNameEn, accountLabel,
-                rows.length, credits, debits, closing)
+            ? _head(scope, companyName, companyNameEn, accountLabel, rows.length)
             : pw.SizedBox(height: 0),
         footer: (ctx) => pw.Container(
           alignment: pw.Alignment.center,
@@ -82,7 +81,10 @@ class StatementPdf {
             style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
           ),
         ),
-        build: (ctx) => [_table(rows)],
+        build: (ctx) => [
+          _table(rows),
+          _summary(credits, debits, closing, currency),
+        ],
       ),
     );
 
@@ -91,14 +93,10 @@ class StatementPdf {
 
   static pw.Widget _head(
     String scope,
-    String currency,
     String companyName,
     String? companyNameEn,
     String? accountLabel,
     int count,
-    double credits,
-    double debits,
-    double? closing,
   ) {
     final now = DateTime.now();
     final stamp = '${now.year}-${_pad2(now.month)}-${_pad2(now.day)}'
@@ -147,27 +145,41 @@ class StatementPdf {
             ),
           ],
         ),
-        pw.SizedBox(height: 10),
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: pw.BoxDecoration(
-            color: PdfColors.grey100,
-            borderRadius: pw.BorderRadius.circular(4),
-          ),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              _sum('إجمالي الوارد', credits, currency),
-              _sum('إجمالي الصادر', debits, currency),
-              // الرصيد يغيب حين لا حركة — ولا يُطبع صفراً: صفرٌ يُقرأ رصيداً.
-              if (closing != null) _sum('الرصيد', closing, currency),
-            ],
-          ),
-        ),
         pw.SizedBox(height: 12),
       ],
     );
   }
+
+  /// شريط الإجماليات — **أسفل الكشف لا أعلاه** (قرار المالك، 4 سبتمبر 2026).
+  ///
+  /// موضعه المحاسبي هو الختام: تُقرأ الحركات ثم يُقرأ مجموعها، كما في أي
+  /// كشفٍ ورقي. وكونُه في نهاية المحتوى لا في `footer` مقصود: `footer`
+  /// يتكرّر في كل صفحة، والإجمالي يُقرأ مرّة واحدة في آخر الكشف.
+  static pw.Widget _summary(
+      double credits, double debits, double? closing, String currency) =>
+      pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          pw.SizedBox(height: 12),
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.grey100,
+              borderRadius: pw.BorderRadius.circular(4),
+              border: pw.Border.all(color: PdfColors.grey400, width: .6),
+            ),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                _sum('إجمالي الوارد', credits, currency),
+                _sum('إجمالي الصادر', debits, currency),
+                // الرصيد يغيب حين لا حركة — ولا يُطبع صفراً: صفرٌ يُقرأ رصيداً.
+                if (closing != null) _sum('الرصيد', closing, currency),
+              ],
+            ),
+          ),
+        ],
+      );
 
   static pw.Widget _sum(String label, double value, String currency) =>
       pw.Row(
@@ -202,21 +214,40 @@ class StatementPdf {
         ],
       );
 
+  /// أعمدة الكشف بترتيبها **المنطقي** — أوّلها يُقرأ أوّلاً في العربية،
+  /// أي يقع أقصى اليمين.
+  ///
+  /// ما طلبه المالك (التاريخ · المنفّذ · مدين · دائن · الرصيد) ومعه البيان
+  /// ورقم الحوالة — وبدونهما لا يُعرف أيّ حركةٍ يخصّ الرقم.
+  static const _columns = <_Col>[
+    _Col('التاريخ', 2.0),
+    _Col('البيان', 3.1),
+    _Col('رقم الحوالة', 2.1),
+    _Col('المنفّذ', 1.9),
+    _Col('مدين', 1.9),
+    _Col('دائن', 1.9),
+    _Col('الرصيد', 2.0),
+  ];
+
   static pw.Widget _table(List<Movement> rows) {
-    // الأعمدة السبعة: ما طلبه المالك (مدين · دائن · رصيد · المنفّذ · التاريخ)
-    // ومعها البيان ورقم الحوالة — وبدونهما لا يُعرف أيّ حركةٍ يخصّ الرقم.
-    const w = {
-      0: pw.FlexColumnWidth(2.0),   // التاريخ
-      1: pw.FlexColumnWidth(3.1),   // البيان
-      2: pw.FlexColumnWidth(2.1),   // رقم الحوالة
-      3: pw.FlexColumnWidth(1.9),   // المنفّذ
-      4: pw.FlexColumnWidth(1.9),   // مدين
-      5: pw.FlexColumnWidth(1.9),   // دائن
-      6: pw.FlexColumnWidth(2.0),   // الرصيد
+    /* ⚠ الأعمدة تُقلب قبل الرسم — وهذا ليس زخرفة.
+     *
+     * `pw.Table` في حزمة `pdf` يرصف أعمدته من اليسار دائماً، ولا يتبع
+     * `Directionality` المحيط به (بخلاف `pw.Row` و`pw.Text`). فكان الكشف
+     * يبدأ بـ«التاريخ» من اليسار وينتهي بـ«الرصيد» يميناً — أي معكوساً
+     * لقارئ العربية، وهو كشفٌ محاسبي يُقرأ عموداً عموداً.
+     *
+     * والقلب هنا **في الرسم وحده**: [_columns] تبقى بترتيبها المنطقي، وكل
+     * صفٍّ يُبنى بالترتيب نفسه ثم يُعكس معها — فلا يفترق رأسٌ عن عمودٍ لو
+     * أُضيف عمودٌ غداً.
+     */
+    final widths = <int, pw.TableColumnWidth>{
+      for (var i = 0; i < _columns.length; i++)
+        i: pw.FlexColumnWidth(_columns[_columns.length - 1 - i].flex),
     };
 
     return pw.Table(
-      columnWidths: w,
+      columnWidths: widths,
       border: pw.TableBorder.symmetric(
         inside: const pw.BorderSide(color: PdfColors.grey300, width: .4),
         outside: const pw.BorderSide(color: PdfColors.grey400, width: .6),
@@ -228,13 +259,7 @@ class StatementPdf {
           repeat: true,
           decoration: const pw.BoxDecoration(color: PdfColors.grey200),
           children: [
-            _Th('التاريخ'),
-            _Th('البيان'),
-            _Th('رقم الحوالة'),
-            _Th('المنفّذ'),
-            _Th('مدين'),
-            _Th('دائن'),
-            _Th('الرصيد'),
+            for (final c in _columns.reversed) _Th(c.title),
           ],
         ),
         for (var i = 0; i < rows.length; i++)
@@ -244,21 +269,24 @@ class StatementPdf {
             decoration: i.isOdd
                 ? const pw.BoxDecoration(color: PdfColors.grey50)
                 : null,
-            children: [
-              _Td(rows[i].date.split(' ').first, ltr: true),
-              _Td(Fmt.localName(rows[i].title)),
-              _Td(rows[i].code.isEmpty ? '—' : rows[i].code, ltr: true),
-              // «المنفّذ» يبقى «—» حين لا سجلّ نسبة، ولا يُملأ بالوكيل تخميناً:
-              // حركةٌ أنشأها فرعٌ في المنظومة ليست من تنفيذه.
-              _Td(rows[i].executedBy.isEmpty ? '—' : rows[i].executedBy),
-              _Td(rows[i].isCredit ? '' : Fmt.money(rows[i].amount), ltr: true),
-              _Td(rows[i].isCredit ? Fmt.money(rows[i].amount) : '', ltr: true),
-              _Td(Fmt.money(rows[i].balance), ltr: true, bold: true),
-            ],
+            children: _cells(rows[i]).reversed.toList(),
           ),
       ],
     );
   }
+
+  /// خلايا صفٍّ واحد بترتيب [_columns] المنطقي.
+  static List<pw.Widget> _cells(Movement m) => [
+        _Td(m.date.split(' ').first, ltr: true),
+        _Td(Fmt.localName(m.title)),
+        _Td(m.code.isEmpty ? '—' : m.code, ltr: true),
+        // «المنفّذ» يبقى «—» حين لا سجلّ نسبة، ولا يُملأ بالوكيل تخميناً:
+        // حركةٌ أنشأها فرعٌ في المنظومة ليست من تنفيذه.
+        _Td(m.executedBy.isEmpty ? '—' : m.executedBy),
+        _Td(m.isCredit ? '' : Fmt.money(m.amount), ltr: true),
+        _Td(m.isCredit ? Fmt.money(m.amount) : '', ltr: true),
+        _Td(Fmt.money(m.balance), ltr: true, bold: true),
+      ];
 
   static String _pad2(int n) => n.toString().padLeft(2, '0');
 }
@@ -269,9 +297,11 @@ class _Th extends pw.StatelessWidget {
   final String text;
 
   @override
-  pw.Widget build(pw.Context context) => pw.Padding(
+  pw.Widget build(pw.Context context) => pw.Container(
+        alignment: pw.Alignment.center,
         padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 5),
         child: pw.Text(text,
+            textAlign: pw.TextAlign.center,
             style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
       );
 }
@@ -287,17 +317,33 @@ class _Td extends pw.StatelessWidget {
   pw.Widget build(pw.Context context) {
     final child = pw.Text(
       text,
+      textAlign: pw.TextAlign.center,
       style: pw.TextStyle(
         fontSize: 7.8,
         fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
       ),
     );
 
-    return pw.Padding(
+    // التوسيط بحاويةٍ لا بـ `textAlign` وحده: الأخير يوسّط الأسطر داخل صندوق
+    // النصّ، وصندوقُ النصّ نفسه يبقى ملتصقاً بحافّة الخليّة. والحاوية توسّط
+    // الصندوق في الخليّة، فيستقيم العمود كلّه.
+    return pw.Container(
+      alignment: pw.Alignment.center,
       padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       child: ltr
           ? pw.Directionality(textDirection: pw.TextDirection.ltr, child: child)
           : child,
     );
   }
+}
+
+/// عمودٌ في الكشف: عنوانه ونصيبه من العرض.
+///
+/// وُضع نوعاً بدل خريطتين متوازيتين (عناوين + عروض) لأن الخريطتين تفترقان
+/// عند إضافة عمود، فيحمل العمود عرض جاره.
+class _Col {
+  const _Col(this.title, this.flex);
+
+  final String title;
+  final double flex;
 }
