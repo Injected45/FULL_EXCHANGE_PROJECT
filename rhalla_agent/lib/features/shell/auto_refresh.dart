@@ -4,6 +4,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../alerts/incoming_alerts.dart';
+import '../chat/chat_unread.dart';
+import '../chat/chat_repository.dart';
 import '../home/home_repository.dart';
 import '../transfers/transfers_repository.dart';
 
@@ -75,6 +77,9 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
   /// مُتحكِّم الجرس، مأخوذ مرّة — يُستعمل في `dispose` حيث لا تصحّ القراءة.
   IncomingAlertsController? _alerts;
 
+  /// شارة الدردشة — تُؤخذ مثل الجرس، وللسبب نفسه.
+  ChatUnreadController? _chat;
+
   @override
   void initState() {
     super.initState();
@@ -89,6 +94,12 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
       final c = ref.read(incomingAlertsProvider.notifier);
       _alerts = c;
       c.start();
+
+      // شارة الدردشة تتبع الجرس نفسه: كلاهما يعمل من الهيكل لا من شاشة،
+      // ويتوقّفان معاً في الخلفية.
+      final chat = ref.read(chatUnreadProvider.notifier);
+      _chat = chat;
+      chat.start();
     });
   }
 
@@ -114,6 +125,7 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
       _tick();
       _start();
       _alerts?.start();
+      _chat?.start();
       return;
     }
     // في الخلفية لا شاشة تُقرأ — النبض عندها استنزاف للبطارية وحزمة البيانات.
@@ -121,6 +133,7 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
     // والجرس معه: رنّةٌ لشاشةٍ مغلقة ليست تنبيهاً بل إزعاجاً بلا سياق.
     // التنبيه والتطبيقُ مغلق شأن الإشعارات لا شأن هذا المؤقّت.
     _alerts?.stop();
+    _chat?.stop();
   }
 
   void _start() {
@@ -150,19 +163,23 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
   void _tick() {
     if (!mounted) return;
     if (!_quiet) return;
-    // الرئيسية وحدها.
+    // الشريط أربعة: الرئيسية · التقارير · الدردشة · الحساب — واثنان منها
+    // فقط يقرآن من الخادم دورياً.
     //
-    // كانت هنا حالتان أخريان تُبطلان مزوّدات «الحوالات» و«نقاط البيع»، وهي
-    // بقايا شريطٍ من أربعة تبويبات. الشريط اليوم ثلاثة — الرئيسية
-    // والتقارير والحساب — والأخيرتان لا تقرآن من الخادم دورياً: التقارير
-    // قائمةُ روابط، والحساب بيانات الجلسة. فكانت الحالتان تُبطلان مزوّدين
-    // لا مستمع لهما، أي لا تفعلان شيئاً، بينما تقولان إن التبويبين
-    // يُحدَّثان. حذفُهما أصدق من إبقائهما.
+    // وكانت هنا حالتان تُبطلان مزوّدات «الحوالات» و«نقاط البيع» بعد أن خرج
+    // التبويبان من الشريط: تُبطلان مزوّدين لا مستمع لهما — أي لا تفعلان
+    // شيئاً — بينما تقولان إن التبويبين يُحدَّثان. حُذفتا.
     //
     // وما تفتحه التقارير والحساب من شاشات (كشف الحساب، نقاط البيع،
     // الحوالات) شاشاتٌ مدفوعة تجلب عند فتحها، ولها السحب للتحديث.
-    if (widget.tabIndex == 0) {
-      ref.invalidate(homeSnapshotProvider);
+    switch (widget.tabIndex) {
+      case 0:
+        ref.invalidate(homeSnapshotProvider);
+      case 2:
+        // تبويب الدردشة: القائمة وعدّاداتها. والمحادثة المفتوحة لها نبضتها
+        // الأسرع داخل شاشتها — هذه للقائمة وحدها.
+        ref.invalidate(chatThreadsProvider);
+      // التقارير قائمةُ روابط، والحساب بيانات الجلسة — لا شيء دوريّ فيهما.
     }
   }
 
@@ -176,6 +193,7 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
     // والمُتحكِّم مأخوذ في `initState` لا هنا: قراءة مزوّد أثناء الهدم قد
     // تقع بعد هدم النطاق نفسه.
     _alerts?.reset();
+    _chat?.reset();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

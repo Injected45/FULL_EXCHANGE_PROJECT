@@ -6,7 +6,7 @@
    كُتبت سابقاً، فما ينتج عنه في القاعدة الرئيسية مطابقٌ لما جُرِّب عليه فعلاً.
 
    ── ما في هذه النشرة ───────────────────────────────────────────────────────
-   **تسعة عشر جدولاً جديداً بفهارسها وقيودها، ولا شيء غيرها.**
+   **ستّة وعشرون جدولاً جديداً بفهارسها وقيودها، ولا شيء غيرها.**
 
        دفتر تسليم الوكيل (2 سبتمبر)
          agent_incoming_transfers      متابعة تسليم الحوالات الواردة
@@ -29,6 +29,15 @@
          audit_logs                    أثر العمليات
          security_logs                 أثر المحاولات الأمنية
 
+       الدردشة (5 سبتمبر)
+         chat_threads                  المحادثة — مع الإدارة أو مع موظّف
+         chat_messages                 الرسائل، ومرفقاتها وردودها
+         chat_reads                    إلى أين وصل وقرأ كلُّ طرف
+         chat_reactions                التفاعلات — رمزٌ لكل شخص
+         chat_settings                 كتم · تثبيت · أرشفة · قفل
+         chat_stars                    الرسائل المحفوظة
+         chat_typing                   «يكتب الآن» — لحظيّ ينتهي وحده
+
        صندوق الموظف (3 سبتمبر)
          employee_cashboxes            الصندوق
          employee_shifts               الورديات
@@ -44,7 +53,7 @@
      ExchangeAccData ولا EX24AccSafeActivityTb ولا AccountsTb ولا
      AuthorizedUsers ولا users. ولا فهرس عليها — الفهرس تغييرٌ في جدول ماليّ
      ولو لم يغيّر رقماً.
-   • **لا مفتاح أجنبي إلى جداول المنظومة.** المفاتيح الستة عشر كلّها **بين
+   • **لا مفتاح أجنبي إلى جداول المنظومة.** المفاتيح الأربعة والعشرون كلّها **بين
      الجداول الجديدة وحدها** (فُحصت بالاسم). فقيدٌ من جدولٍ ملحق إلى شجرة
      الحسابات كان يجعل تعديلاً مالياً يفشل بسبب صفٍّ في جدول موظفين.
    • **لا DROP ولا UPDATE ولا DELETE ولا INSERT.** بنيةٌ فقط. لا صفّ واحد من
@@ -59,7 +68,7 @@
    2. USE [اسم القاعدة الرئيسية] أولاً — السكربت لا يختار قاعدة بنفسه عمداً،
       فسطرٌ يختار القاعدة الخطأ يُنفَّذ في مكانٍ لم يُقصد.
    3. نفّذه في SSMS بوضع SQLCMD مطفأ — فيه GO عادية لا غير.
-   4. راجع قسم التحقّق في آخره: يجب أن يطبع 19 جدولاً، كلّها فارغة، وبلا
+   4. راجع قسم التحقّق في آخره: يجب أن يطبع 26 جدولاً، كلّها فارغة، وبلا
       مفتاح أجنبي خارج إلى المنظومة.
 
    ── خارج قاعدة البيانات ────────────────────────────────────────────────────
@@ -611,6 +620,131 @@ BEGIN
 END;
 GO
 
+/* ---------- chat_threads ---------- */
+IF OBJECT_ID('dbo.chat_threads', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[chat_threads] (
+        [id] BIGINT IDENTITY(1,1) NOT NULL,
+        [agent_id] BIGINT NOT NULL,
+        [kind] VARCHAR(20) NOT NULL,
+        [employee_id] BIGINT NULL,
+        [last_message_at] DATETIME2 NULL,
+        [created_at] DATETIME2 CONSTRAINT [DF_chat_threads_created] DEFAULT (sysutcdatetime()) NOT NULL,
+        [updated_at] DATETIME2 CONSTRAINT [DF_chat_threads_updated] DEFAULT (sysutcdatetime()) NOT NULL,
+        CONSTRAINT [PK_chat_threads] PRIMARY KEY ([id])
+    );
+END;
+GO
+
+/* ---------- chat_messages ---------- */
+IF OBJECT_ID('dbo.chat_messages', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[chat_messages] (
+        [id] BIGINT IDENTITY(1,1) NOT NULL,
+        [thread_id] BIGINT NOT NULL,
+        [sender_kind] VARCHAR(20) NOT NULL,
+        [sender_id] BIGINT NOT NULL,
+        [sender_name] NVARCHAR(200) NULL,
+        [body] NVARCHAR(2000) NULL,
+        [created_at] DATETIME2 CONSTRAINT [DF_chat_messages_created] DEFAULT (sysutcdatetime()) NOT NULL,
+        [reply_to_id] BIGINT NULL,
+        [deleted_at] DATETIME2 NULL,
+        [attachment_path] VARCHAR(200) NULL,
+        [attachment_name] NVARCHAR(255) NULL,
+        [attachment_mime] VARCHAR(120) NULL,
+        [attachment_size] INT NULL,
+        [attachment_kind] VARCHAR(20) NULL,
+        [edited_at] DATETIME2 NULL,
+        [pinned_at] DATETIME2 NULL,
+        [pinned_by] VARCHAR(20) NULL,
+        [client_id] VARCHAR(64) NULL,
+        CONSTRAINT [PK_chat_messages] PRIMARY KEY ([id])
+    );
+END;
+GO
+
+/* ---------- chat_reads ---------- */
+IF OBJECT_ID('dbo.chat_reads', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[chat_reads] (
+        [id] BIGINT IDENTITY(1,1) NOT NULL,
+        [thread_id] BIGINT NOT NULL,
+        [reader_kind] VARCHAR(20) NOT NULL,
+        [reader_id] BIGINT NOT NULL,
+        [last_read_message_id] BIGINT CONSTRAINT [DF_chat_reads_last] DEFAULT ((0)) NOT NULL,
+        [updated_at] DATETIME2 CONSTRAINT [DF_chat_reads_updated] DEFAULT (sysutcdatetime()) NOT NULL,
+        [last_delivered_message_id] BIGINT CONSTRAINT [DF_chat_reads_delivered] DEFAULT ((0)) NOT NULL,
+        CONSTRAINT [PK_chat_reads] PRIMARY KEY ([id])
+    );
+END;
+GO
+
+/* ---------- chat_reactions ---------- */
+IF OBJECT_ID('dbo.chat_reactions', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[chat_reactions] (
+        [id] BIGINT IDENTITY(1,1) NOT NULL,
+        [message_id] BIGINT NOT NULL,
+        [thread_id] BIGINT NOT NULL,
+        [actor_kind] VARCHAR(20) NOT NULL,
+        [actor_id] BIGINT NOT NULL,
+        [emoji] NVARCHAR(16) NOT NULL,
+        [created_at] DATETIME2 CONSTRAINT [DF_chat_react_created] DEFAULT (sysutcdatetime()) NOT NULL,
+        CONSTRAINT [PK_chat_reactions] PRIMARY KEY ([id])
+    );
+END;
+GO
+
+/* ---------- chat_settings ---------- */
+IF OBJECT_ID('dbo.chat_settings', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[chat_settings] (
+        [id] BIGINT IDENTITY(1,1) NOT NULL,
+        [thread_id] BIGINT NOT NULL,
+        [actor_kind] VARCHAR(20) NOT NULL,
+        [actor_id] BIGINT NOT NULL,
+        [muted_until] DATETIME2 NULL,
+        [pinned_at] DATETIME2 NULL,
+        [archived_at] DATETIME2 NULL,
+        [locked] BIT CONSTRAINT [DF_chat_set_locked] DEFAULT ((0)) NOT NULL,
+        [forced_unread] BIT CONSTRAINT [DF_chat_set_unread] DEFAULT ((0)) NOT NULL,
+        [updated_at] DATETIME2 CONSTRAINT [DF_chat_set_updated] DEFAULT (sysutcdatetime()) NOT NULL,
+        CONSTRAINT [PK_chat_settings] PRIMARY KEY ([id])
+    );
+END;
+GO
+
+/* ---------- chat_stars ---------- */
+IF OBJECT_ID('dbo.chat_stars', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[chat_stars] (
+        [id] BIGINT IDENTITY(1,1) NOT NULL,
+        [message_id] BIGINT NOT NULL,
+        [thread_id] BIGINT NOT NULL,
+        [actor_kind] VARCHAR(20) NOT NULL,
+        [actor_id] BIGINT NOT NULL,
+        [created_at] DATETIME2 CONSTRAINT [DF_chat_star_created] DEFAULT (sysutcdatetime()) NOT NULL,
+        CONSTRAINT [PK_chat_stars] PRIMARY KEY ([id])
+    );
+END;
+GO
+
+/* ---------- chat_typing ---------- */
+IF OBJECT_ID('dbo.chat_typing', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[chat_typing] (
+        [id] BIGINT IDENTITY(1,1) NOT NULL,
+        [thread_id] BIGINT NOT NULL,
+        [actor_kind] VARCHAR(20) NOT NULL,
+        [actor_id] BIGINT NOT NULL,
+        [actor_name] NVARCHAR(200) NULL,
+        [state] VARCHAR(20) NOT NULL,
+        [expires_at] DATETIME2 NOT NULL,
+        CONSTRAINT [PK_chat_typing] PRIMARY KEY ([id])
+    );
+END;
+GO
+
 /* ---------- الفهارس ---------- */
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_ait_agent_transfer' AND object_id = OBJECT_ID('dbo.agent_incoming_transfers'))
     CREATE UNIQUE INDEX [UX_ait_agent_transfer] ON dbo.[agent_incoming_transfers] ([agent_id], [transfer_number]);
@@ -762,6 +896,42 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_closing_result' AND object_id = OBJECT_ID('dbo.employee_shift_closings'))
     CREATE INDEX [IX_closing_result] ON dbo.[employee_shift_closings] ([result], [closed_at]);
 GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_chat_thread_admin' AND object_id = OBJECT_ID('dbo.chat_threads'))
+    CREATE UNIQUE INDEX [UQ_chat_thread_admin] ON dbo.[chat_threads] ([agent_id]) WHERE ([kind]='ADMIN');
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_chat_thread_employee' AND object_id = OBJECT_ID('dbo.chat_threads'))
+    CREATE UNIQUE INDEX [UQ_chat_thread_employee] ON dbo.[chat_threads] ([agent_id], [employee_id]) WHERE ([kind]='EMPLOYEE');
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_chat_threads_agent' AND object_id = OBJECT_ID('dbo.chat_threads'))
+    CREATE INDEX [IX_chat_threads_agent] ON dbo.[chat_threads] ([agent_id], [last_message_at] DESC);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_chat_messages_thread' AND object_id = OBJECT_ID('dbo.chat_messages'))
+    CREATE INDEX [IX_chat_messages_thread] ON dbo.[chat_messages] ([thread_id], [id]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_chat_msg_client' AND object_id = OBJECT_ID('dbo.chat_messages'))
+    CREATE UNIQUE INDEX [UQ_chat_msg_client] ON dbo.[chat_messages] ([thread_id], [client_id]) WHERE ([client_id] IS NOT NULL);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_chat_msg_search' AND object_id = OBJECT_ID('dbo.chat_messages'))
+    CREATE INDEX [IX_chat_msg_search] ON dbo.[chat_messages] ([thread_id], [deleted_at], [id] DESC);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_chat_read_participant' AND object_id = OBJECT_ID('dbo.chat_reads'))
+    CREATE UNIQUE INDEX [UQ_chat_read_participant] ON dbo.[chat_reads] ([thread_id], [reader_kind], [reader_id]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_chat_react_actor' AND object_id = OBJECT_ID('dbo.chat_reactions'))
+    CREATE UNIQUE INDEX [UQ_chat_react_actor] ON dbo.[chat_reactions] ([message_id], [actor_kind], [actor_id]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_chat_react_thread' AND object_id = OBJECT_ID('dbo.chat_reactions'))
+    CREATE INDEX [IX_chat_react_thread] ON dbo.[chat_reactions] ([thread_id], [message_id]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_chat_settings_actor' AND object_id = OBJECT_ID('dbo.chat_settings'))
+    CREATE UNIQUE INDEX [UQ_chat_settings_actor] ON dbo.[chat_settings] ([thread_id], [actor_kind], [actor_id]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_chat_star_actor' AND object_id = OBJECT_ID('dbo.chat_stars'))
+    CREATE UNIQUE INDEX [UQ_chat_star_actor] ON dbo.[chat_stars] ([message_id], [actor_kind], [actor_id]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_chat_typing_actor' AND object_id = OBJECT_ID('dbo.chat_typing'))
+    CREATE UNIQUE INDEX [UQ_chat_typing_actor] ON dbo.[chat_typing] ([thread_id], [actor_kind], [actor_id]);
+GO
 
 /* ---------- قيود التحقّق ---------- */
 IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_ait_status' AND parent_object_id = OBJECT_ID('dbo.agent_incoming_transfers'))
@@ -773,8 +943,41 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_entry_amount' AND parent_object_id = OBJECT_ID('dbo.employee_cashbox_entries'))
     ALTER TABLE dbo.[employee_cashbox_entries] ADD CONSTRAINT [CK_entry_amount] CHECK ([amount]>(0));
 GO
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_chat_thread_kind' AND parent_object_id = OBJECT_ID('dbo.chat_threads'))
+    ALTER TABLE dbo.[chat_threads] ADD CONSTRAINT [CK_chat_thread_kind] CHECK ([kind]='EMPLOYEE' OR [kind]='ADMIN');
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_chat_sender_kind' AND parent_object_id = OBJECT_ID('dbo.chat_messages'))
+    ALTER TABLE dbo.[chat_messages] ADD CONSTRAINT [CK_chat_sender_kind] CHECK ([sender_kind]='ADMIN' OR [sender_kind]='EMPLOYEE' OR [sender_kind]='AGENT');
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_chat_reader_kind' AND parent_object_id = OBJECT_ID('dbo.chat_reads'))
+    ALTER TABLE dbo.[chat_reads] ADD CONSTRAINT [CK_chat_reader_kind] CHECK ([reader_kind]='ADMIN' OR [reader_kind]='EMPLOYEE' OR [reader_kind]='AGENT');
+GO
 
 /* ---------- المفاتيح الأجنبية ---------- */
+IF OBJECT_ID('dbo.FK_chat_msg_reply', 'F') IS NULL
+    ALTER TABLE dbo.[chat_messages] ADD CONSTRAINT [FK_chat_msg_reply] FOREIGN KEY ([reply_to_id]) REFERENCES dbo.[chat_messages] ([id]);
+GO
+IF OBJECT_ID('dbo.FK_chat_msg_thread', 'F') IS NULL
+    ALTER TABLE dbo.[chat_messages] ADD CONSTRAINT [FK_chat_msg_thread] FOREIGN KEY ([thread_id]) REFERENCES dbo.[chat_threads] ([id]);
+GO
+IF OBJECT_ID('dbo.FK_chat_react_msg', 'F') IS NULL
+    ALTER TABLE dbo.[chat_reactions] ADD CONSTRAINT [FK_chat_react_msg] FOREIGN KEY ([message_id]) REFERENCES dbo.[chat_messages] ([id]);
+GO
+IF OBJECT_ID('dbo.FK_chat_read_thread', 'F') IS NULL
+    ALTER TABLE dbo.[chat_reads] ADD CONSTRAINT [FK_chat_read_thread] FOREIGN KEY ([thread_id]) REFERENCES dbo.[chat_threads] ([id]);
+GO
+IF OBJECT_ID('dbo.FK_chat_set_thread', 'F') IS NULL
+    ALTER TABLE dbo.[chat_settings] ADD CONSTRAINT [FK_chat_set_thread] FOREIGN KEY ([thread_id]) REFERENCES dbo.[chat_threads] ([id]);
+GO
+IF OBJECT_ID('dbo.FK_chat_star_msg', 'F') IS NULL
+    ALTER TABLE dbo.[chat_stars] ADD CONSTRAINT [FK_chat_star_msg] FOREIGN KEY ([message_id]) REFERENCES dbo.[chat_messages] ([id]);
+GO
+IF OBJECT_ID('dbo.FK_chat_thread_employee', 'F') IS NULL
+    ALTER TABLE dbo.[chat_threads] ADD CONSTRAINT [FK_chat_thread_employee] FOREIGN KEY ([employee_id]) REFERENCES dbo.[employees] ([id]);
+GO
+IF OBJECT_ID('dbo.FK_chat_typing_thread', 'F') IS NULL
+    ALTER TABLE dbo.[chat_typing] ADD CONSTRAINT [FK_chat_typing_thread] FOREIGN KEY ([thread_id]) REFERENCES dbo.[chat_threads] ([id]);
+GO
 IF OBJECT_ID('dbo.FK_emp_codes_employee', 'F') IS NULL
     ALTER TABLE dbo.[employee_activation_codes] ADD CONSTRAINT [FK_emp_codes_employee] FOREIGN KEY ([employee_id]) REFERENCES dbo.[employees] ([id]);
 GO
@@ -828,7 +1031,7 @@ GO
    التحقّق — يُقرأ بعد التنفيذ
    ============================================================================ */
 
-/* 1) الجداول التسعة عشر موجودة؟ */
+/* 1) الجداول الستّة والعشرون موجودة؟ */
 SELECT t.name AS [الجدول],
        (SELECT COUNT(*) FROM sys.columns c WHERE c.object_id = t.object_id) AS [أعمدة]
   FROM sys.tables t
@@ -840,7 +1043,9 @@ SELECT t.name AS [الجدول],
         'employee_sessions','employee_permissions','transfer_attributions',
         'audit_logs','security_logs',
         'employee_cashboxes','employee_shifts','employee_cashbox_entries',
-        'employee_shift_closings')
+        'employee_shift_closings',
+        'chat_threads','chat_messages','chat_reads',
+        'chat_reactions','chat_settings','chat_stars','chat_typing')
  ORDER BY t.name;
 GO
 
@@ -855,7 +1060,9 @@ SELECT OBJECT_NAME(p.object_id) AS [الجدول], SUM(p.rows) AS [صفوف]
         'employee_otps','employee_devices','employee_sessions',
         'employee_permissions','transfer_attributions','audit_logs',
         'security_logs','employee_cashboxes','employee_shifts',
-        'employee_cashbox_entries','employee_shift_closings')
+        'employee_cashbox_entries','employee_shift_closings',
+        'chat_threads','chat_messages','chat_reads',
+        'chat_reactions','chat_settings','chat_stars','chat_typing')
  GROUP BY OBJECT_NAME(p.object_id)
  ORDER BY 1;
 GO
@@ -873,7 +1080,9 @@ SELECT fk.name AS [مفتاح يخرج إلى المنظومة],
         'employee_devices','employee_sessions','employee_permissions',
         'transfer_attributions','audit_logs','security_logs',
         'employee_cashboxes','employee_shifts','employee_cashbox_entries',
-        'employee_shift_closings')
+        'employee_shift_closings',
+        'chat_threads','chat_messages','chat_reads',
+        'chat_reactions','chat_settings','chat_stars','chat_typing')
    AND OBJECT_NAME(fk.referenced_object_id) NOT IN (
         'agent_incoming_transfers','transfer_status_history','tenant_branding',
         'tenant_branding_audit','employees','employee_point_of_sales',
@@ -881,7 +1090,9 @@ SELECT fk.name AS [مفتاح يخرج إلى المنظومة],
         'employee_devices','employee_sessions','employee_permissions',
         'transfer_attributions','audit_logs','security_logs',
         'employee_cashboxes','employee_shifts','employee_cashbox_entries',
-        'employee_shift_closings');
+        'employee_shift_closings',
+        'chat_threads','chat_messages','chat_reads',
+        'chat_reactions','chat_settings','chat_stars','chat_typing');
 GO
 
 /* 4) لم يُمَسّ جدولٌ ماليّ.

@@ -11,6 +11,7 @@ import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../branding/brand_mark.dart';
 import '../branding/branding_controller.dart';
+import '../chat/chat_screen.dart';
 import 'employee_session.dart';
 
 /// واجهة الموظف — **مبنيّة من صلاحياته وحدها**.
@@ -101,6 +102,26 @@ class _EmployeeHomeScreenState extends ConsumerState<EmployeeHomeScreen> {
                           ? 'حركات الوردية والنقد المتوقّع'
                           : 'ابدأ وردية لتسجيل الحركات',
                       onTap: () => context.push('/employee/cashbox'),
+                    ),
+                  ],
+
+                  // مراسلة الوكيل — صلاحيةٌ تُمنح كسائرها، فلا تظهر لمن لم
+                  // يمنحه وكيلُه إيّاها. والخادم يرفضها كذلك: إخفاء البطاقة
+                  // تجميل، والحارس في الوسيط.
+                  if (p.can('CHAT_WITH_AGENT')) ...[
+                    const SizedBox(height: R.gapRow),
+                    _Tile(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      title: 'مراسلة الوكيل',
+                      subtitle: 'اسأل أو أبلغ عن أمرٍ في العمل',
+                      onTap: () => Navigator.of(context, rootNavigator: true).push(
+                        MaterialPageRoute(
+                          builder: (_) => const ChatScreen(
+                            title: 'الوكيل',
+                            asEmployee: true,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
 

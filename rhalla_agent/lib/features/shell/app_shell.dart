@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/keyboard.dart';
+import '../chat/chat_unread.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import 'auto_refresh.dart';
@@ -30,6 +31,10 @@ class AppShell extends ConsumerWidget {
             bottom: 14,
             child: _NavBar(
               index: navigationShell.currentIndex,
+              // شارة الدردشة تُقرأ هنا لا داخل الشريط: الشريط بلا حالة،
+              // والقراءة في مكانٍ واحد تجعل موضع التبويب هو التغيير الوحيد
+              // لو نُقل لاحقاً.
+              chatUnread: ref.watch(chatUnreadProvider),
               // إغلاق اللوحة قبل تبديل التبويب: فروع الهيكل تبقى حيّة في
               // `go_router`، فحقلٌ مركَّز في تبويبٍ غادرَه الوكيل يُبقي اللوحة
               // مفتوحة فوق تبويبٍ آخر لا حقل فيه.
@@ -49,16 +54,28 @@ class AppShell extends ConsumerWidget {
 }
 
 class _NavBar extends StatelessWidget {
-  const _NavBar({required this.index, required this.onTap});
+  const _NavBar({
+    required this.index,
+    required this.onTap,
+    this.chatUnread = 0,
+  });
 
   final int index;
   final ValueChanged<int> onTap;
+  final int chatUnread;
+
+  /// موضع تبويب الدردشة — مذكورٌ مرّة، فنقلُه لا يتطلّب البحث عن رقمٍ عارٍ.
+  static const _chatTab = 2;
 
   @override
   Widget build(BuildContext context) {
+    // أربعة تبويبات — «الدردشة» بينها بأمر المالك (5 سبتمبر 2026)، وموضعها
+    // بين التقارير والحساب كما طلب.
     final items = <_NavItem>[
       const _NavItem('الرئيسية', Icons.home_outlined, Icons.home_rounded),
       const _NavItem('التقارير', Icons.assessment_outlined, Icons.assessment_rounded),
+      const _NavItem('الدردشة', Icons.chat_bubble_outline_rounded,
+          Icons.chat_bubble_rounded),
       const _NavItem('الحساب', Icons.person_outline_rounded, Icons.person_rounded),
     ];
 
@@ -86,6 +103,9 @@ class _NavBar extends StatelessWidget {
                     child: _Tab(
                       item: items[i],
                       active: i == index,
+                      // لا شارة على التبويب المفتوح: الوكيل ينظر إليه الآن،
+                      // ورقمٌ فوق ما يقرؤه إلحاحٌ بلا معنى.
+                      badge: i == _chatTab && i != index ? chatUnread : 0,
                       onTap: () => onTap(i),
                     ),
                   ),
@@ -106,11 +126,19 @@ class _NavItem {
 }
 
 class _Tab extends StatelessWidget {
-  const _Tab({required this.item, required this.active, required this.onTap});
+  const _Tab({
+    required this.item,
+    required this.active,
+    required this.onTap,
+    this.badge = 0,
+  });
 
   final _NavItem item;
   final bool active;
   final VoidCallback onTap;
+
+  /// عدد غير المقروء — صفرٌ يعني بلا شارة.
+  final int badge;
 
   @override
   Widget build(BuildContext context) {
@@ -132,7 +160,44 @@ class _Tab extends StatelessWidget {
                 color: active ? R.primaryA(.14) : Colors.transparent,
                 borderRadius: BorderRadius.circular(99),
               ),
-              child: Icon(active ? item.activeIcon : item.icon, size: 21, color: color),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(active ? item.activeIcon : item.icon,
+                      size: 21, color: color),
+
+                  // شارة غير المقروء على أيقونة التبويب.
+                  //
+                  // على الأيقونة لا بجانب الاسم: التبويب النشط يتمدّد أفقياً
+                  // (‏AnimatedContainer أعلاه)، فشارةٌ في الصفّ كانت تتحرّك
+                  // مع كل تبديل تبويب.
+                  if (badge > 0)
+                    PositionedDirectional(
+                      top: -5,
+                      end: -8,
+                      child: Container(
+                        constraints:
+                            const BoxConstraints(minWidth: 16, minHeight: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: R.error,
+                          borderRadius: BorderRadius.circular(99),
+                          // حدٌّ بلون الشريط الزجاجي يفصل الرقم عن الأيقونة
+                          // حين يعلوها.
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: Directionality(
+                          // رقمٌ لاتيني في فقرة عربية — يُفرض اتجاهه.
+                          textDirection: TextDirection.ltr,
+                          child: Text(badge > 9 ? '9+' : '$badge',
+                              style: T.plex(9.5, FontWeight.w700,
+                                  color: Colors.white)),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(height: 6),
             Text(

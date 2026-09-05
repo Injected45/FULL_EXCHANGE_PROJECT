@@ -10,6 +10,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import '../chat/chat_repository.dart';
+import '../chat/chat_screen.dart';
 import 'employees_repository.dart';
 
 /// «الموظفون» — إدارة من يعمل تحت الوكيل وما يُسمح له.
@@ -237,6 +239,18 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
               ),
             ],
           ),
+
+          // مراسلة الموظّف — من هنا تبدأ المحادثة أوّل مرّة.
+          //
+          // شاشة الدردشة تعرض المحادثات **القائمة** وحدها، فبلا هذا الزرّ
+          // لا سبيل إلى مراسلة موظّفٍ لم يبدأ هو. والزرّ يُنشئ المحادثة عند
+          // الضغط لا قبله: محادثةٌ فارغة لكل موظّف تملأ القائمة بما لم يبدأ.
+          const SizedBox(height: 8),
+          _Action(
+            label: 'مراسلة',
+            icon: Icons.chat_bubble_outline_rounded,
+            onTap: _busy ? null : _openChat,
+          ),
         ],
       ),
     );
@@ -269,6 +283,37 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
       _say('تعذّر إصدار الكود — تحقّق من الاتصال.');
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// يفتح محادثة الوكيل مع هذا الموظّف — ينشئها إن لم تكن.
+  Future<void> _openChat() async {
+    setState(() => _busy = true);
+    try {
+      final id = await ref
+          .read(chatRepositoryProvider)
+          .openEmployee(widget.e.id);
+      if (!mounted) return;
+      setState(() => _busy = false);
+      if (id == null) return;
+
+      await Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            title: widget.e.fullName,
+            threadId: id,
+          ),
+        ),
+      );
+      // قائمة المحادثات تحمل عدّادات — والعودة من محادثةٍ قُرئت تُبطلها.
+      if (mounted) ref.invalidate(chatThreadsProvider);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذّر فتح المحادثة. $e',
+            style: T.kufi(13, FontWeight.w600))),
+      );
     }
   }
 

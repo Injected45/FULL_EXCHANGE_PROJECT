@@ -57,6 +57,23 @@ class ApiClient {
   Future<Envelope> get(String path, {Map<String, dynamic>? query}) =>
       _send(() => _dio.get(path, queryParameters: query));
 
+  Future<Envelope> delete(String path) => _send(() => _dio.delete(path));
+
+  Future<Envelope> put(String path, {Object? body}) =>
+      _send(() => _dio.put(path, data: body));
+
+  /// ترويسات الطلب كما يبنيها الاعتراض — للصور التي تُجلب خارج dio.
+  ///
+  /// `Image.network` يفتح اتصاله بنفسه ولا يمرّ بـ dio، فلا يحمل رمز
+  /// الجلسة. ومرفقات الدردشة خلف `auth:sanctum` — انظر توثيق نقطتها في
+  /// الخادم: هي صور إيصالات ووثائق عملاء لا شعار شركة.
+  Future<Map<String, String>> authHeaders() async {
+    final token = await _store.readToken();
+    return token == null || token.isEmpty
+        ? const {}
+        : {'Authorization': 'Bearer $token'};
+  }
+
   Future<Envelope> _send(Future<Response> Function() run) async {
     late final Response res;
     try {

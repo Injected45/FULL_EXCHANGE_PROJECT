@@ -7,6 +7,7 @@ import 'features/account/account_screen.dart';
 import 'features/account/security_screen.dart';
 import 'features/branding/branding_controller.dart';
 import 'features/branding/branding_screen.dart';
+import 'features/chat/chat_threads_screen.dart';
 import 'features/employees/employee_devices_screen.dart';
 import 'features/employees/employee_permissions_screen.dart';
 import 'features/employees/employee_reports_screen.dart';
@@ -172,6 +173,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const TransfersScreen(),
       ),
+
       // «نقاط البيع» خرجت من شريط التبويبات (قرار المالك، 3 سبتمبر 2026):
       // مدخلها في تبويب الحساب، وتبويبٌ ثانٍ لها تكرار. فصار الشريط ثلاثة.
       GoRoute(
@@ -294,6 +296,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           // و«الحوالات الواردة» انتقلت إلى مسارٍ مدفوع أعلاه — لم تُحذف.
           StatefulShellBranch(routes: [
             GoRoute(path: '/reports', builder: (_, _) => const ReportsScreen()),
+          ]),
+          // «الدردشة» تبويبٌ كامل بين التقارير والحساب (أمر المالك، 5 سبتمبر
+          // 2026): ستحمل أقساماً وتفاصيل داخلها، وشاشةٌ مدفوعة من زرٍّ في
+          // الترويسة لا تتّسع لذلك — الرجوع منها يخرج من القسم كلّه.
+          StatefulShellBranch(routes: [
+            GoRoute(path: '/chat', builder: (_, _) => const ChatThreadsScreen()),
           ]),
           StatefulShellBranch(routes: [
             GoRoute(path: '/account', builder: (_, _) => const AccountScreen()),

@@ -3,6 +3,16 @@
          وهما لا يدخلان الإصدار — فكانت نسخة الإصدار بلا شبكة إطلاقاً. -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- الرسائل الصوتية. يُطلب الإذن **عند أول تسجيل** لا عند فتح التطبيق
+         (البند 46): طلبٌ عند الإقلاع بلا سبب ظاهر يُرفَض غالباً، ثم لا يعود
+         النظام يسأل. ورفضُه لا يعطّل شيئاً غير التسجيل. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
+    <!-- الميكروفون ليس شرطاً لتشغيل التطبيق: بدون هذا يُخفي Google Play
+         التطبيق عن الأجهزة بلا ميكروفون (لوحيّات مثلاً)، وهي أجهزة يعمل
+         عليها كل شيء عدا التسجيل. -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false"/>
+
     <application
         android:label="الرحالة | الوكيل"
         android:name="${applicationName}"

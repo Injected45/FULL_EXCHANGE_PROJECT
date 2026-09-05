@@ -11,6 +11,8 @@ use App\Http\Controllers\Api\SmsController;
 use App\Http\Controllers\Api\OtpController;
 use App\Http\Controllers\Api\BankVisaTransferController;;
 use App\Http\Controllers\Api\AgentIncomingTransfersController;
+use App\Http\Controllers\Api\ChatController;
+use App\Http\Controllers\Api\EmployeeChatController;
 use App\Http\Controllers\Api\CompanyBrandingController;
 use App\Http\Controllers\Api\EmployeeActivationController;
 use App\Http\Controllers\Api\EmployeeAdminController;
@@ -131,6 +133,47 @@ Route::post('device/employee/shift/start',
 Route::post('device/employee/shift/close',
     [ EmployeeController::class , 'closeShift' ])
     ->middleware('employee:CLOSE_SHIFT');
+
+// دردشة الموظّف مع وكيله. صلاحيةٌ تُمنح كسائرها — لا شيء مفتوح افتراضاً.
+Route::get ('device/employee/chat',
+    [ EmployeeChatController::class , 'messages' ])
+    ->middleware('employee:CHAT_WITH_AGENT');
+
+Route::post('device/employee/chat',
+    [ EmployeeChatController::class , 'send' ])
+    ->middleware('employee:CHAT_WITH_AGENT');
+
+Route::get ('device/employee/chat/unread',
+    [ EmployeeChatController::class , 'unread' ])
+    ->middleware('employee:CHAT_WITH_AGENT');
+
+Route::delete('device/employee/chat/{messageId}',
+    [ EmployeeChatController::class , 'destroy' ])
+    ->middleware('employee:CHAT_WITH_AGENT')->whereNumber('messageId');
+
+Route::post('device/employee/chat/{messageId}/react',
+    [ EmployeeChatController::class , 'react' ])
+    ->middleware('employee:CHAT_WITH_AGENT')->whereNumber('messageId');
+
+Route::put ('device/employee/chat/{messageId}',
+    [ EmployeeChatController::class , 'edit' ])
+    ->middleware('employee:CHAT_WITH_AGENT')->whereNumber('messageId');
+
+Route::post('device/employee/chat/{messageId}/star',
+    [ EmployeeChatController::class , 'star' ])
+    ->middleware('employee:CHAT_WITH_AGENT')->whereNumber('messageId');
+
+Route::post('device/employee/chat/{messageId}/pin',
+    [ EmployeeChatController::class , 'pin' ])
+    ->middleware('employee:CHAT_WITH_AGENT')->whereNumber('messageId');
+
+Route::post('device/employee/chat/typing',
+    [ EmployeeChatController::class , 'typing' ])
+    ->middleware('employee:CHAT_WITH_AGENT');
+
+Route::get ('device/employee/chat/attachment/{name}',
+    [ EmployeeChatController::class , 'attachment' ])
+    ->middleware('employee:CHAT_WITH_AGENT')->where('name', '[A-Za-z0-9._-]+');
 
 
 Route::middleware('auth:sanctum')->group(function ()
@@ -285,6 +328,39 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
   // جرس التنبيه: أرقام الصفوف وحدها، يسألها التطبيق دورياً.
   Route::get('agent/incoming-transfers/alerts',
       [ AgentIncomingTransfersController::class , 'alerts' ]);
+
+  //
+  // -- الدردشة: الوكيل مع الإدارة، والوكيل مع موظّفيه --------------------
+  //
+  // طبقة تواصل لا طبقة مالية: لا رصيد ولا قيد ولا حوالة. والوكيل يُشتقّ من
+  // التوثيق ولا يُقرأ من الطلب، وكل استعلام مقيَّد به.
+  Route::get ('chat/threads',                  [ ChatController::class , 'threads' ]);
+  Route::post('chat/threads/employee',         [ ChatController::class , 'openEmployee' ]);
+  Route::get ('chat/unread',                   [ ChatController::class , 'unread' ]);
+  Route::get ('chat/threads/{id}/messages',    [ ChatController::class , 'messages' ])->whereNumber('id');
+  Route::post('chat/threads/{id}/messages',    [ ChatController::class , 'send' ])->whereNumber('id');
+  Route::delete('chat/threads/{id}/messages/{messageId}',
+      [ ChatController::class , 'destroy' ])->whereNumber('id')->whereNumber('messageId');
+
+  // المرفق داخل التوثيق: صور إيصالات ووثائق عملاء، لا شعار شركة.
+  // والاسم مقيَّد بالشكل هنا وبـ basename في المتحكّم.
+  Route::get ('chat/attachment/{name}',        [ ChatController::class , 'attachment' ])
+      ->where('name', '[A-Za-z0-9._-]+');
+
+  // مزايا الرسالة والمحادثة — كلّها تبدأ بحارس `guard()` في المتحكّم.
+  Route::post('chat/threads/{id}/messages/{messageId}/react',
+      [ ChatController::class , 'react' ])->whereNumber('id')->whereNumber('messageId');
+  Route::put ('chat/threads/{id}/messages/{messageId}',
+      [ ChatController::class , 'edit' ])->whereNumber('id')->whereNumber('messageId');
+  Route::post('chat/threads/{id}/messages/{messageId}/pin',
+      [ ChatController::class , 'pin' ])->whereNumber('id')->whereNumber('messageId');
+  Route::post('chat/threads/{id}/messages/{messageId}/star',
+      [ ChatController::class , 'star' ])->whereNumber('id')->whereNumber('messageId');
+  Route::put ('chat/threads/{id}/settings',
+      [ ChatController::class , 'settings' ])->whereNumber('id');
+  Route::post('chat/threads/{id}/typing',
+      [ ChatController::class , 'typing' ])->whereNumber('id');
+  Route::get ('chat/search',                   [ ChatController::class , 'search' ]);
 
   Route::get('agent/outgoing-transfers/pending',
       [ AgentIncomingTransfersController::class , 'pendingOutgoing' ]);
