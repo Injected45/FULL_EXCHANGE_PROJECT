@@ -158,6 +158,10 @@ class EmployeeController extends BaseController
         if ($result['row'] === null) {
             return $this->sendError('الحوالة غير موجودة.', [], 404);
         }
+        // اختفى أصلها من المنظومة — كالحارس نفسه في مسار الوكيل.
+        if (!empty($result['missing'])) {
+            return $this->sendError('هذه الحوالة لم تعد موجودة في المنظومة.', [], 404);
+        }
         if (!empty($result['cancelled'])) {
             return $this->sendError(
                 'هذه الحوالة ملغاة في المنظومة — لا يجوز تسجيل تسليمها.',

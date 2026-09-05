@@ -10,6 +10,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/glass.dart';
+import '../alerts/incoming_alerts.dart';
 import '../branding/brand_mark.dart';
 import '../auth/auth_controller.dart';
 import '../transfers/agent_incoming_repository.dart';
@@ -40,7 +41,16 @@ class HomeScreen extends ConsumerWidget {
             role: user?.isMainAgent == true ? 'وكيل رئيسي' : 'نقطة بيع',
             accId: user?.accId,
             balance: snap.valueOrNull?.balance,
-            loading: snap.isLoading,
+            // هيكل التحميل **لأول جلب وحده**، لا لكل إعادة جلب.
+            //
+            // هذا السطر كان `snap.isLoading` وحدها، وهو مصدر الوميض الذي
+            // كان يراه الوكيل: `isLoading` تصير true في كل تحديث دوري ولو
+            // كان الرصيد السابق ما زال في اليد، فيتحوّل الرقم إلى مستطيل
+            // رمادي كل بضع ثوانٍ ثم يعود — والوكيل يقرأ ذلك اضطراباً في
+            // الرصيد لا تحديثاً له.
+            //
+            // مع قيمةٍ موجودة نعرضها ونستبدلها صامتاً حين تصل الجديدة.
+            loading: snap.isLoading && !snap.hasValue,
           ),
 
           Transform.translate(
@@ -72,6 +82,81 @@ class HomeScreen extends ConsumerWidget {
           // رصيداً وأزراراً وسقفاً يومياً، والتفاصيل خلف زرّ «الحوالات».
           const SizedBox(height: 120),
         ],
+      ),
+    );
+  }
+}
+
+/// جرس الوارد وعدّاده.
+///
+/// عددٌ لا نقطة: «٣ حوالات لم تفتحها» يقول للوكيل كم عليه أن يفعل، والنقطة
+/// تقول «شيءٌ ما» وتتركه يفتح ليعرف.
+///
+/// و`ConsumerWidget` وحده — الترويسة `StatelessWidget` ولا داعي لتحويلها:
+/// وصول حوالة يجب أن يعيد بناء الجرس، لا الرصيد والاسم وعلامة الشركة معه.
+class AlertBell extends ConsumerWidget {
+  const AlertBell({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unseen = ref.watch(incomingAlertsProvider).unseen;
+
+    return Semantics(
+      button: true,
+      label: unseen > 0 ? 'الحوالات الواردة، $unseen جديدة' : 'الحوالات الواردة',
+      child: InkWell(
+        onTap: () => context.push('/transfers'),
+        borderRadius: BorderRadius.circular(99),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: R.whiteA(.18),
+                border: Border.all(color: R.whiteA(.3)),
+              ),
+              child: Icon(
+                unseen > 0
+                    ? Icons.notifications_active_rounded
+                    : Icons.notifications_none_rounded,
+                size: 20,
+                color: Colors.white,
+              ),
+            ),
+            if (unseen > 0)
+              PositionedDirectional(
+                top: -3,
+                end: -3,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: R.error,
+                    borderRadius: BorderRadius.circular(99),
+                    // حدٌّ بلون الترويسة لا أبيض: الشارة تقف على تدرّج، وحدٌّ
+                    // أبيض عليه يبدو حلقةً مقصوصة لا فصلاً.
+                    border: Border.all(color: R.primaryDark, width: 1.5),
+                  ),
+                  child: Directionality(
+                    // رقمٌ لاتيني في فقرة عربية — يُفرَض اتجاهه وإلا انقلب
+                    // «+٩» إلى «٩+».
+                    textDirection: TextDirection.ltr,
+                    child: Text(
+                      // فوق التسعة يصير العدد الدقيق بلا فائدة، ورقمان
+                      // يكسران دائرة الشارة.
+                      unseen > 9 ? '9+' : '$unseen',
+                      style: T.plex(11, FontWeight.w700, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -159,18 +244,7 @@ class _Header extends StatelessWidget {
                         ],
                       ),
                     ),
-                    Container(
-                      width: 44,
-                      height: 44,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: R.whiteA(.18),
-                        border: Border.all(color: R.whiteA(.3)),
-                      ),
-                      child: const Icon(Icons.notifications_none_rounded,
-                          size: 20, color: Colors.white),
-                    ),
+                    const AlertBell(),
                   ],
                 ),
               ),

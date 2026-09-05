@@ -29,6 +29,7 @@ class AgentIncomingTransfer {
     required this.coreStatusLabel,
     this.cancelReason = '',
     this.cancelNotes = '',
+    this.notes = '',
   });
 
   /// مفتاح الصفّ في جدول التتبّع — هو ما تُرسله نقطة التسليم.
@@ -67,6 +68,13 @@ class AgentIncomingTransfer {
   /// للوكيل صراحةً، فادّعاءُ أن الإلغاء بلا سبب أسوأ من الاعتراف بالجهل.
   final String cancelReason;
   final String cancelNotes;
+
+  /// ملاحظة كُتبت على الحوالة عند إنشائها في منظومة الرحالة
+  /// (`InternalEx.Notes`) — لا يكتبها التطبيق ولا يعدّلها.
+  ///
+  /// وفراغها هو الحال الغالب، فالفاتورة لا تعرض لها شيئاً حينئذ: حقلٌ
+  /// عنوانه «ملاحظة» وتحته فراغ يوحي بأن شيئاً لم يصل.
+  final String notes;
 
   bool get hasCancelReason =>
       cancelReason.isNotEmpty || cancelNotes.isNotEmpty;
@@ -121,6 +129,7 @@ class AgentIncomingTransfer {
         coreStatusLabel: '${j['core_status_label'] ?? ''}'.trim(),
         cancelReason: '${j['cancel_reason'] ?? ''}'.trim(),
         cancelNotes: '${j['cancel_notes'] ?? ''}'.trim(),
+        notes: '${j['notes'] ?? ''}'.trim(),
       );
 }
 

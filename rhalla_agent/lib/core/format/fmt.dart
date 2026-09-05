@@ -156,15 +156,88 @@ class Fmt {
 /// المرشِّحات القياسية لحقل مبلغ. **الترتيب جزء من الصحة، لا ذوق:**
 ///
 /// 1. [WesternDigits] أولاً — قبل التصفية، وإلا حُذف الرقم الهندي قبل تحويله.
-/// 2. التصفية تسمح بالفاصلة `,` — بدونها تُحذف فواصل الآلاف فور وضعها.
-/// 3. [ThousandsGrouping] أخيراً — يضع الفواصل بعد أن استقرّ النص.
+/// 2. [DecimalComma] بعده — الفاصلة التي يكتبها الوكيل عشريّة لا فاصلة آلاف.
+/// 3. التصفية تسمح بالفاصلة `,` — بدونها تُحذف فواصل الآلاف فور وضعها.
+/// 4. [ThousandsGrouping] أخيراً — يضع الفواصل بعد أن استقرّ النص.
 ///
 /// استعمِلها في كل حقل مبلغ بدل تكرار القائمة، فالترتيب يُنسى بسهولة.
 final moneyInputFormatters = <TextInputFormatter>[
   const WesternDigits(),
+  const DecimalComma(),
   FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
   const ThousandsGrouping(),
 ];
+
+/// الفاصلة التي يكتبها الوكيل **فاصلة عشرية**، لا فاصلة آلاف.
+///
+/// ## العطب الذي أوجد هذا الصنف
+///
+/// لوحة المفاتيح الرقمية في أندرويد تضع على مفتاح الفاصلة العشرية **رمز
+/// لغة الجهاز**، والجهاز هنا `ar-LY` — فالمفتاح يُخرج `,` لا `.`. فكان
+/// الوكيل يكتب «2,5» يريد اثنين ونصفاً، فتعاملها [ThousandsGrouping] على
+/// أنها فاصلة آلاف وتحذفها: **25**. خطأٌ بعشرة أضعاف في مبلغ مال، صامت،
+/// ويبدو للوكيل أن التطبيق «حذف النقطة».
+///
+/// ## لماذا يصحّ أن تُقرأ كل فاصلة يكتبها عشريّة
+///
+/// لأن الوكيل **لا يحتاج أن يكتب فاصلة آلاف أصلاً**: [ThousandsGrouping]
+/// يضعها بنفسه فور اكتمال الخانة الرابعة. فما دام لا سبب لكتابتها، فكل
+/// فاصلة تصل من يده تعني الفصل العشري.
+///
+/// ولا يُصلح هذا بتغيير لوحة المفاتيح ولا بلغة التطبيق: الوكيل قد يفتح
+/// التطبيق على جهاز لغته عربية أو فرنسية أو ألمانية، وكلّها فاصلتها `,`.
+/// التصحيح عند حدّ الإدخال يعمل في كلّها.
+class DecimalComma extends TextInputFormatter {
+  const DecimalComma();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final added = newValue.text.length - oldValue.text.length;
+
+    // حرفٌ واحد أُدخل: الحالة اليومية — ضغطة على مفتاح.
+    if (added == 1) {
+      final i = newValue.selection.baseOffset - 1;
+      if (i < 0 || i >= newValue.text.length || newValue.text[i] != ',') {
+        return newValue;
+      }
+
+      final before = newValue.text.substring(0, i);
+      final after = newValue.text.substring(i + 1);
+
+      // نقطةٌ موجودة سلفاً ⇒ الفاصلة تُبتلع ولا تُبدَّل: «2.5.» ليس رقماً،
+      // و[ThousandsGrouping] كان سيلصق الكسرين فيصير «2.55» من «2.5» و«5».
+      final dot = '$before$after'.contains('.') ? '' : '.';
+
+      return TextEditingValue(
+        text: '$before$dot$after',
+        selection: TextSelection.collapsed(offset: i + dot.length),
+      );
+    }
+
+    // لصقٌ أو إدخالٌ جماعي. هنا لا نعرف أيّ فاصلة جاءت من يد الوكيل، فنقرأ
+    // الشكل: نصٌّ فيه فاصلة ولا نقطة، وآخر فاصلة لا يتبعها ثلاث خانات
+    // بالضبط — فهي عشرية لا مجمِّعة، لأن التجميع ثلاثيّ دائماً.
+    //
+    // و«2,500» تُترك تجميعاً كما هي: ثلاث خانات بعد الفاصلة، وهو الشكل
+    // الذي يعرضه التطبيق نفسه — فنسخُه ولصقُه يجب أن يعود كما كان.
+    if (added > 1 && !newValue.text.contains('.')) {
+      final last = newValue.text.lastIndexOf(',');
+      if (last >= 0 && newValue.text.length - last - 1 != 3) {
+        final head = newValue.text.substring(0, last).replaceAll(',', '');
+        final text = '$head.${newValue.text.substring(last + 1)}';
+        return TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        );
+      }
+    }
+
+    return newValue;
+  }
+}
 
 /// حقول الأسماء والنصوص: **حروف ومسافات فقط** — لا أرقام ولا إشارات ولا
 /// علامات.

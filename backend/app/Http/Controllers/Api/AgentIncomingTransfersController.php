@@ -6,6 +6,7 @@ use App\Http\Controllers\BaseController;
 use App\Services\AgentIncomingTransfersService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -75,6 +76,82 @@ class AgentIncomingTransfersController extends BaseController
         return $this->sendResponse($result, 'Success');
     }
 
+    /**
+     * GET /api/agent/incoming-transfers/alerts
+     *
+     * أرقام صفوف الوارد وحدها — لجرس التنبيه في أعلى الشاشة الرئيسية.
+     *
+     * منفصلة عن `index` لأن الجرس يسأل كل دقيقة تقريباً وهو سؤال واحد:
+     * «هل وصل شيء جديد؟». وحمولة `index` صفوفٌ كاملة بأسماء ومبالغ
+     * وسببِ إلغاء واستعلاماتٍ فرعية لكلٍّ منها — تحميلُ ذلك في دورةٍ
+     * متكرّرة إهدارٌ لشبكة الوكيل ولوقت الخادم معاً.
+     *
+     * والتطبيق يحسب «غير المفتوحة» بنفسه: الخادم لا يعرف ما فتحه الوكيل،
+     * وتسجيلُ ذلك في الخادم يعني جدولاً جديداً وكتابةً عند كل فتح فاتورة —
+     * ثمنٌ لا يشتري شيئاً، فالجرس شأن الجهاز الذي بين يديه.
+     */
+    public function alerts()
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return $this->sendError('غير مصرّح.', [], 401);
+        }
+        if (empty($user->BrancchID)) {
+            return $this->sendError('لا يوجد فرع مرتبط بهذا المستخدم.', [], 403);
+        }
+
+        // المزامنة أولاً، وإلا لم يرنّ الجرس إلا بعد أن يفتح الوكيل شاشةً
+        // أخرى تزامن — أي بعد أن يكون قد رأى الحوالة، وهو نقيض الغرض.
+        try {
+            $this->service->syncFromCore(
+                (int) $user->id,
+                (int) $user->BrancchID,
+                (int) $user->UeserType
+            );
+        } catch (\Throwable $e) {
+            // كما في `index`: فشل المزامنة لا يُسقط الطلب. الجرس يبقى على
+            // آخر ما يعرفه بدل أن يعرض عطباً في أعلى الشاشة الرئيسية.
+            Log::warning('agent incoming alerts sync failed', [
+                'user'  => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // **«بانتظار التسليم» وحدها** (أمر المالك، 5 سبتمبر 2026).
+        //
+        // الجرس ينبّه إلى عملٍ لم يُنجَز، لا إلى تاريخ الحساب: المسلَّمة
+        // انتهت، والملغاة لا تُسلَّم — وعدُّهما يجعل الرقم لا يهبط أبداً
+        // فيفقد معناه.
+        //
+        // والشرط هو شرط `counts()` نفسه حرفياً، لا شرطاً شبيهاً به: تبويب
+        // «بانتظار التسليم» في الشاشة والرقمُ على الجرس يجب أن يعدّا الشيء
+        // نفسه، وتعريفان متقاربان يفترقان عند أول تغيير في أحدهما.
+        //
+        // 200 سقفٌ لا ترشيح: الجرس يعني الجديد، والأقدم من مئتَي حوالة
+        // ليس جديداً بحال. وبلا سقف تكبر الحمولة بلا حدّ مع عمر الحساب.
+        $ids = DB::table('agent_incoming_transfers')
+            ->where('agent_id', (int) $user->id)
+            // ما محي أصله من المنظومة لا يُعدّ على الجرس كما لا يُعرض في
+            // القائمة — انظر `AgentIncomingTransfersService::reconcileMissing`.
+            ->whereNull('core_missing_at')
+            ->where('status', AgentIncomingTransfersService::PENDING)
+            ->where(function ($w) {
+                $w->whereNull('core_confirm_type')
+                  ->orWhereNotIn(
+                      'core_confirm_type',
+                      AgentIncomingTransfersService::CORE_CANCELLED
+                  );
+            })
+            ->orderByDesc('id')
+            ->limit(200)
+            ->pluck('id')
+            ->map(fn ($v) => (int) $v)
+            ->values();
+
+        return $this->sendResponse(['ids' => $ids], 'Success');
+    }
+
     /** POST /api/agent/incoming-transfers/{id}/deliver */
     public function deliver(Request $request, int $id)
     {
@@ -99,6 +176,19 @@ class AgentIncomingTransfersController extends BaseController
             // لا نفرّق بين «غير موجودة» و«تخصّ وكيلاً آخر»: التفريق يكشف
             // وجود حوالة لمن لا يملكها.
             return $this->sendError('الحوالة غير موجودة.', [], 404);
+        }
+
+        // اختفى أصلها من المنظومة بعد أن فُتحت الشاشة.
+        //
+        // 404 لا 409: الرسالة تصف ما يراه الوكيل — الحوالة لم تعد موجودة —
+        // بينما 409 تعني «موجودة وحالتها تمنع». والتطبيق يعامل 404 على أنها
+        // «ليست هنا» فيعود بالوكيل إلى القائمة بدل أن يبقيه أمام صفٍّ ميت.
+        if (!empty($result['missing'])) {
+            return $this->sendError(
+                'هذه الحوالة لم تعد موجودة في المنظومة.',
+                [],
+                404
+            );
         }
 
         if (!empty($result['cancelled'])) {

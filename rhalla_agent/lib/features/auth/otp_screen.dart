@@ -135,8 +135,21 @@ class _OtpScreenState extends ConsumerState<OtpScreen> with HardwareDigits {
   Future<void> _resend() async {
     try {
       await ref.read(authRepositoryProvider).requestOtp(widget.phone);
+      if (!mounted) return;
+
+      // رمزٌ جديد وصل، فالخانات تُفرَغ استعداداً له.
+      //
+      // الرمز القديم صار مستهلكاً على الخادم: تركُه معروضاً يجعل الوكيل
+      // يواجه أربع خانات ممتلئة برقمٍ لن يُقبل، وعليه أن يمسحها بنفسه
+      // قبل أن يكتب ما وصله. ورسالة الخطأ تذهب معه — هي عن المحاولة
+      // السابقة، لا عن هذه.
+      setState(() {
+        _code = '';
+        _error = null;
+      });
       _startTimer();
     } on ApiFailure catch (e) {
+      // لم يُرسَل شيء: الخانات تبقى كما هي، والخطأ هو خطأ الإرسال.
       if (mounted) setState(() => _error = e.message);
     }
   }

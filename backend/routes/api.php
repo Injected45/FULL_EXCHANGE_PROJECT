@@ -281,6 +281,11 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
   // ومساعدة الوكيل على معرفة ما سلّمه وما لم يسلّمه.
   Route::get('agent/incoming-transfers',
       [ AgentIncomingTransfersController::class , 'index' ]);
+
+  // جرس التنبيه: أرقام الصفوف وحدها، يسألها التطبيق دورياً.
+  Route::get('agent/incoming-transfers/alerts',
+      [ AgentIncomingTransfersController::class , 'alerts' ]);
+
   Route::get('agent/outgoing-transfers/pending',
       [ AgentIncomingTransfersController::class , 'pendingOutgoing' ]);
 

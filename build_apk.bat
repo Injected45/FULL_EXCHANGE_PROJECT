@@ -173,8 +173,21 @@ if errorlevel 1 (
     exit /b 1
 )
 
+rem  Release is split per CPU architecture; debug and profile are not.
+rem
+rem  Measured 4 Sep 2026: the fat APK is 62 MB and 60.7 MB of that is
+rem  three copies of the Flutter engine - one per architecture. A phone
+rem  runs exactly one. Splitting gives arm64 at 21.6 MB and armeabi-v7a
+rem  at 19.7 MB for the same app.
+rem
+rem  Debug is left whole on purpose: it is installed on whatever device
+rem  is at hand, and one file that runs everywhere is worth more than
+rem  megabytes on a build nobody ships.
+set "SPLIT="
+if /i "%MODE%"=="release" set "SPLIT=--split-per-abi"
+
 echo Building %MODE% APK...
-call flutter build apk --%MODE% --dart-define=API_BASE=%API_BASE%
+call flutter build apk --%MODE% %SPLIT% --dart-define=API_BASE=%API_BASE%
 if errorlevel 1 (
     echo.
     echo [ERROR] The build failed.
@@ -186,7 +199,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "BUILT=build\app\outputs\flutter-apk\app-%MODE%.apk"
+rem  A split release writes one APK per architecture; the fat name does
+rem  not exist then. arm64-v8a is the file for every current phone.
+if defined SPLIT (
+    set "BUILT=build\app\outputs\flutter-apk\app-arm64-v8a-release.apk"
+) else (
+    set "BUILT=build\app\outputs\flutter-apk\app-%MODE%.apk"
+)
 if not exist "%BUILT%" (
     echo [ERROR] Build reported success but "%BUILT%" is not there.
     pause
@@ -201,6 +220,16 @@ if errorlevel 1 (
     echo [ERROR] Could not copy the APK to "%FINAL%".
     pause
     exit /b 1
+)
+
+rem  The 32-bit build is carried along for the few old phones that need
+rem  it. It is a second file, not a replacement - installing the wrong
+rem  one fails with INSTALL_FAILED_NO_MATCHING_ABIS.
+if defined SPLIT (
+    set "OLD32=build\app\outputs\flutter-apk\app-armeabi-v7a-release.apk"
+    rem  !OLD32! and not %OLD32%: cmd expands a whole if-block at parse
+    rem  time, before the set above has run - the check would test "".
+    if exist "!OLD32!" copy /y "!OLD32!" "%OUTDIR%\rhalla-agent-release-32bit.apk" >nul
 )
 
 rem ---------- 6) Verify the APK itself ------------------------
@@ -228,18 +257,32 @@ if defined AAPT (
 )
 
 rem ---------- 6b) Signature check (release only) --------------
-rem  keytool is not on PATH on this machine; it lives in the JDK
-rem  that Android Studio bundles. Look there before giving up, so
-rem  the check cannot pass by silently doing nothing.
+rem  apksigner, NOT keytool. keytool -printcert -jarfile reads only the
+rem  v1 JAR signature, and this app's minSdk means Gradle signs it with
+rem  APK Signature Scheme v2 alone - so keytool printed nothing at all,
+rem  the "Android Debug" findstr matched nothing, and the check reported
+rem  success on every release build without ever reading a certificate.
+rem  A guard that silently matches nothing looks exactly like a guard
+rem  that passes. Verified against the real apk: v1 false, v2 true.
+rem
+rem  apksigner ships in the SDK build-tools and reads every scheme.
 if /i "%MODE%"=="release" (
-    set "KEYTOOL="
-    if exist "%ProgramFiles%\Android\Android Studio\jbr\bin\keytool.exe" set "KEYTOOL=%ProgramFiles%\Android\Android Studio\jbr\bin\keytool.exe"
-    if not defined KEYTOOL if defined JAVA_HOME if exist "%JAVA_HOME%\bin\keytool.exe" set "KEYTOOL=%JAVA_HOME%\bin\keytool.exe"
-    if not defined KEYTOOL for /f "delims=" %%k in ('where keytool 2^>nul') do if not defined KEYTOOL set "KEYTOOL=%%k"
+    set "APKSIGNER="
+    for /f "delims=" %%d in ('dir /b /ad /o-n "%SDK%\build-tools" 2^>nul') do (
+        if not defined APKSIGNER if exist "%SDK%\build-tools\%%d\apksigner.bat" set "APKSIGNER=%SDK%\build-tools\%%d\apksigner.bat"
+    )
 
-    if defined KEYTOOL (
-        "!KEYTOOL!" -printcert -jarfile "%FINAL%" > "%TEMP%\rhalla_cert.txt" 2>nul
-        findstr /i /c:"Android Debug" "%TEMP%\rhalla_cert.txt" >nul
+    if defined APKSIGNER (
+        call "!APKSIGNER!" verify --print-certs "%FINAL%" > "%TEMP%\rhalla_cert.txt" 2>&1
+        if errorlevel 1 (
+            echo.
+            echo [ERROR] apksigner could not verify "%FINAL%".
+            type "%TEMP%\rhalla_cert.txt"
+            del "%TEMP%\rhalla_cert.txt" >nul 2>&1
+            pause
+            exit /b 1
+        )
+        findstr /i /c:"CN=Android Debug" "%TEMP%\rhalla_cert.txt" >nul
         if not errorlevel 1 (
             echo.
             echo [ERROR] This release APK is signed with the DEBUG keystore.
@@ -249,11 +292,25 @@ if /i "%MODE%"=="release" (
             pause
             exit /b 1
         )
-        for /f "tokens=1,* delims=:" %%a in ('findstr /c:"Owner:" "%TEMP%\rhalla_cert.txt"') do echo Signature check  : signed by%%b
+        rem  Print the subject so the key in use is visible, never assumed.
+        set "SIGNER="
+        rem  The line reads "V2 Signer: certificate DN: CN=..., O=..." - two
+        rem  colons, so token 2 is the label and the rest is the subject.
+        for /f "tokens=2,* delims=:" %%a in ('findstr /c:"certificate DN" "%TEMP%\rhalla_cert.txt"') do if not defined SIGNER set "SIGNER=%%b"
+        if defined SIGNER (
+            echo Signature check  : signed by!SIGNER!
+        ) else (
+            echo.
+            echo [ERROR] apksigner verified the APK but printed no certificate DN.
+            echo         Refusing to report a signature that was never read.
+            del "%TEMP%\rhalla_cert.txt" >nul 2>&1
+            pause
+            exit /b 1
+        )
         del "%TEMP%\rhalla_cert.txt" >nul 2>&1
     ) else (
-        echo [WARN] keytool.exe not found - could not confirm this APK is signed
-        echo        with the release key rather than the debug one.
+        echo [WARN] apksigner not found under "%SDK%\build-tools" - could not
+        echo        confirm this APK is signed with the release key.
     )
 )
 

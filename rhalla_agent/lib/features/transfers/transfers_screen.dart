@@ -10,6 +10,7 @@ import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import '../alerts/incoming_alerts.dart';
 import 'agent_incoming_repository.dart';
 import 'delivery_receipt_screen.dart';
 import 'transfers_repository.dart';
@@ -49,6 +50,22 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
   /// حوالةً معتمدة فعلاً. الملف باقٍ ولا يُستعمل هنا.
   AutoDisposeFutureProvider<IncomingPage> get _provider =>
       agentIncomingProvider(IncomingQuery(_tab, _query));
+
+  @override
+  void initState() {
+    super.initState();
+    // فتحُ هذه الشاشة يُطفئ عدّاد الجرس (أمر المالك، 5 سبتمبر 2026).
+    //
+    // القائمة تعرض ما وصل برقمه واسمه ومبلغه، فمن فتحها فقد رأى وارده —
+    // والعدّاد بعدها يَعِد بشيء واحد واضح: كم وصل منذ آخر نظرة.
+    //
+    // ومؤجَّلٌ إلى ما بعد أوّل إطار: تعديل مزوّد أثناء بناء الشجرة يرمي
+    // تأكيداً في Riverpod، ويُبتلع صامتاً داخل مستقبلٍ لا يراقبه أحد —
+    // فيكون العَرَض أن العدّاد لا ينطفئ، بلا أثرٍ في السجل.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(incomingAlertsProvider.notifier).markAllSeen();
+    });
+  }
 
   @override
   void dispose() {

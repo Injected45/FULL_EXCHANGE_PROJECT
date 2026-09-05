@@ -164,24 +164,33 @@ class AgentIncomingTransfersService
     {
         $mine = DB::table('agent_incoming_transfers')
             ->where('agent_id', $agentId)
-            ->pluck('core_confirm_type', 'transfer_number');
+            ->get(['transfer_number', 'core_confirm_type', 'core_missing_at'])
+            ->keyBy('transfer_number');
 
         if ($mine->isEmpty()) {
             return;
         }
 
-        $core = DB::table('InternalEx as t')
-            ->leftJoin('InternalEx_Stautes as s', 's.ConfirmType', '=', 't.ConfirmType')
-            ->whereIn('t.Code', $mine->keys())
-            ->select('t.Code', 't.ConfirmType', 's.SName')
-            ->get();
+        // مُجزّأً عند 1000: `IN` في SQL Server يقف عند 2100 وسيط، وفرعٌ حيّ
+        // واحد يحمل 522 حوالة اليوم — فالحدّ ليس بعيداً، وتجاوزُه يرمي
+        // استثناءً يُسقط كل فتحٍ للشاشة لا صفّاً واحداً.
+        $core = collect();
+        foreach ($mine->keys()->chunk(1000) as $chunk) {
+            $core = $core->merge(
+                DB::table('InternalEx as t')
+                    ->leftJoin('InternalEx_Stautes as s', 's.ConfirmType', '=', 't.ConfirmType')
+                    ->whereIn('t.Code', $chunk->values())
+                    ->select('t.Code', 't.ConfirmType', 's.SName')
+                    ->get()
+            );
+        }
 
         // ما تغيّر فعلاً وحده يُكتب، ومجموعةً واحدة لكل حالة لا صفّاً صفّاً.
         // تحديثٌ بلا تغيير يحرّك updated_at فيبدو الصفّ كأنه تعدّل في كل فتح
         // للشاشة، والتحديث صفّاً صفّاً يعني استعلاماً لكل حوالة.
         $changed = [];
         foreach ($core as $c) {
-            $current = $mine[$c->Code] ?? null;
+            $current = $mine[$c->Code]->core_confirm_type ?? null;
             if ($current !== null && (int) $current === (int) $c->ConfirmType) {
                 continue;
             }
@@ -198,6 +207,78 @@ class AgentIncomingTransfersService
                     'core_status_label' => $label,
                     'core_synced_at'    => now(),
                 ]);
+        }
+
+        $this->reconcileMissing($agentId, $mine, $core->pluck('Code')->flip());
+    }
+
+    /**
+     * صفٌّ لا أصل له في المنظومة يختفي من التطبيق — ولا يُحذف.
+     *
+     * أمر المالك (5 سبتمبر 2026): ما لا تراه قاعدة البيانات لا يراه التطبيق،
+     * والعكس. والدفتر يُضاف إليه ولا يُحذف منه، فحوالةٌ مُحيت من `InternalEx`
+     * نهائياً — كما يقع عند تنظيف القاعدة — كانت تبقى معروضة بلا وجود.
+     *
+     * **وسمٌ لا حذف**، لثلاثة أسباب: `transfer_status_history` مرتبط بمفتاح
+     * أجنبي بهذا الجدول فالحذف يمحو سجلّ من سلّم ومتى؛ والغياب قد يكون
+     * مؤقّتاً والوسم يُرفع من تلقائه حين يعود الأصل بينما الحذف لا يُستردّ؛
+     * والوسم يحمل تاريخ الاختفاء فيُقرأ بعد شهر، والمحذوف لا يقول شيئاً.
+     *
+     * ولا استعلام إضافي: [$alive] هي رموز الصفوف التي عادت من الاستعلام
+     * الذي جرى فعلاً في [refreshCoreState] — الجديد هنا مقارنةٌ في الذاكرة،
+     * لا قراءةٌ ثانية للمنظومة. وسؤالُ الوجود صفّاً صفّاً كان ليكون كارثة:
+     * لا فهرس على `InternalEx.Code`، فكل صفّ يعيد مسح الجدول (وهو ما جعل
+     * كشف الحساب يستغرق 68 ثانية حين جُرّب الشكل نفسه هناك).
+     *
+     * @param  \Illuminate\Support\Collection  $mine   صفوف الدفتر، مفتاحها الرمز
+     * @param  \Illuminate\Support\Collection  $alive  رموز ما وُجد في المنظومة
+     */
+    private function reconcileMissing(int $agentId, $mine, $alive): void
+    {
+        $gone = [];
+        $back = [];
+
+        foreach ($mine as $code => $row) {
+            $exists  = $alive->has($code);
+            $flagged = $row->core_missing_at !== null;
+
+            if (!$exists && !$flagged) {
+                $gone[] = $code;
+            } elseif ($exists && $flagged) {
+                $back[] = $code;
+            }
+        }
+
+        if ($gone !== []) {
+            // يُسجَّل لأنه ليس حدثاً عادياً: في التشغيل الطبيعي لا تُحذف صفوف
+            // من `InternalEx` — تُلغى فتصير ConfirmType = 5. فاختفاءُ صفٍّ
+            // يعني تدخّلاً يدوياً في القاعدة، وأثرٌ في السجل هو ما يجيب
+            // «لماذا نقصت حوالات الوكيل؟» بعد أسبوع.
+            Log::info('agent incoming: core rows vanished', [
+                'agent' => $agentId,
+                'codes' => $gone,
+            ]);
+
+            foreach (array_chunk($gone, 1000) as $chunk) {
+                DB::table('agent_incoming_transfers')
+                    ->where('agent_id', $agentId)
+                    ->whereIn('transfer_number', $chunk)
+                    ->update(['core_missing_at' => now()]);
+            }
+        }
+
+        if ($back !== []) {
+            Log::info('agent incoming: core rows returned', [
+                'agent' => $agentId,
+                'codes' => $back,
+            ]);
+
+            foreach (array_chunk($back, 1000) as $chunk) {
+                DB::table('agent_incoming_transfers')
+                    ->where('agent_id', $agentId)
+                    ->whereIn('transfer_number', $chunk)
+                    ->update(['core_missing_at' => null]);
+            }
         }
     }
 
@@ -221,7 +302,12 @@ class AgentIncomingTransfersService
     /** صفحة من حوالات الوكيل بحالةٍ ما. */
     public function list(int $agentId, ?string $status, ?string $search, int $page, int $perPage): array
     {
-        $q = DB::table('agent_incoming_transfers')->where('agent_id', $agentId);
+        $q = DB::table('agent_incoming_transfers')
+            ->where('agent_id', $agentId)
+            // ما محي أصله من المنظومة لا يُعرض في أي تبويب — أمر المالك
+            // (5 سبتمبر 2026): لا يظهر في التطبيق ما ليس في القاعدة.
+            // انظر `reconcileMissing`.
+            ->whereNull('core_missing_at');
 
         if ($status === self::CANCELLED_TAB) {
             // بلا شرطٍ على `status`: الملغاة تشمل المسلَّمة وغير المسلَّمة.
@@ -254,46 +340,9 @@ class AgentIncomingTransfersService
 
         $total = (clone $q)->count();
 
-        /* سبب الإلغاء — يُقرأ من منظومة الرحالة حيث كُتب، ولا يُنسخ إلى دفترنا.
-         *
-         * موضعه في المنظومة: `TransCancelRequestTb` يحمل `ReasonID` مشيراً إلى
-         * `AddCancelReason.NewCause` (السبب المختار من القائمة)، و`Notes` نصّاً
-         * حرّاً بجانبه. والصفّ لا يُحذف عند التأكيد — `..._DeleteRequestByID`
-         * يضع `IsActive = 0` فقط — فالسبب يبقى مقروءاً بعد اكتمال الإلغاء.
-         * ولذلك لا يُرشَّح هنا بـ `IsActive`: طلبٌ نُفِّذ وأُقفل سببُه قائم.
-         *
-         * **قراءةٌ حيّة لا نسخة**: لو نُسخ السبب إلى دفتر الوكيل لحظة المزامنة،
-         * لبقي على حاله إن صُحِّح في المنظومة بعدها — فيقرأ الوكيل سبباً
-         * تراجعت عنه الرحالة.
-         *
-         * واستعلامان فرعيّان لا JOIN: قد يوجد لرقمٍ واحد أكثر من طلب إلغاء،
-         * و JOIN عليه يضاعف صفّ الحوالة في القائمة.
-         */
-        $items = $q->orderByDesc('id')
-            ->selectRaw("agent_incoming_transfers.*,
-                COALESCE(
-                    -- 1) مسار «طلب إلغاء حوالة»: المبرّر المختار من القائمة.
-                    (SELECT TOP 1 r.NewCause
-                       FROM TransCancelRequestTb tc
-                       LEFT JOIN AddCancelReason r ON r.ID = tc.ReasonID
-                      WHERE tc.ISID = agent_incoming_transfers.transfer_number
-                      ORDER BY tc.ID DESC),
-                    -- 2) المبرّر المكتوب على الحوالة نفسها (مسار التاكسي).
-                    (SELECT TOP 1 r2.NewCause
-                       FROM InternalEx ie
-                       JOIN AddCancelReason r2 ON r2.ID = ie.AddCancelReason_ID
-                      WHERE ie.Code = agent_incoming_transfers.transfer_number),
-                    -- 3) نصّ حرّ يكتبه السائق حين لا مبرّر من القائمة.
-                    (SELECT TOP 1 NULLIF(LTRIM(RTRIM(ie.AddCancelReason_NameFrom_Driver)), '')
-                       FROM InternalEx ie
-                      WHERE ie.Code = agent_incoming_transfers.transfer_number)
-                ) AS cancel_reason,
-                (SELECT TOP 1 tc.Notes
-                   FROM TransCancelRequestTb tc
-                  WHERE tc.ISID = agent_incoming_transfers.transfer_number
-                  ORDER BY tc.ID DESC) AS cancel_notes")
-            ->forPage($page, $perPage)
-            ->get();
+        $items = $q->orderByDesc('id')->forPage($page, $perPage)->get();
+
+        $this->attachCoreText($items);
 
         return [
             'items'     => $items,
@@ -305,6 +354,104 @@ class AgentIncomingTransfersService
     }
 
     /**
+     * نصوص المنظومة الثلاثة: سبب الإلغاء وملاحظته، وملاحظة منشئ الحوالة.
+     *
+     * **تُقرأ حيّةً ولا تُنسخ إلى دفتر الوكيل**: نصٌّ يُصحَّح في المنظومة يجب
+     * أن يُقرأ مصحّحاً هنا، لا كما كان لحظة المزامنة. فلو نُسخ سببُ إلغاء ثم
+     * تراجعت الرحالة عنه، لقرأ الوكيل سبباً لم يعد قائماً.
+     *
+     * ## استعلامان لكل صفحة، لا خمسة لكل صفّ
+     *
+     * كان هذا خمسة استعلامات فرعية مرتبطة داخل `SELECT` القائمة — ثلاثة منها
+     * على `InternalEx`. وهي **الشكل نفسه** الذي جعل كشف الحساب يستغرق 68
+     * ثانية: `InternalEx.Code` **بلا فهرس** (فُحص: `PK(ID)` و`UQ(IDCode)`
+     * وفهرسان على رايتَي الإلغاء لا غير)، فكل صفّ يعيد مسح الجدول. صفحةٌ من
+     * عشرين صفّاً كانت ستعني ستّين مسحاً لجدولٍ فيه مئات الآلاف من الصفوف،
+     * وأربعين مسحاً لـ`TransCancelRequestTb`.
+     *
+     * والآن: استعلامٌ واحد لكل جدول، مقيَّدٌ برموز الصفحة (عشرون رمزاً، ومئة
+     * في أقصى `per_page`)، والربط في PHP. وهو النمط المُقرَّر في هذا المشروع
+     * منذ `LocalStatmentAccount`: ما يمكن جمعه في الذاكرة لا يُعاد سؤاله من
+     * قاعدة البيانات صفّاً صفّاً.
+     *
+     * والفهرس على `InternalEx.Code` كان سيحلّ الأصل، وهو ممنوع: جدولٌ ماليّ
+     * تحت الأمر الدائم.
+     *
+     * ## لماذا لا JOIN
+     *
+     * الرمز قد يتكرّر في الجدولين — أكثر من طلب إلغاء لرقم واحد، وأكثر من
+     * صفّ في `InternalEx` — و JOIN عليه يضاعف صفّ الحوالة في القائمة. فيُؤخذ
+     * **الأحدث** (‏`ID` الأكبر) لكل رمز، وهو الحوالة الحيّة والطلب الأخير.
+     *
+     * وذلك أيضاً أدقّ ممّا كان: `TOP 1` بلا `ORDER BY` في الاستعلامين
+     * الفرعيّين القديمين كان يعيد صفّاً غير محدَّد حين يتكرّر الرمز.
+     *
+     * ولا ترشيح بـ`IsActive` على طلب الإلغاء: `..._DeleteRequestByID` يضع
+     * `IsActive = 0` عند التأكيد ولا يحذف الصفّ، فسببُ طلبٍ نُفِّذ وأُقفل
+     * يبقى قائماً ويجب أن يُقرأ.
+     *
+     * @param  \Illuminate\Support\Collection  $items  صفوف الصفحة — تُعدَّل مكانها
+     */
+    private function attachCoreText($items): void
+    {
+        $codes = $items->pluck('transfer_number')->filter()->unique()->values();
+
+        $core    = [];
+        $cancels = [];
+
+        // مُجزّأ عند 1000 كسائر الاستعلامات هنا: `IN` يقف عند 2100 وسيط.
+        // وصفحةٌ لا تتجاوز 100 صفّ، فالتجزئة احتياطٌ لا حاجة يومية — لكن
+        // حدّاً يُتجاوز مرّةً واحدة يُسقط الشاشة كلّها.
+        foreach ($codes->chunk(1000) as $chunk) {
+            // الأقدم أولاً، فيَغلب الأحدث حين يُكتب فوقه في المصفوفة.
+            foreach (
+                DB::table('InternalEx as ie')
+                    ->leftJoin('AddCancelReason as r', 'r.ID', '=', 'ie.AddCancelReason_ID')
+                    ->whereIn('ie.Code', $chunk->values())
+                    ->orderBy('ie.ID')
+                    ->get(['ie.Code', 'r.NewCause', 'ie.AddCancelReason_NameFrom_Driver', 'ie.Notes'])
+                as $r
+            ) {
+                $core[$r->Code] = $r;
+            }
+
+            foreach (
+                DB::table('TransCancelRequestTb as tc')
+                    ->leftJoin('AddCancelReason as r', 'r.ID', '=', 'tc.ReasonID')
+                    ->whereIn('tc.ISID', $chunk->values())
+                    ->orderBy('tc.ID')
+                    ->get(['tc.ISID', 'r.NewCause', 'tc.Notes'])
+                as $r
+            ) {
+                $cancels[$r->ISID] = $r;
+            }
+        }
+
+        $text = static function (?string $v): ?string {
+            $v = trim((string) $v);
+            return $v === '' ? null : $v;
+        };
+
+        foreach ($items as $row) {
+            $c = $core[$row->transfer_number]    ?? null;
+            $x = $cancels[$row->transfer_number] ?? null;
+
+            // ترتيب الأولوية كما كان حرفياً: مبرّر طلب الإلغاء، ثم المبرّر
+            // المكتوب على الحوالة (مسار التاكسي)، ثم نصّ السائق الحرّ.
+            $row->cancel_reason = $text($x->NewCause ?? null)
+                ?? $text($c->NewCause ?? null)
+                ?? $text($c->AddCancelReason_NameFrom_Driver ?? null);
+
+            $row->cancel_notes = $x->Notes ?? null;
+
+            // ملاحظة منشئ الحوالة. والفراغ يصير NULL: العمود يحتمل '' ومسافات
+            // بيضاء، وهي «بلا ملاحظة» لا ملاحظةٌ فارغة — والتطبيق يُخفي الحقل
+            // على NULL ويعرض حاويةً فارغة على ''.
+            $row->notes = $text($c->Notes ?? null);
+        }
+    }
+
+    /**
      * أعداد التبويبين، والملغاة معدودةٌ على حدة.
      *
      * لا تبويب يعدّ الملغاة غيرُ تبويبها: العدد وعدٌ بما في التبويب، وصفٌّ
@@ -312,7 +459,10 @@ class AgentIncomingTransfersService
      */
     public function counts(int $agentId): array
     {
-        $base = DB::table('agent_incoming_transfers')->where('agent_id', $agentId);
+        $base = DB::table('agent_incoming_transfers')
+            ->where('agent_id', $agentId)
+            // ما محي أصله من المنظومة لا يُعدّ — انظر `reconcileMissing`.
+            ->whereNull('core_missing_at');
 
         $pending = (clone $base)
             ->where('status', self::PENDING)
@@ -378,6 +528,20 @@ class AgentIncomingTransfersService
                     'changed'   => false,
                     'row'       => $row,
                     'cancelled' => true,
+                ];
+            }
+
+            // لا أصل لها في المنظومة ⇒ لا تُسجَّل تسليماً كذلك.
+            //
+            // لا تصل من شاشةٍ محدَّثة — الصفّ لا يُعرض أصلاً — لكن الشاشة قد
+            // تكون مفتوحة منذ ما قبل اختفاء الأصل. وتسجيلُ التسليم يكتب
+            // إسناداً وقيداً في صندوق الموظف لحوالةٍ لا وجود لها، وهو أسوأ
+            // من رفضٍ يفهمه الوكيل.
+            if ($row->core_missing_at !== null) {
+                return [
+                    'changed' => false,
+                    'row'     => $row,
+                    'missing' => true,
                 ];
             }
 

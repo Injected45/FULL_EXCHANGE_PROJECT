@@ -279,6 +279,9 @@ class EmployeeReportsController extends BaseController
 
         $pending = DB::table('agent_incoming_transfers')
             ->where('agent_id', $user->id)
+            // ما محي أصله من المنظومة لا يُعدّ هنا كما لا يُعدّ في تبويبات
+            // الوكيل — انظر `AgentIncomingTransfersService::reconcileMissing`.
+            ->whereNull('core_missing_at')
             ->where('status', 'PENDING_DELIVERY')
             ->where(function ($q) {
                 $q->whereNull('core_confirm_type')

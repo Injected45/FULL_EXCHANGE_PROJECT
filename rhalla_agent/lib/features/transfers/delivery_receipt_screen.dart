@@ -113,7 +113,8 @@ class _DeliveryReceiptScreenState extends ConsumerState<DeliveryReceiptScreen>
                           ? R.error
                           : t.isDelivered
                               ? R.primaryGradEnd
-                              : R.warnIcon),
+                              : R.warnIcon,
+                      notes: t.notes),
                 ),
 
                 // «سبب الإلغاء» — للملغاة وحدها، وخارج `RepaintBoundary`
@@ -237,6 +238,7 @@ class TransferInvoice extends StatelessWidget {
     this.showSender = true,
     this.statusLabel,
     this.statusColor,
+    this.notes = '',
   });
 
   final IncomingTransfer t;
@@ -261,6 +263,13 @@ class TransferInvoice extends StatelessWidget {
   /// حالة الحوالة ولونها — تُمرَّر من الشاشة، وتُخفى إن كانت فارغة.
   final String? statusLabel;
   final Color? statusColor;
+
+  /// ملاحظة كُتبت على الحوالة في منظومة الرحالة عند إنشائها.
+  ///
+  /// تُعرض في أسفل الفاتورة، **وإن كانت فارغة فلا يظهر شيء** — لا عنوان
+  /// ولا حاوية ولا فراغ: أغلب الحوالات بلا ملاحظة، وحقلٌ فارغ في كل فاتورة
+  /// يوحي بأن نصّاً لم يصل.
+  final String notes;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -391,6 +400,26 @@ class TransferInvoice extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ],
+
+            // ملاحظة منشئ الحوالة — أسفل الفاتورة وآخر ما فيها.
+            //
+            // موضعها بعد المبلغ والحالة عمداً: هي شرحٌ لما فوقها لا معلومةٌ
+            // قائمة بذاتها، ووضعها بين البيانات كان يزاحم ما يُقرأ أولاً.
+            //
+            // وهي **داخل** الفاتورة لا خارجها — بخلاف «سبب الإلغاء» الذي
+            // يقف خارج `RepaintBoundary`. الفرق أن سبب الإلغاء شأنٌ بين
+            // الرحالة والوكيل، أما هذه فكُتبت على الحوالة نفسها لتُقرأ معها،
+            // فتظهر في الورقة المطبوعة والمشاركة كما تظهر على الشاشة.
+            if (notes.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              BoxedField(
+                icon: Icons.sticky_note_2_outlined,
+                label: 'ملاحظة',
+                child: Text(notes,
+                    textAlign: TextAlign.start,
+                    style: T.kufi(14, FontWeight.w500, height: 1.55)),
               ),
             ],
           ],

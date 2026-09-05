@@ -106,6 +106,45 @@ class SecureStore {
   Future<bool> readOnboarded() async => (await _s.read(key: _kOnboarded)) == '1';
   Future<void> setOnboarded() => _s.write(key: _kOnboarded, value: '1');
 
+  // ─── جرس الوارد: ما فتحه الوكيل من الحوالات الواردة ──────────────────
+
+  static const _kSeenIncoming = 'seen_incoming_ids';
+
+  /// أرقام الحوالات الواردة التي فتحها الوكيل.
+  ///
+  /// على الجهاز لا في الخادم، لأن السؤال نفسه محلّي: «هل رأيتُ هذه؟» يخصّ
+  /// من يمسك الهاتف، لا الحساب. وحفظُه في الخادم يعني جدولاً جديداً وكتابةً
+  /// عند كل فتح فاتورة.
+  ///
+  /// ⚠ **لا تُمسح عند تسجيل الخروج.** الوكيل هو الوكيل نفسه بعد أن يعود،
+  /// ومسحُها يجعل كل حوالاته السابقة «جديدة» فيرنّ الجرس لها كلّها.
+  Future<Set<int>> readSeenIncoming() async {
+    final raw = await _s.read(key: _kSeenIncoming);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return (jsonDecode(raw) as List)
+          .map((e) => int.tryParse('$e') ?? -1)
+          .where((e) => e >= 0)
+          .toSet();
+    } catch (_) {
+      // قائمة تالفة تُعامَل كغياب، لا كخطأ: أسوأ ما يقع أن يرنّ الجرس
+      // مرّةً واحدة زائدة، وهو أهون من شاشة لا تفتح.
+      return {};
+    }
+  }
+
+  /// يُبقي الأحدث فقط.
+  ///
+  /// الأرقام تصاعدية، فالأكبر هو الأحدث. والخادم لا يعيد أكثر من 200 رقم
+  /// أصلاً، فحفظ 400 يغطّي ضعف ما يُسأل عنه ولا ينمو مع عمر الحساب —
+  /// وقائمة تكبر بلا حدّ في تخزينٍ مشفَّر تُبطئ كل قراءة لها.
+  Future<void> writeSeenIncoming(Set<int> ids) async {
+    final kept = ids.toList()..sort();
+    final trimmed =
+        kept.length > 400 ? kept.sublist(kept.length - 400) : kept;
+    await _s.write(key: _kSeenIncoming, value: jsonEncode(trimmed));
+  }
+
   static const _device =
       MethodChannel('com.rhalla.rhalla_agent/device');
 
