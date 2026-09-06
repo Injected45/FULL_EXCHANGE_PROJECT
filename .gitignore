@@ -61,3 +61,6 @@ backend/support-app/node_modules/
 # تطبيق الدعم — مخرجاتُ البناء تُولَّد
 rhalla_support/build/
 rhalla_support/.dart_tool/
+
+# نسخة APK للتنزيل من الهاتف — تُولَّد بالبناء
+backend/public/rhalla-support.apk

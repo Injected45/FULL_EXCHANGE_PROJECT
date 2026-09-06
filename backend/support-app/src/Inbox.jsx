@@ -156,6 +156,7 @@ export default function Inbox({ can, me, onUnreadChange }) {
           statuses={statuses}
           onChanged={load}
           onUnreadTouched={onUnreadChange}
+          onBack={() => { setOpen(0); setJumpTo(0) }}
         />
       ) : (
         <div className="empty">

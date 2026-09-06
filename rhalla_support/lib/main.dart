@@ -157,6 +157,14 @@ class _ShellState extends State<Shell> {
       ..addJavaScriptChannel('RhallaNative', onMessageReceived: (m) {
         if (m.message == 'alert') _alert();
       })
+      // ⚠ أخطاء الصفحة تُنقل إلى سجلّ النظام.
+      //
+      // بغيرها تكون الصفحةُ البيضاء صامتةً تماماً: لا رسالةَ خطأ ولا أثرَ
+      // في `logcat` — وقد كلّف ذلك وقتاً حين أخرج البناءُ شيفرةً حديثةً لا
+      // يفهمها WebView قديم. الآن يظهر السبب في السطر الأوّل.
+      ..setOnConsoleMessage((msg) {
+        debugPrint('[support-web] ${msg.level.name}: ${msg.message}');
+      })
       ..setNavigationDelegate(NavigationDelegate(
         onPageFinished: (_) {
           if (mounted) setState(() => _loading = false);

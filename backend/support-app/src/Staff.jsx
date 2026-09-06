@@ -93,7 +93,10 @@ export default function Staff({ me }) {
                   <td>
                     <button className="btn btn-ghost btn-sm" disabled={s.id === me.id}
                             onClick={() => setEditingPerms(s)}>
-                      <span className="num">{s.permissions.length}</span> صلاحية
+                      {/* ‏` ` لا فراغٌ عادي: العنصر `.num` معزولٌ
+                          اتجاهياً (`unicode-bidi: isolate`)، والفراغُ
+                          العادي على حدّ العزل يُبتلع فتُقرأ «18صلاحية». */}
+                      <span className="num">{s.permissions.length}</span>{' '}صلاحية
                     </button>
                   </td>
                   <td><span className="num" style={{ fontSize: 11.5, color: 'var(--muted)' }}>

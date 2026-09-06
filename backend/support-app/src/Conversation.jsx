@@ -43,7 +43,7 @@ const HOT_WINDOW_MS = 60000
  * تطبيق الوكيل — فالطرفان متساويان في التأخير.
  */
 export default function Conversation({
-  threadId, jumpToMessageId, can, me, statuses, onChanged, onUnreadTouched,
+  threadId, jumpToMessageId, can, me, statuses, onChanged, onUnreadTouched, onBack,
 }) {
   const [msgs, setMsgs] = useState([])
   const [receipts, setReceipts] = useState({ delivered: 0, read: 0 })
@@ -402,6 +402,16 @@ export default function Conversation({
     <div className="conv">
       {/* ── الترويسة ── */}
       <div className="conv-head">
+        {/*
+          ⚠ زرّ الرجوع — على الشاشة الضيّقة وحدها.
+
+          فتحُ محادثةٍ على الهاتف يُخفي قائمة المحادثات (`has-open`)، فبغير
+          هذا الزرّ يعلق الموظّف داخلها: زرُّ الرجوع في أندرويد ينادي
+          `goBack` على الـ WebView، وهذه صفحةٌ واحدة بلا سجلّ تنقّل — فلا
+          يفعل شيئاً. وعلى الحاسوب القائمةُ ظاهرةٌ إلى جانبها فيُخفى.
+        */}
+        <button className="back-btn" onClick={onBack} aria-label="رجوع">‹</button>
+
         <div className="t">
           <b>{agent?.name || `محادثة #${threadId}`}</b>
           <span className="num">{agent?.phone || ''}</span>
