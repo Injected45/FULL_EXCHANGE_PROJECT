@@ -589,15 +589,32 @@ class ChatController extends BaseController
             return $this->sendError('غير مصرّح.', [], 401);
         }
 
-        $ids = DB::table('chat_threads')
-            ->where('agent_id', (int) $user->id)
-            ->pluck('id')
-            ->map(fn ($v) => (int) $v)
-            ->all();
+        // ── استعلامٌ واحد ─────────────────────────────────────────────
+        //
+        // كانت ثلاثة: أرقامُ محادثاته، ثم علاماتُ قراءته، ثم شرطٌ مركَّب
+        // يُبنى منها. وهذه النقطة هي **كيف يعرف الوكيل أن رسالةً وصلته وهو
+        // خارج شاشة المحادثة** — فكلَّما رخصت أمكن تسريعها.
+        //
+        // والوصلة لا تُشبه الاستعلام الفرعيّ لكل صفّ: العدُّ يجري مرّةً
+        // واحدة على محادثاته كلِّها.
+        $row = DB::selectOne(
+            'SELECT ISNULL(SUM(x.n), 0) AS total
+               FROM (
+                 SELECT COUNT(*) AS n
+                   FROM chat_messages m
+                   JOIN chat_threads t ON t.id = m.thread_id AND t.agent_id = ?
+                   LEFT JOIN chat_reads r
+                     ON r.thread_id = m.thread_id
+                    AND r.reader_kind = ? AND r.reader_id = ?
+                  WHERE m.sender_kind <> ?
+                    AND m.deleted_at IS NULL
+                    AND m.id > ISNULL(r.last_read_message_id, 0)
+                  GROUP BY m.thread_id
+               ) x',
+            [(int) $user->id, ChatService::AGENT, (int) $user->id, ChatService::AGENT]
+        );
 
-        $unread = $this->chat->unreadByThread($ids, ChatService::AGENT, (int) $user->id);
-
-        return $this->sendResponse(['total' => array_sum($unread)], 'Success');
+        return $this->sendResponse(['total' => (int) ($row->total ?? 0)], 'Success');
     }
 
     /**
