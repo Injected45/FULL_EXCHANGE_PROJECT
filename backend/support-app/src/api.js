@@ -107,6 +107,7 @@ async function request(method, path, { body, form, signal } = {}) {
  * كان سيمسّ ما يقرؤه تطبيق الوكيل أيضاً.
  */
 const ID_KEYS = new Set([
+  'open_threads', 'capacity', 'load_pct',
   'id', 'thread_id', 'reply_to_id', 'agent_id', 'sender_id',
   'support_staff_id', 'assigned_to', 'staff_id', 'attachment_size',
 ])
@@ -138,6 +139,7 @@ export const api = {
     if (f.scope) q.set('scope', f.scope)
     if (f.status) q.set('status', f.status)
     if (f.q) q.set('q', f.q)
+    if (f.sort) q.set('sort', f.sort)
     const s = q.toString()
     return request('GET', '/threads' + (s ? `?${s}` : ''))
   },
@@ -207,6 +209,18 @@ export const api = {
   setPermissions: (id, permissions) =>
     request('PUT', `/staff/${id}/permissions`, { body: { permissions } }),
 
+  /* ── الدفعة الثانية ─────────────────────────────────────────────────
+   *
+   * ⚠ لا نداءَ هنا يجلب حالةَ SLA أو المشاهدين لمحادثةٍ مفتوحة: كلاهما
+   * يعود مع `messages()` نفسِها. نداءٌ ثانٍ كلَّ ثانيتين مقابل لا شيء.
+   */
+  dashboard: (signal) => request('GET', '/dashboard', { signal }),
+  team: () => request('GET', '/team'),
+  setPresence: (presence) => request('POST', '/me/presence', { body: { presence } }),
+  slaSettings: () => request('GET', '/sla'),
+  updateSla: (priority, changes) => request('PUT', `/sla/${priority}`, { body: changes }),
+  /* نبضةُ «أكتب الآن» — الحضورُ العاديّ يُسجَّل مع قراءة المحادثة. */
+  viewing: (id, state) => request('POST', `/threads/${id}/viewing`, { body: { state } }),
   audit: (threadId) =>
     request('GET', '/audit' + (threadId ? `?thread_id=${threadId}` : '')),
 }

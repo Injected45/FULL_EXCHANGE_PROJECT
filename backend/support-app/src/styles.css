@@ -1635,3 +1635,216 @@ html, body { overflow-x: hidden; max-width: 100%; }
   .mode { min-height: 40px; font-size: 13px; }
   .bubble.internal { max-width: 94%; }
 }
+
+/* ══ الدفعة الثانية: لوحة القيادة · المهل · الحضور ══════════════════════ */
+
+/*
+  ⚠ أربعةُ ألوانٍ لا أكثر في هذه الكتلة كلِّها: أحمرُ التجاوز، وكهرمانُ
+  المقاربة، وأخضرُ الالتزام، ورماديُّ ما لا مهلةَ عليه. ولوحةٌ تُلوَّن كلُّ
+  بطاقةٍ فيها لا يُرى فيها الأحمر — وهو الشيء الوحيد الذي وُضعت لأجله.
+*/
+.dash {
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dash-sec {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px 14px;
+}
+
+.dash-sec h3 {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dash-sec h3 .sub-inline {
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-inline-start: auto;
+}
+
+/* البطاقاتُ تلتفّ ولا تُقصّ: شاشةُ الهاتف تحمل اثنتين في السطر. */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fbfcfe;
+  font: inherit;
+  text-align: start;
+  color: inherit;
+}
+
+.kpi .num { font-size: 24px; font-weight: 800; line-height: 1.1; }
+.kpi span { font-size: 12px; color: var(--muted); }
+
+.kpi.clickable { cursor: pointer; transition: transform .1s, box-shadow .1s; }
+.kpi.clickable:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(15,23,42,.09); }
+
+.kpi-bad  { border-color: #fecaca; background: #fef2f2; }
+.kpi-bad  .num { color: var(--error); }
+.kpi-hot  { border-color: #fed7aa; background: #fff7ed; }
+.kpi-hot  .num { color: #c2410c; }
+.kpi-warn { border-color: #fde68a; background: #fffbeb; }
+.kpi-warn .num { color: var(--warn); }
+.kpi-good { border-color: #bbf7d0; background: #f0fdf4; }
+.kpi-good .num { color: var(--success); }
+.kpi-mine { border-color: #c7d2fe; background: #eef2ff; }
+.kpi-mine .num { color: #4338ca; }
+.kpi-mute .num { color: var(--muted); }
+
+/* المتوسّطات — سطرٌ واحد يلتفّ، لا بطاقاتٌ تنافس الأرقام التي تُفعل. */
+.avg-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px dashed var(--border);
+}
+
+.avg { display: flex; align-items: baseline; gap: 6px; font-size: 12.5px; }
+.avg span { color: var(--muted); }
+.avg b { font-size: 14px; }
+.avg-note { margin-inline-start: auto; font-size: 11.5px; color: var(--muted); }
+
+/* ── الفريق ─────────────────────────────────────────────────────────── */
+.team {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 9px;
+}
+
+.tm-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #fbfcfe;
+  min-width: 0;
+}
+
+.tm-card .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.tm-mid { min-width: 0; display: flex; flex-direction: column; }
+.tm-mid b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-mid span { font-size: 11px; color: var(--muted); }
+
+.tm-load {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+.tm-load .bar {
+  width: 56px; height: 6px; border-radius: 99px;
+  background: #e2e8f0; overflow: hidden;
+}
+.tm-load .bar i { display: block; height: 100%; border-radius: 99px; }
+.tm-load .num { font-size: 11px; color: var(--muted); }
+
+.dash-foot { font-size: 11px; color: var(--muted); text-align: center; padding: 2px 0 6px; }
+
+/* ── شارةُ المهلة ───────────────────────────────────────────────────── */
+/*
+  ⚠ لا شارةَ للملتزم. شارةٌ خضراء على كل صفٍّ تجعل الأحمرَ حرفاً في نصّ.
+*/
+.sla-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.sla-BREACHED { background: #fef2f2; color: var(--error); border-color: #fecaca; }
+.sla-WARNING  { background: #fffbeb; color: var(--warn); border-color: #fde68a; }
+.sla-OK       { background: #f0fdf4; color: var(--success); border-color: #bbf7d0; }
+
+/* ── شريطُ من يشاهد ─────────────────────────────────────────────────── */
+.viewers-bar {
+  padding: 6px 12px;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: #f8fafc;
+  border-top: 1px solid var(--border);
+}
+/* «يكتب» أقوى من «ينظر» — وهي وحدها التي تستحق لوناً. */
+.viewers-bar.hot { color: #b45309; background: #fffbeb; font-weight: 600; }
+
+/* ── مبدِّلُ حالة الموظّف في الشريط العلويّ ──────────────────────────── */
+.presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,.16);
+  border-radius: 9px;
+  padding: 4px 8px;
+}
+.presence .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.presence select {
+  background: transparent;
+  border: 0;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+}
+.presence select option { color: var(--ink); }
+
+/* ── محرّرُ المهل ───────────────────────────────────────────────────── */
+.sla-grid { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; }
+.sla-head, .sla-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.sla-head span { font-size: 11px; color: var(--muted); }
+.sla-p { font-size: 12.5px; font-weight: 700; }
+.sla-row input { width: 100%; text-align: center; }
+
+@media (max-width: 720px) {
+  .dash { padding: 10px; gap: 10px; }
+  .dash-sec { padding: 10px 11px 12px; }
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+  .kpi .num { font-size: 21px; }
+  .avg-note { margin-inline-start: 0; }
+  /* الاسمُ والدورُ يكفيان في الشريط الضيّق؛ المبدِّلُ يبقى لأنه فعل. */
+  .sla-head, .sla-row { grid-template-columns: 1fr 1fr 1fr 1fr; }
+}
+
+/*
+ * مدّةٌ لا رقمٌ: خطُّ الأرقام بلا قلبِ اتّجاه.
+ *
+ * ⚠ `.num` تعزل محتواها LTR — وهو صحيحٌ لـ«10»، وخطأٌ
+ * لـ«1 ي 2 س»: النصُّ مختلط، فالعينُ العربيةُ تقرأُه
+ * معكوساً حينئذٍ.
+ */
+.mins { font-family: var(--font-num); }

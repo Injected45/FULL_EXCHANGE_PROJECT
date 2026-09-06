@@ -3,7 +3,7 @@
  *
  * ⚠ كلُّ رقمٍ هنا غربيّ `0123456789` — القاعدة نفسها في تطبيق الوكيل، ولا
  * استثناء لها. ولهذا لا يُستعمل `toLocaleString` بلا تحديد `en`: متصفّحٌ
- * على `ar-LY` يُخرج `٢٠٢٦` من تلقاء نفسه.
+ * على `ar-LY` يُخرج `20٢٦` من تلقاء نفسه.
  */
 
 const WEEKDAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -135,4 +135,31 @@ export const ACTIONS = {
   STAFF_RESET_PASS: 'تصفير كلمة مرور',
   PERM_GRANT: 'منح صلاحية',
   PERM_REVOKE: 'سحب صلاحية',
+}
+
+/**
+ * مدّةٌ بالدقائق ⇐ نصٌّ عربيّ قصير: «45 د» · «3 س 10 د» · «2 ي».
+ *
+ * ⚠ بأرقامٍ لاتينية دائماً — كبقيّة أرقام المنظومة. والدقائقُ تُلفظ
+ * سالبةً حين تُتجاوز المهلة، فالإشارةُ تُقرأ من اللون والنصّ معاً:
+ * «تأخّرَ 20 د» لا «-20 د».
+ */
+export function minutesText(min) {
+  const m = Math.abs(Math.round(Number(min) || 0))
+  if (m < 60) return `${m} د`
+  const h = Math.floor(m / 60)
+  const r = m % 60
+  if (h < 24) return r ? `${h} س ${r} د` : `${h} س`
+  const d = Math.floor(h / 24)
+  const rh = h % 24
+  return rh ? `${d} ي ${rh} س` : `${d} ي`
+}
+
+/** نصُّ شارة المهلة: ما المقيس، وكم بقي أو تأخّر. */
+export function slaText(sla) {
+  if (!sla || !sla.kind) return ''
+  const t = minutesText(sla.remaining_min)
+  return sla.remaining_min < 0
+    ? `${sla.kind_label}: تأخّر ${t}`
+    : `${sla.kind_label}: بقي ${t}`
 }

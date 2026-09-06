@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import Bubble from './Bubble'
-import { dayLabel, hhmm, mmss, newClientId, sameDay } from './util'
+import { dayLabel, hhmm, mmss, newClientId, sameDay, minutesText } from './util'
 
 const EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🤲']
 
@@ -53,6 +53,8 @@ export default function Conversation({
   const [pinned, setPinned] = useState(null)
   const [agent, setAgent] = useState(null)
   const [state, setState] = useState(null)
+  const [sla, setSla] = useState(null)
+  const [viewers, setViewers] = useState([])
   const [assignees, setAssignees] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -132,6 +134,16 @@ export default function Conversation({
     if (d.pinned_known) setPinned(d.pinned || null)
     if (d.agent) setAgent(d.agent)
     if (d.state) setState(d.state)
+    /*
+     * ⚠ المهلةُ والمشاهدون يعودان مع الرسائل لا بنداءٍ منفصل: قراءةُ
+     * المحادثة **هي** دليلُ أن الموظّف ينظر إليها، ونداءٌ ثانٍ كلَّ
+     * ثانيتين يعني ضعفَ الحمل مقابل لا شيء.
+     *
+     * و`viewers` تُستبدل كاملةً لا تُدمج: من غادر يجب أن يختفي فوراً،
+     * ودمجُها يُبقي على الشاشة اسمَ من أغلق منذ دقيقة.
+     */
+    if (d.sla) setSla(d.sla)
+    if (Array.isArray(d.viewers)) setViewers(d.viewers)
     if (typeof d.can_internal === 'boolean') setCanInternal(d.can_internal)
 
     // التفاعلات والنجوم تعودان للصفحة المطلوبة وحدها، فتُدمجان لا تُستبدلان
@@ -239,11 +251,18 @@ export default function Conversation({
     if (v && now - typingSentAt.current > 3000) {
       typingSentAt.current = now
       api.typing(threadId, 'TYPING').catch(() => {})
+      /*
+       * ⚠ ونبضةٌ ثانية لزملاء الدعم (البند 6). الأولى تقول للوكيل
+       * «الدعم يكتب»، وهذه تقول للموظّف الآخر «لا تردّ، أنا أكتب» —
+       * سؤالان مختلفان لجمهورين مختلفين، فلا يُدمجان في واحد.
+       */
+      api.viewing(threadId, 'TYPING').catch(() => {})
     }
     clearTimeout(typingStop.current)
     typingStop.current = setTimeout(() => {
       typingSentAt.current = 0
       api.typing(threadId, 'STOP').catch(() => {})
+      api.viewing(threadId, 'VIEWING').catch(() => {})
     }, 3000)
   }
 
@@ -474,6 +493,18 @@ export default function Conversation({
         <div className="acts">
           <span className={`pill pill-${state?.status || 'NEW'}`}>{state?.status_label}</span>
 
+          {/*
+            شارةُ المهلة — تقول **ما** يُقاس و**كم** بقي، لا لوناً وحده.
+            «تأخّرت» بلا ذكرِ ما تأخّر يجعل الموظّف يخمّن: أوّلُ ردٍّ؟
+            ردٌّ تالٍ؟ معالجة؟ وكلٌّ منها فعلٌ مختلف.
+          */}
+          {sla?.kind && (
+            <span className={`sla-chip sla-${sla.state}`} title={`المهلة ${sla.target_min} دقيقة`}>
+              {sla.kind_label}: {sla.remaining_min < 0 ? 'تأخّر ' : 'بقي '}
+              <span className="mins">{minutesText(sla.remaining_min)}</span>
+            </span>
+          )}
+
           {/* الأولوية — قائمةٌ مصغّرة بلونها. */}
           {tax?.priorities && (
             <select
@@ -654,6 +685,22 @@ export default function Conversation({
         {isNote && (
           <div className="note-hint">
             ما تكتبه هنا <b>لا يصل الوكيل</b> — يراه موظّفو الدعم وحدهم.
+          </div>
+        )}
+
+        {/*
+          ⚠ منعُ التعارض **كشفٌ لا قفل** (نصُّ البند: «بدون منع المشرف من
+          الدخول عند الحاجة»). الشريطُ يقول من معك وماذا يفعل، ولا
+          يُعطّل زرَّ الإرسال: قفلٌ صلبٌ يعني محادثةَ وكيلٍ عالقةً لأن
+          موظّفاً نسي إغلاق لسانه.
+
+          و«يكتب ردّاً» تُميَّز عن «يشاهد» بالنصّ واللون معاً — الأولى
+          تعني ردّاً في الطريق فتوقّف، والثانية عينٌ على الحالة فحسب.
+        */}
+        {viewers.length > 0 && (
+          <div className={`viewers-bar${viewers.some((v) => v.state === 'TYPING') ? ' hot' : ''}`}>
+            {viewers.some((v) => v.state === 'TYPING') ? '✍ ' : '👁 '}
+            {viewers.map((v) => v.text).join(' · ')}
           </div>
         )}
 

@@ -106,6 +106,9 @@ class SupportAuthController extends BaseController
             'role'        => $s->role,
             'role_label'  => SupportPermissions::ROLES[$s->role] ?? $s->role,
             'must_change' => (bool) $s->must_change,
+            // حالتُه المخزّنة — وإلّا أظهر المبدّل «متاح» لمن ضبطها
+            // «مشغول» أمس، فيظنّ أنّها لم تُحفظ.
+            'presence'    => $s->presence ?? 'AVAILABLE',
             'permissions' => $s->permissions ?? [],
         ];
     }

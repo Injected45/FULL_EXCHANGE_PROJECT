@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import Conversation from './Conversation'
-import { initials, listStamp } from './util'
+import { initials, listStamp, slaText } from './util'
 
 const SCOPES = [
   ['all', 'الكلّ'],
@@ -18,12 +18,19 @@ const SCOPES = [
  * وكيلٍ «مقروءة» لأن موظّفاً فتح المتصفّح — والوكيل يرى شرطتين زرقاوين على
  * رسالةٍ لم يقرأها أحد. الشرطتان وعدٌ، ووعدٌ كاذبٌ في الدعم أسوأ من غيابه.
  */
-export default function Inbox({ can, me, onUnreadChange }) {
+export default function Inbox({ can, me, preset, onUnreadChange }) {
   const [items, setItems] = useState([])
   const [stats, setStats] = useState({})
   const [statuses, setStatuses] = useState({})
-  const [scope, setScope] = useState('all')
-  const [status, setStatus] = useState('')
+  /*
+   * `preset` يأتي من لوحة القيادة عند الضغط على رقم. ويُقرأ مرّةً في
+   * القيمة الأولى لا في `useEffect` لاحق: القراءةُ اللاحقة تعني أن
+   * الصندوق يُحمَّل بالفلتر القديم ثم يُعاد تحميله بالجديد — طلبان
+   * ووميضٌ مقابل لا شيء. و`App` يُعيد بناء المكوّن بمفتاحٍ متغيّر.
+   */
+  const [scope, setScope] = useState(preset?.scope || 'all')
+  const [status, setStatus] = useState(preset?.status || '')
+  const [sort, setSort] = useState(preset?.sort || '')
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(0)
   const [jumpTo, setJumpTo] = useState(0)
@@ -35,7 +42,7 @@ export default function Inbox({ can, me, onUnreadChange }) {
 
   const load = useCallback(async () => {
     try {
-      const d = await api.threads({ scope, status, q })
+      const d = await api.threads({ scope, status, q, sort })
       setItems(d.items || [])
       setStats(d.stats || {})
       setStatuses(d.statuses || {})
@@ -45,7 +52,7 @@ export default function Inbox({ can, me, onUnreadChange }) {
     } finally {
       setLoading(false)
     }
-  }, [scope, status, q])
+  }, [scope, status, q, sort])
 
   useEffect(() => {
     clearTimeout(debounce.current)
@@ -85,6 +92,15 @@ export default function Inbox({ can, me, onUnreadChange }) {
           <button className={`chip${status === 'CLOSED' ? ' on' : ''}`}
                   onClick={() => setStatus(status === 'CLOSED' ? '' : 'CLOSED')}>
             المغلقة
+          </button>
+          {/*
+            الفرزُ بالمهلة لا بالأحدث: حين يضيق الوقت، ما يجب أن يُفتح
+            أوّلاً هو أقربُ محادثةٍ إلى تجاوز مهلتها لا آخرُ من كتب.
+          */}
+          <button className={`chip${sort === 'sla' ? ' on' : ''}`}
+                  title="الأقربُ إلى تجاوز مهلتها أوّلاً"
+                  onClick={() => setSort(sort === 'sla' ? '' : 'sla')}>
+            ⏱ بالمهلة
           </button>
         </div>
 
@@ -161,6 +177,16 @@ export default function Inbox({ can, me, onUnreadChange }) {
               <div className="end">
                 <span className="tm">{listStamp(t.last_message_at)}</span>
                 <span className={`pill pill-${t.status}`}>{t.status_label}</span>
+                {/*
+                  ⚠ الشارةُ تظهر للمتأخّرة والمقاربة فقط. شارةٌ خضراء على
+                  كل صفٍّ ملتزمٍ تجعل الأحمرَ حرفاً في نصّ، والغرضُ منه أن
+                  يكون الشيءَ الوحيدَ الملوَّن في الشاشة.
+                */}
+                {t.sla && (t.sla.state === 'BREACHED' || t.sla.state === 'WARNING') && (
+                  <span className={`sla-chip sla-${t.sla.state}`} title={slaText(t.sla)}>
+                    {t.sla.state === 'BREACHED' ? 'تأخّرت' : 'قاربت'}
+                  </span>
+                )}
                 {t.unread > 0 && (
                   <span className="unread-dot">{t.unread > 99 ? '99+' : t.unread}</span>
                 )}

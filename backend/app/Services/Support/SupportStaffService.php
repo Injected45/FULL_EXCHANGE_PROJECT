@@ -30,7 +30,8 @@ class SupportStaffService
         }
 
         $rows = $q->get(['id', 'name', 'username', 'role', 'is_active',
-                         'must_change', 'last_seen_at', 'created_at', 'deleted_at']);
+                         'must_change', 'last_seen_at', 'created_at', 'deleted_at',
+                         'presence', 'capacity']);
 
         $ids = $rows->pluck('id')->map(fn ($v) => (int) $v)->all();
 
@@ -54,6 +55,8 @@ class SupportStaffService
             'last_seen_at' => $r->last_seen_at ? (string) $r->last_seen_at : null,
             'created_at'   => (string) $r->created_at,
             'deleted'      => $r->deleted_at !== null,
+            'presence'     => $r->presence ?? 'AVAILABLE',
+            'capacity'     => (int) ($r->capacity ?? 10),
             'permissions'  => $perms[(int) $r->id] ?? [],
         ])->all();
     }

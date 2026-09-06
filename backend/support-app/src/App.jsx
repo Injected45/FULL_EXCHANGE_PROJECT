@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, getToken, setToken, setUnauthorizedHandler } from './api'
 import Audit from './Audit'
+import Dashboard from './Dashboard'
 import Inbox from './Inbox'
 import Login from './Login'
 import Staff from './Staff'
@@ -15,6 +16,12 @@ export default function App() {
   const [unread, setUnread] = useState(0)
   const [notifyState, setNotifyState] = useState(notificationState())
   const [changingPass, setChangingPass] = useState(false)
+  /*
+   * فلترٌ يأتي من لوحة القيادة: الضغطُ على «تجاوزت المهلة» يفتح الصندوق
+   * مفروزاً بأقرب مهلة. ويُبنى مفتاحاً لا خاصّيةً وحدها كي يُعاد ضبطُ
+   * الصندوق حتى لو ضُغط الرقمُ نفسُه مرّتين.
+   */
+  const [preset, setPreset] = useState(null)
 
   // الأساس: أوّل استطلاعٍ لا يرنّ أبداً — انظر `notify.js`.
   const seen = useRef(null)
@@ -108,6 +115,7 @@ export default function App() {
 
   const tabs = [
     ['inbox', 'صندوق الوارد', unread],
+    can('VIEW_DASHBOARD') && ['dash', 'لوحة القيادة', 0],
     can('MANAGE_STAFF') && ['staff', 'الحسابات', 0],
     can('VIEW_AUDIT') && ['audit', 'سجلّ النشاط', 0],
   ].filter(Boolean)
@@ -136,6 +144,8 @@ export default function App() {
           </button>
         )}
 
+        <Presence me={me} />
+
         <div className="who">
           <b>{me.name}</b>
           <span>{me.role_label}</span>
@@ -153,7 +163,14 @@ export default function App() {
                 }}>خروج</button>
       </header>
 
-      {tab === 'inbox' && <Inbox can={can} me={me} onUnreadChange={pollUnread} />}
+      {tab === 'inbox' && (
+        <Inbox key={preset ? preset.key : 'plain'} can={can} me={me}
+               preset={preset} onUnreadChange={pollUnread} />
+      )}
+      {tab === 'dash' && can('VIEW_DASHBOARD') && (
+        <Dashboard can={can}
+                   onOpenInbox={(f) => { setPreset({ ...f, key: Date.now() }); setTab('inbox') }} />
+      )}
       {tab === 'staff' && can('MANAGE_STAFF') && <Staff me={me} />}
       {tab === 'audit' && can('VIEW_AUDIT') && <Audit />}
 
@@ -167,6 +184,49 @@ export default function App() {
   )
 }
 
+/**
+ * حالةُ الموظّف — البند 36.
+ *
+ * ⚠ ثلاثُ حالاتٍ تُختار، ورابعةٌ لا تُختار: «غير متّصل» **لا تُخزَّن**،
+ * بل تُحسب في الخادم من آخر ظهور. حالةٌ مخزَّنة تبقى «متاح» بعد أن يُغلق
+ * الموظّف حاسوبه ويذهب، فيُسنَد إليه عملٌ لا يراه أحد.
+ *
+ * ولا صلاحيةَ عليها: كلُّ من دخل يملك أن يقول «مشغول».
+ */
+const PRESENCES = [
+  ['AVAILABLE', 'متاح', '#16a34a'],
+  ['BUSY', 'مشغول', '#dc2626'],
+  ['BREAK', 'استراحة', '#d97706'],
+]
+
+function Presence({ me }) {
+  const [v, setV] = useState(me.presence || 'AVAILABLE')
+  const [busy, setBusy] = useState(false)
+
+  const change = async (next) => {
+    const was = v
+    setV(next)          // تفاؤليّ: الانتظارُ على قائمةٍ منسدلة يبدو عطلاً.
+    setBusy(true)
+    try {
+      await api.setPresence(next)
+    } catch {
+      setV(was)         // وإن رُفض، تعود إلى ما كانت — لا إلى ما لم يُحفظ.
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const meta = PRESENCES.find(([k]) => k === v) || PRESENCES[0]
+
+  return (
+    <label className="presence" title="حالتك — يراها المشرف في لوحة الفريق">
+      <span className="dot" style={{ background: meta[2] }} />
+      <select value={v} disabled={busy} onChange={(e) => change(e.target.value)}>
+        {PRESENCES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+      </select>
+    </label>
+  )
+}
 /**
  * تغيير كلمة المرور.
  *

@@ -168,6 +168,47 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_sup_view_expires'
 GO
 
 
+/* ---------------------------------------------------------------------------
+   مفاتيحُ الصّلاحيات الجديدة للحسابات القائمة
+
+   ⚠ حسابٌ أُنشئ قبل هذه الدفعة لا يحمل مفاتيحَها، فيفتح
+   المدير لوحتَه ولا يجد ما بُني له — ولا خطأَ يُرشدُه إلى
+   السّبب. وقد وقع ذلك فعلاً على حساب المالك نفسِه.
+
+   ⚠ والمنحُ مقتصرٌ على مفاتيح هذه الدفعة وحدها: مفتاحٌ لم
+   يكن موجوداً أمس لا يمكن أن يكون أحدٌ قد سحبه، فمنحُه
+   لا يُلغي قراراً لأحد. أمّا منحُ «كلّ ما ينقص عن الافتراضيّ»
+   فيُعيد ما سحبته الإدارةُ عمداً.
+
+   وخامل: من يحملُه لا يُمنحُه مرّةً ثانية.
+   --------------------------------------------------------------------------- */
+/* PERMISSION BACKFILL */
+
+INSERT INTO dbo.support_permissions (staff_id, permission, granted_at, granted_by)
+SELECT s.id, 'VIEW_DASHBOARD', SYSDATETIME(), NULL
+  FROM dbo.support_staff s
+ WHERE s.deleted_at IS NULL
+   AND s.role IN ('SUPPORT_AGENT', 'SUPERVISOR', 'ADMIN')
+   AND NOT EXISTS (SELECT 1 FROM dbo.support_permissions p
+                    WHERE p.staff_id = s.id AND p.permission = 'VIEW_DASHBOARD');
+
+INSERT INTO dbo.support_permissions (staff_id, permission, granted_at, granted_by)
+SELECT s.id, 'VIEW_TEAM', SYSDATETIME(), NULL
+  FROM dbo.support_staff s
+ WHERE s.deleted_at IS NULL
+   AND s.role IN ('SUPERVISOR', 'ADMIN')
+   AND NOT EXISTS (SELECT 1 FROM dbo.support_permissions p
+                    WHERE p.staff_id = s.id AND p.permission = 'VIEW_TEAM');
+
+INSERT INTO dbo.support_permissions (staff_id, permission, granted_at, granted_by)
+SELECT s.id, 'MANAGE_SLA', SYSDATETIME(), NULL
+  FROM dbo.support_staff s
+ WHERE s.deleted_at IS NULL
+   AND s.role IN ('SUPERVISOR', 'ADMIN')
+   AND NOT EXISTS (SELECT 1 FROM dbo.support_permissions p
+                    WHERE p.staff_id = s.id AND p.permission = 'MANAGE_SLA');
+GO
+
 /* ============================================================================
    التحقّق بعد النشر — يُقرأ بالعين، ولا يُكتفى بأن السكربت لم يُخطئ
    ============================================================================ */

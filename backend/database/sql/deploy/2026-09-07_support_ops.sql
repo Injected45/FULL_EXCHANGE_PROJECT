@@ -314,6 +314,55 @@ BEGIN
 END;
 GO
 
+/* ---------------------------------------------------------------------------
+   مفاتيحُ الصّلاحيات الجديدة للحسابات القائمة
+
+   ⚠ حسابٌ أُنشئ قبل هذه الدفعة لا يحمل مفاتيحَها، فيفتح
+   المدير لوحتَه ولا يجد ما بُني له — ولا خطأَ يُرشدُه إلى
+   السّبب. وقد وقع ذلك فعلاً على حساب المالك نفسِه.
+
+   ⚠ والمنحُ مقتصرٌ على مفاتيح هذه الدفعة وحدها: مفتاحٌ لم
+   يكن موجوداً أمس لا يمكن أن يكون أحدٌ قد سحبه، فمنحُه
+   لا يُلغي قراراً لأحد. أمّا منحُ «كلّ ما ينقص عن الافتراضيّ»
+   فيُعيد ما سحبته الإدارةُ عمداً.
+
+   وخامل: من يحملُه لا يُمنحُه مرّةً ثانية.
+   --------------------------------------------------------------------------- */
+/* PERMISSION BACKFILL */
+
+INSERT INTO dbo.support_permissions (staff_id, permission, granted_at, granted_by)
+SELECT s.id, 'SET_PRIORITY', SYSDATETIME(), NULL
+  FROM dbo.support_staff s
+ WHERE s.deleted_at IS NULL
+   AND s.role IN ('SUPERVISOR', 'ADMIN')
+   AND NOT EXISTS (SELECT 1 FROM dbo.support_permissions p
+                    WHERE p.staff_id = s.id AND p.permission = 'SET_PRIORITY');
+
+INSERT INTO dbo.support_permissions (staff_id, permission, granted_at, granted_by)
+SELECT s.id, 'SET_CATEGORY', SYSDATETIME(), NULL
+  FROM dbo.support_staff s
+ WHERE s.deleted_at IS NULL
+   AND s.role IN ('SUPPORT_AGENT', 'SUPERVISOR', 'ADMIN')
+   AND NOT EXISTS (SELECT 1 FROM dbo.support_permissions p
+                    WHERE p.staff_id = s.id AND p.permission = 'SET_CATEGORY');
+
+INSERT INTO dbo.support_permissions (staff_id, permission, granted_at, granted_by)
+SELECT s.id, 'INTERNAL_NOTES', SYSDATETIME(), NULL
+  FROM dbo.support_staff s
+ WHERE s.deleted_at IS NULL
+   AND s.role IN ('SUPPORT_AGENT', 'SUPERVISOR', 'ADMIN')
+   AND NOT EXISTS (SELECT 1 FROM dbo.support_permissions p
+                    WHERE p.staff_id = s.id AND p.permission = 'INTERNAL_NOTES');
+
+INSERT INTO dbo.support_permissions (staff_id, permission, granted_at, granted_by)
+SELECT s.id, 'MANAGE_TAXONOMY', SYSDATETIME(), NULL
+  FROM dbo.support_staff s
+ WHERE s.deleted_at IS NULL
+   AND s.role IN ('SUPERVISOR', 'ADMIN')
+   AND NOT EXISTS (SELECT 1 FROM dbo.support_permissions p
+                    WHERE p.staff_id = s.id AND p.permission = 'MANAGE_TAXONOMY');
+GO
+
 /* ============================================================================
    تحقّقٌ بعد التشغيل
    ============================================================================ */

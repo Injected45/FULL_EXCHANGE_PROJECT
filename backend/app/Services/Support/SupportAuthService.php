@@ -240,7 +240,8 @@ class SupportAuthService
     {
         $s = DB::table('support_staff')->where('id', $staffId)
             ->whereNull('deleted_at')
-            ->first(['id', 'name', 'username', 'role', 'must_change', 'is_active']);
+            ->first(['id', 'name', 'username', 'role', 'must_change', 'is_active',
+                     'presence']);
 
         if ($s) {
             $s->permissions = $this->permissionsOf($staffId);

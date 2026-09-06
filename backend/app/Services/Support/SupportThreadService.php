@@ -399,6 +399,15 @@ class SupportThreadService
             'acc.AccName as acc_name',
             's.status', 's.assigned_to', 's.close_note',
             's.priority', 's.reference', 's.category_id',
+            /*
+             * أزمنةُ الاستجابة — يُقرأن من الصّف نفسِه بلا رحلةٍ زائدة.
+             *
+             * ⚠ وغيابُها لا يُخطِئ: `evaluate` ترى NULL فتقول «لا مهلة»،
+             * فلا تظهر الشّارة في المحادثة أبداً ولا يظهر خطأ. وقد
+             * وقع ذلك فعلاً، ولم يكشفه إلّا فتحُ الشّاشة بالعين.
+             */
+            's.first_agent_msg_at', 's.first_reply_at',
+            's.last_agent_msg_at', 's.last_reply_at', 's.resolved_at',
             'a.name as assignee_name',
             'cat.name as category_name', 'cat.color as category_color',
             'ty.actor_name as typing_name', 'ty.state as typing_state',

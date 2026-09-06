@@ -297,6 +297,24 @@ $ranks = array_map(fn ($s) => $rank[$s] ?? 9, $states);
 $sorted = $ranks; sort($sorted);
 $check('والمتأخّرُ أوّلاً', $ranks === $sorted, 'رتب=' . implode(',', $ranks));
 
+/*
+ * ⚠ والمحادثةُ تقول ما تقولُه القائمةُ عنها — وهذا فحصٌ ولد من عيب.
+ *
+ * `context()` كانت لا تقرأ أعمدةَ الأزمنة، فترى `evaluate` قيماً
+ * خاليةً فتقول «لا مهلة» — فلا تظهر الشّارةُ في المحادثة
+ * أبداً، ولا يظهر خطأٌ واحد. ولم يكشفه إلّا فتحُ الشّاشة
+ * بالعين، وثمانٍ وخمسون فحصاً تمُرّ من فوقِه.
+ */
+$fromList = collect($r['body']['data']['items'] ?? [])->firstWhere('id', $T);
+$fromConv = $call('GET', "/support/threads/$T", $aTok)['body']['data']['sla'] ?? [];
+$check('⚠ والمحادثةُ تعرف مهلتَها كما تعرفُها القائمة',
+    $fromList !== null
+    && ($fromConv['state'] ?? '') === ($fromList['sla']['state'] ?? '')
+    && ($fromConv['kind'] ?? null) === ($fromList['sla']['kind'] ?? null)
+    && ($fromConv['kind'] ?? null) !== null,
+    'محادثة=' . ($fromConv['kind'] ?? '—') . '/' . ($fromConv['state'] ?? '—')
+    . ' · قائمة=' . ($fromList['sla']['kind'] ?? '—') . '/' . ($fromList['sla']['state'] ?? '—'));
+
 $line();
 $line('── ٧) الصلاحيات ──────────────────────────────────────────────');
 
