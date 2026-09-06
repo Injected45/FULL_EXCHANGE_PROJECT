@@ -58,6 +58,10 @@ $purge = function (array $usernames) {
         if (!$s) continue;
         DB::table('support_sessions')->where('staff_id', $s->id)->delete();
         DB::table('support_permissions')->where('staff_id', $s->id)->delete();
+        /* ⚠ الدفعةُ الثانية أضافت `support_viewers` بمفتاحٍ أجنبيّ إلى
+           الموظّف، فحذفُه دونها يسقط بقيدٍ مرجعيّ — وهو ما أسقط تنظيفَ
+           هذا الاختبار بعد أن مرّت فحوصُه كلُّها. */
+        DB::table('support_viewers')->where('staff_id', $s->id)->delete();
         DB::table('support_audit')->where('staff_id', $s->id)->delete();
         DB::table('support_events')->where('actor_id', $s->id)->delete();
         DB::table('support_thread_tags')->where('added_by', $s->id)->delete();
@@ -178,10 +182,21 @@ $check('كلُّ حدثٍ يحمل فاعله',
 $check('وكلُّ حدثٍ له اسمٌ عربيّ',
     $tl !== [] && count(array_filter($tl, fn ($e) => ($e['label'] ?? '') !== $e['kind'])) === count($tl));
 
-/* ⚠ Metadata فقط — لا نصَّ رسالةٍ في الشريط. */
+/* ⚠ Metadata فقط — لا متنَ رسالةٍ في الشريط.
+ *
+ * وحدثُ الإغلاق يحمل ملاحظةَ الإغلاق التي كتبها الموظّف، وهي
+ * سببُ الإغلاق لا كلامُ المحادثة. فالشرطُ ليس وجودَ نصٍّ من
+ * عدمه، بل أن لا يكون النصّ متنَ رسالةٍ — وهو هنا مقاسٌ
+ * بالمقارنة بمتون رسائل المحادثة نفسها. */
+$bodies = DB::table('chat_messages')->where('thread_id', $T)
+    ->whereNotNull('body')->pluck('body')
+    ->map(fn ($b) => trim((string) $b))->filter()->values()->all();
 $check('ولا يحمل نصَّ رسالة',
-    !array_filter($tl, fn ($e) => mb_strlen((string) ($e['note'] ?? '')) > 0
-        && !in_array($e['kind'], ['NOTE'], true)));
+    !array_filter($tl, fn ($e) =>
+        (mb_strlen((string) ($e['note'] ?? '')) > 0
+            && !in_array($e['kind'], ['NOTE', 'CLOSED'], true))
+        || in_array(trim((string) ($e['note'] ?? '')), $bodies, true)
+        || in_array(trim((string) ($e['to'] ?? '')), $bodies, true)));
 
 $line();
 $line('── ٥) الملاحظة الداخلية (البند 7) — أخطرُ فحصٍ في الدفعة ─────');

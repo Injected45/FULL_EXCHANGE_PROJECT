@@ -6,7 +6,10 @@ use App\Http\Controllers\BaseController;
 use App\Services\ChatService;
 use App\Services\Support\SupportAudit;
 use App\Services\Support\SupportPermissions;
+use App\Services\Support\SupportDashboard;
 use App\Services\Support\SupportOps;
+use App\Services\Support\SupportPresence;
+use App\Services\Support\SupportSla;
 use App\Services\Support\SupportStaffService;
 use App\Services\Support\SupportThreadService;
 use Illuminate\Http\Request;
@@ -128,6 +131,9 @@ class SupportController extends BaseController
                 'scope'  => (string) $r->query('scope', 'all'),
                 'status' => (string) $r->query('status', ''),
                 'q'      => (string) $r->query('q', ''),
+                // `sla` يفرز بأقرب مهلة (البند 2)، وغيرُه يُبقي الترتيب
+                // الافتراضي: الأولوية ثم الأحدث.
+                'sort'   => (string) $r->query('sort', ''),
             ]),
             'stats'     => $this->threads->stats($this->me($r)),
             'statuses'  => SupportThreadService::STATUSES,
@@ -275,6 +281,24 @@ class SupportController extends BaseController
             // هل يرى هذا الموظّف الملاحظات الداخلية؟ الواجهة ترسم زرَّها
             // بناءً عليه — والرفضُ الحقيقي في الخادم على أي حال.
             'can_internal' => $seeNotes,
+
+            // ── الدفعة الثانية ──────────────────────────────────────
+            //
+            // حالةُ SLA تُحسب من الصفّ المقروء أصلاً — بلا رحلةٍ إضافية.
+            'sla' => app(SupportSla::class)->evaluate($ctx),
+
+            /*
+             * ⚠ من غيري يشاهد الآن (البند 6).
+             *
+             * والنبضةُ تُسجَّل هنا لا في مسارٍ منفصل: قراءةُ المحادثة **هي**
+             * دليلُ أن الموظّف ينظر إليها. ومسارٌ ثانٍ يعني نداءً إضافياً
+             * كلَّ ثانيتين، ونسيانَه يعني حضوراً لا يُرى.
+             */
+            'viewers' => (function () use ($id, $r) {
+                $p = app(SupportPresence::class);
+                $p->touchViewer($id, $this->me($r));
+                return $p->othersViewing($id, (int) $this->me($r)->id);
+            })(),
         ], 'Success');
     }
 
@@ -785,6 +809,112 @@ class SupportController extends BaseController
     {
         $this->ops->setTagActive($id, (bool) $r->input('is_active', true));
         return $this->sendResponse(['ok' => true], 'تم التحديث.');
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  الدفعة الثانية: لوحة القيادة · SLA · الحضور · منع التعارض
+    //  (بنود المالك 1 · 2 · 6 · 36)
+    // ══════════════════════════════════════════════════════════════════
+
+    /** GET support/dashboard — البند 1 */
+    public function dashboard(Request $r)
+    {
+        return $this->sendResponse(
+            app(SupportDashboard::class)->build($this->me($r)), 'Success');
+    }
+
+    /** GET support/team — من يعمل على ماذا (البندان 35 و36) */
+    public function team(Request $r)
+    {
+        return $this->sendResponse([
+            'items'    => app(SupportPresence::class)->team(),
+            'statuses' => SupportPresence::LABELS,
+            'colors'   => SupportPresence::COLORS,
+        ], 'Success');
+    }
+
+    /** POST support/me/presence  {presence} — البند 36 */
+    public function setPresence(Request $r)
+    {
+        $me  = $this->me($r);
+        $out = app(SupportPresence::class)
+            ->setPresence((int) $me->id, (string) $r->input('presence', ''));
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        return $this->sendResponse(['ok' => true], 'تم التحديث.');
+    }
+
+    /** GET support/sla  ·  PUT support/sla/{priority} — البند 2 */
+    public function slaSettings()
+    {
+        return $this->sendResponse([
+            'items' => app(SupportSla::class)->settingsForDisplay(),
+        ], 'Success');
+    }
+
+    public function updateSla(Request $r, string $priority)
+    {
+        $me = $this->me($r);
+
+        /*
+         * ⚠ **لا يُمرَّر إلا ما أُرسل فعلاً.**
+         *
+         * كان الثلاثةُ تُمرَّر دائماً، والغائبُ منها `null` — و`null` في
+         * `updateSettings` تعني «لا هدف». فتعديلُ مهلة أوّل الردّ وحدها كان
+         * **يمحو مهلتَي الردّ التالي والمعالجة**، فتصير المحادثاتُ كلُّها
+         * «لا هدف» ولا يُنبَّه أحدٌ على تأخيرٍ أبداً.
+         *
+         * وكشفه الاختبار: قياسُ «الردّ التالي» عاد فارغاً بعد تعديل مهلةٍ
+         * لا علاقة له بها.
+         */
+        $vals = [];
+        foreach (['first' => 'first_minutes', 'next' => 'next_minutes',
+                  'resolve' => 'resolve_minutes'] as $key => $field) {
+            if ($r->has($field)) {
+                $vals[$key] = $r->input($field);
+            }
+        }
+
+        $out = app(SupportSla::class)->updateSettings($priority, $vals, $me);
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        // ⚠ يُسجَّل: تغييرُ المعيار الذي يُقاس به الفريق قرارٌ إداريّ، ومن
+        // غيَّره يجب أن يُعرف — وإلا صار «الالتزام بـSLA» رقماً بلا مرجع.
+        $this->audit->log($me, 'SLA', null, $priority,
+            json_encode($r->only(['first_minutes', 'next_minutes', 'resolve_minutes']),
+                JSON_UNESCAPED_UNICODE), $r->ip());
+
+        return $this->sendResponse(['ok' => true], 'حُفظت المهلة.');
+    }
+
+    /**
+     * POST support/threads/{id}/viewing  {state}
+     *
+     * نبضةُ «أنا هنا» (البند 6) — تُنادى من شاشة المحادثة.
+     */
+    public function viewing(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $state = $r->input('state') === 'LEAVE' ? 'LEAVE'
+            : ($r->input('state') === 'TYPING' ? 'TYPING' : 'VIEWING');
+
+        $p = app(SupportPresence::class);
+        if ($state === 'LEAVE') {
+            $p->leave($id, (int) $this->me($r)->id);
+        } else {
+            $p->touchViewer($id, $this->me($r), $state);
+        }
+
+        return $this->sendResponse(['ok' => true], 'Success');
     }
 
     // ══════════════════════════════════════════════════════════════════

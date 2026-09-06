@@ -63,6 +63,14 @@ class SupportPermissions
         'SET_PRIORITY'      => ['workflow', 'تغيير أولوية المحادثة'],
         'SET_CATEGORY'      => ['workflow', 'تصنيف المحادثة ووسمُها'],
         'MANAGE_TAXONOMY'   => ['admin', 'إدارة التصنيفات والوسوم'],
+        // ── الدفعة الثانية (بندا المالك 2 و35) ─────────────────────
+        //
+        // ⚠ `MANAGE_SLA` مفصولةٌ عن `VIEW_STATS`: قراءةُ الأرقام شيء،
+        // وتغييرُ المعيار الذي تُقاس به شيءٌ آخر — ومن يملك الثانية يستطيع
+        // أن يجعل الفريق «ملتزماً» بتوسيع المهلة.
+        'MANAGE_SLA'        => ['admin', 'ضبط أزمنة الاستجابة (SLA)'],
+        'VIEW_DASHBOARD'    => ['workflow', 'عرض لوحة القيادة'],
+        'VIEW_TEAM'         => ['admin', 'عرض الفريق وحمولته'],
 
         // ── الملاحظات الداخلية (البند 7) ───────────────────────────
         //
@@ -117,6 +125,7 @@ class SupportPermissions
             'EDIT_OWN_MESSAGE', 'PIN_MESSAGE', 'FORWARD_MESSAGE',
             'SEARCH_MESSAGES', 'ASSIGN_SELF', 'CHANGE_STATUS',
             'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES',
+            'VIEW_DASHBOARD',
         ],
         self::SUPERVISOR => [
             'VIEW_THREADS', 'VIEW_ALL_THREADS', 'REPLY', 'SEND_ATTACHMENT',
@@ -124,6 +133,7 @@ class SupportPermissions
             'FORWARD_MESSAGE', 'SEARCH_MESSAGES', 'ASSIGN_SELF',
             'ASSIGN_OTHERS', 'CHANGE_STATUS', 'CLOSE_THREAD',
             'REOPEN_THREAD', 'VIEW_AUDIT', 'VIEW_STATS',
+            'VIEW_DASHBOARD', 'VIEW_TEAM', 'MANAGE_SLA',
             'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES',
             // المشرف يدير التصنيفات: هو من يرى تكرار المشاكل فيعرف أيَّ
             // تصنيفٍ يلزم — والمديرُ لا يقرأ المحادثات يومياً.
@@ -151,7 +161,7 @@ class SupportPermissions
             'CHANGE_STATUS',
             // التصنيفُ والملاحظةُ من عملِه اليوميّ: من يقرأ المشكلة هو من
             // يعرف نوعَها، ومن يعمل عليها هو من يكتب لزميله ما وجده.
-            'SET_CATEGORY', 'INTERNAL_NOTES',
+            'SET_CATEGORY', 'INTERNAL_NOTES', 'VIEW_DASHBOARD',
             // ⚠ `SET_PRIORITY` **ليست افتراضية** وإن كانت تحت سقفه:
             // موظّفٌ يرفع أولويةَ محادثاته كلَّها يُلغي معنى الأولوية على
             // الفريق. تُمنح لمن يُوثَق بحكمه فيها.
@@ -163,6 +173,7 @@ class SupportPermissions
             'ASSIGN_OTHERS', 'CHANGE_STATUS', 'CLOSE_THREAD',
             'REOPEN_THREAD', 'VIEW_STATS',
             'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES', 'MANAGE_TAXONOMY',
+            'VIEW_DASHBOARD', 'VIEW_TEAM', 'MANAGE_SLA',
         ],
         self::ADMIN => [
             'VIEW_THREADS', 'VIEW_ALL_THREADS', 'REPLY', 'SEND_ATTACHMENT',
@@ -172,6 +183,7 @@ class SupportPermissions
             'REOPEN_THREAD', 'MANAGE_STAFF', 'MANAGE_PERMISSIONS',
             'VIEW_AUDIT', 'VIEW_STATS',
             'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES', 'MANAGE_TAXONOMY',
+            'VIEW_DASHBOARD', 'VIEW_TEAM', 'MANAGE_SLA',
         ],
     ];
 

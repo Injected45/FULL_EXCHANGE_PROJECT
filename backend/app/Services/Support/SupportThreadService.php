@@ -223,6 +223,11 @@ class SupportThreadService
                 'acc.AccName as acc_name',
                 's.status', 's.assigned_to', 's.assigned_at',
                 's.priority', 's.reference', 's.category_id',
+                // أزمنةُ SLA تُقرأ مع الصفّ — الحالةُ تُحسب منها في PHP بلا
+                // رحلةٍ إضافية (انظر `SupportSla::evaluate`).
+                's.first_agent_msg_at', 's.first_reply_at',
+                's.last_agent_msg_at', 's.last_reply_at', 's.resolved_at',
+                's.snoozed_until',
                 'a.name as assignee_name',
                 'cat.name as category_name', 'cat.color as category_color',
             ]);
@@ -237,8 +242,10 @@ class SupportThreadService
         $unread = $this->chat->unreadByThread($ids, ChatService::ADMIN, 0);
         $last   = $this->lastMessages($ids);
         $tags   = app(SupportOps::class)->tagsForThreads($ids);
+        // كائنٌ واحد للصفحة كلّها: يقرأ الإعدادات مرّةً ثم يحسب في الذاكرة.
+        $sla    = app(SupportSla::class);
 
-        return $rows->map(function ($r) use ($unread, $last, $tags) {
+        return $rows->map(function ($r) use ($unread, $last, $tags, $sla) {
             $tid = (int) $r->id;
             $lm  = $last[$tid] ?? null;
             $pri = $r->priority ?: SupportOps::NORMAL;
@@ -269,7 +276,45 @@ class SupportThreadService
                 'category_name'  => $r->category_name,
                 'category_color' => $r->category_color,
                 'tags'           => $tags[$tid] ?? [],
+
+                // ── SLA (البند 2) ───────────────────────────────────
+                'sla' => $sla->evaluate($r),
+                'snoozed_until' => $r->snoozed_until ? (string) $r->snoozed_until : null,
             ];
+        })->pipe(function ($list) use ($f) {
+            /*
+             * ── الفرز بأقرب SLA (البند 2) ─────────────────────────────
+             *
+             * نصُّ البند: «حتى لا تبقى محادثة وكيل بدون متابعة». والفرزُ
+             * في PHP لا في SQL: الحالةُ دالّةٌ في الوقت الحالي وتُحسب بعد
+             * القراءة — و`ORDER BY` لا يرى ما لم يُخزَّن.
+             *
+             * والصفحةُ ثلاثمئة صفٍّ على الأكثر، فترتيبُها في الذاكرة
+             * يُقاس بأجزاء المللي.
+             *
+             * والمتأخّرُ أوّلاً ثم الأقربُ إلى التأخير: الترتيبُ يجيب عن
+             * «بمن أبدأ؟» لا عن «ما الأقدم؟».
+             */
+            if (($f['sort'] ?? '') !== 'sla') {
+                return $list;
+            }
+
+            $rank = [
+                SupportSla::BREACHED => 0,
+                SupportSla::WARNING  => 1,
+                SupportSla::OK       => 2,
+                SupportSla::NONE     => 3,
+            ];
+
+            return $list->sortBy(function ($t) use ($rank) {
+                $s = $t['sla'];
+                return [
+                    $rank[$s['state']] ?? 9,
+                    // داخل الدرجة: الأقلُّ وقتاً متبقّياً أوّلاً. والمتأخّرُ
+                    // متبقّيه سالبٌ فيسبق تلقائياً.
+                    $s['remaining_min'] ?? PHP_INT_MAX,
+                ];
+            })->values();
         })->all();
     }
 
@@ -420,6 +465,18 @@ class SupportThreadService
 
         DB::table('support_thread_state')->where('thread_id', $threadId)->update($update);
 
+        $prevName = $cur->assigned_to
+            ? DB::table('support_staff')->where('id', $cur->assigned_to)->value('name')
+            : null;
+
+        app(SupportOps::class)->event(
+            $threadId,
+            $toStaffId === null ? SupportOps::EV_UNASSIGNED : SupportOps::EV_ASSIGNED,
+            $by,
+            $prevName,
+            $toStaffId === null ? null : ($target->name ?? null),
+        );
+
         return ['ok' => true, 'assignee' => $toStaffId === null ? null : ($target->name ?? null)];
     }
 
@@ -429,7 +486,9 @@ class SupportThreadService
             return ['error' => 'حالة غير معروفة.'];
         }
 
-        $this->ensureState($threadId);
+        // الحالةُ السابقة تُقرأ **قبل** الكتابة: الشريط الزمني يقول «من ⇦
+        // إلى»، وقراءتُها بعدها تعطي «من الجديدة إلى الجديدة».
+        $cur = $this->ensureState($threadId)->status;
 
         $update = ['status' => $status, 'updated_at' => now()];
 
@@ -444,6 +503,26 @@ class SupportThreadService
 
         DB::table('support_thread_state')->where('thread_id', $threadId)->update($update);
 
+        // زمنُ الحلّ: يُختم بالإغلاق ويُمسح بإعادة الفتح — حالةٌ عادت
+        // ليست محلولة، وإبقاءُ الختم يجعل «متوسّط المعالجة» يكذب.
+        $sla = app(SupportSla::class);
+        if ($status === self::CLOSED) {
+            $sla->onResolved($threadId);
+        } else {
+            $sla->onReopened($threadId);
+        }
+
+        // والشريط الزمني يسجّل التغيّر (البند 17).
+        app(SupportOps::class)->event(
+            $threadId,
+            $status === self::CLOSED ? SupportOps::EV_CLOSED
+                : ($cur === self::CLOSED ? SupportOps::EV_REOPENED : SupportOps::EV_STATUS),
+            $by,
+            self::STATUSES[$cur] ?? $cur,
+            self::STATUSES[$status],
+            $note ?: null,
+        );
+
         return ['ok' => true];
     }
 
@@ -457,6 +536,19 @@ class SupportThreadService
     {
         try {
             $row = DB::table('support_thread_state')->where('thread_id', $threadId)->first();
+
+            /*
+             * ⚠ صفُّ الحالة يُنشأ هنا إن لم يوجد — قبل أي شيء آخر.
+             *
+             * أزمنةُ SLA تُكتب في هذا الصفّ، ومحادثةٌ لم يلمسها الدعم بعد
+             * لا صفَّ لها. فبغير الإنشاء تضيع لحظةُ **أوّل رسالةٍ من
+             * وكيل** — وهي بالضبط بدايةُ عدّاد «أوّل ردّ»، أي المقياس الذي
+             * وُجد النظام ليحرسه.
+             */
+            if (!$row) {
+                $this->ensureState($threadId);
+            }
+            app(SupportSla::class)->onAgentMessage($threadId);
 
             // لا صفَّ = محادثةٌ لم يلمسها الدعم بعد، وهي `NEW` أصلاً.
             if (!$row || !in_array($row->status, [self::PENDING, self::CLOSED], true)) {
@@ -483,6 +575,10 @@ class SupportThreadService
     {
         try {
             $row = $this->ensureState($threadId);
+
+            // زمنُ الردّ يُسجَّل ولو كانت الحالة مغلقة: ردٌّ بعد الإغلاق
+            // ردٌّ، وإخفاؤه من القياس يجمّل الأرقام.
+            app(SupportSla::class)->onSupportReply($threadId);
 
             if ($row->status === self::CLOSED) {
                 return;

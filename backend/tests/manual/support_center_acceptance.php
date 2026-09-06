@@ -82,6 +82,10 @@ $purge = function (array $usernames) {
         if (!$s) continue;
         DB::table('support_sessions')->where('staff_id', $s->id)->delete();
         DB::table('support_permissions')->where('staff_id', $s->id)->delete();
+        /* ⚠ الدفعةُ الثانية أضافت `support_viewers` بمفتاحٍ أجنبيّ إلى
+           الموظّف، فحذفُه دونها يسقط بقيدٍ مرجعيّ — وهو ما أسقط تنظيفَ
+           هذا الاختبار بعد أن مرّت فحوصُه كلُّها. */
+        DB::table('support_viewers')->where('staff_id', $s->id)->delete();
         DB::table('support_thread_state')->where('assigned_to', $s->id)
           ->update(['assigned_to' => null, 'assigned_at' => null, 'assigned_by' => null]);
         DB::table('support_thread_state')->where('closed_by', $s->id)->update(['closed_by' => null]);
@@ -140,9 +144,13 @@ $r = $call('POST', '/support/auth/login', null, ['username' => 't.admin', 'passw
 $check('دخولٌ صحيح 200', $r['status'] === 200);
 $adminTok = $r['body']['data']['token'] ?? null;
 $check('يُصدر رمزاً', is_string($adminTok) && strlen($adminTok) === 64);
+/* ⚠ العدد يُقرأ من الكتالوج لا يُكتب رقماً: كلّ دفعةٍ تضيف صلاحياتٍ
+   جديدة، ورقمكثابت يُخفِق الاختبار عند كلّ إضافةٍ سليمة. والمعنى
+   المقصود هو «المدير يحمل الكتالوج كلّه»، لا «يحمل اثنين وعشرين». */
 $check('يُرجع الدور والصلاحيات',
     ($r['body']['data']['staff']['role'] ?? '') === 'ADMIN'
-    && count($r['body']['data']['staff']['permissions'] ?? []) === 22,
+    && count($r['body']['data']['staff']['permissions'] ?? [])
+       === count(SupportPermissions::CATALOG),
     'صلاحيات=' . count($r['body']['data']['staff']['permissions'] ?? []));
 $check('يُرجع كتالوج الصلاحيات', count($r['body']['data']['catalog'] ?? []) === 3);
 
@@ -163,8 +171,9 @@ $agentStaffId = $mkStaff('t.agent', 'موظّف الاختبار', SupportPermis
 $r = $call('POST', '/support/auth/login', null, ['username' => 't.agent', 'password' => 'Test1234']);
 $agentTok = $r['body']['data']['token'] ?? null;
 $check('دخول موظّف الدعم', $r['status'] === 200);
-$check('صلاحياته الافتراضية إحدى عشرة',
-    count($r['body']['data']['staff']['permissions'] ?? []) === 11,
+$check('وصلاحياته هي الافتراضية لدوره لا أكثر',
+    count($r['body']['data']['staff']['permissions'] ?? [])
+        === count(SupportPermissions::ROLE_DEFAULTS[SupportPermissions::SUPPORT_AGENT]),
     'عدد=' . count($r['body']['data']['staff']['permissions'] ?? []));
 
 /* ⚠ أهمُّ فحصٍ هنا: موظّف الدعم يرى الوكلاء **فور إنشائه**.

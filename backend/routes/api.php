@@ -539,3 +539,39 @@ Route::prefix('support')->group(function () {
         Route::put ('taxonomy/tags/{id}',       [SupportController::class, 'setTagActive'])->whereNumber('id');
     });
 });
+
+/*
+|--------------------------------------------------------------------------
+| مركز الدعم — الدفعة الثانية: لوحة القيادة · SLA · الحضور · منع التعارض
+|--------------------------------------------------------------------------
+|
+| (بنود المالك 1 · 2 · 6 · 35 · 36)
+|
+| ⚠ لا مسارَ هنا يُكرّر موجوداً: حالةُ SLA والمشاهدون يعودان مع قراءة
+| المحادثة نفسِها لا بنداءٍ ثانٍ — فالقراءة **هي** دليلُ الحضور.
+|
+| ⚠ ولا مسار يمسّ المال.
+|
+*/
+Route::prefix('support')->group(function () {
+
+    Route::get('dashboard', [SupportController::class, 'dashboard'])
+        ->middleware('support:VIEW_DASHBOARD');
+
+    Route::get('team', [SupportController::class, 'team'])
+        ->middleware('support:VIEW_TEAM');
+
+    // حالةُ الموظّف نفسِه: بلا صلاحية — كلُّ من دخل يملك أن يقول «مشغول».
+    Route::post('me/presence', [SupportController::class, 'setPresence'])
+        ->middleware('support');
+
+    Route::get('sla', [SupportController::class, 'slaSettings'])
+        ->middleware('support:VIEW_DASHBOARD');
+    Route::put('sla/{priority}', [SupportController::class, 'updateSla'])
+        ->middleware('support:MANAGE_SLA')
+        ->where('priority', 'NORMAL|HIGH|URGENT|CRITICAL');
+
+    // نبضةُ «أنا أكتب» — الحضورُ العاديّ يُسجَّل مع قراءة المحادثة.
+    Route::post('threads/{id}/viewing', [SupportController::class, 'viewing'])
+        ->middleware('support:VIEW_THREADS')->whereNumber('id');
+});
