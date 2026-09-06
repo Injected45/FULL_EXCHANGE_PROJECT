@@ -658,6 +658,7 @@ BEGIN
         [pinned_at] DATETIME2 NULL,
         [pinned_by] VARCHAR(20) NULL,
         [client_id] VARCHAR(64) NULL,
+        [pinned_until] DATETIME2 NULL,
         CONSTRAINT [PK_chat_messages] PRIMARY KEY ([id])
     );
 END;
