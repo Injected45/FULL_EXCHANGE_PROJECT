@@ -356,11 +356,15 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
       [ ChatController::class , 'pin' ])->whereNumber('id')->whereNumber('messageId');
   Route::post('chat/threads/{id}/messages/{messageId}/star',
       [ ChatController::class , 'star' ])->whereNumber('id')->whereNumber('messageId');
+  // إعادة التوجيه: المحادثتان تُفحصان معاً في المتحكّم — المصدر والوجهة.
+  Route::post('chat/threads/{id}/messages/{messageId}/forward',
+      [ ChatController::class , 'forward' ])->whereNumber('id')->whereNumber('messageId');
   Route::put ('chat/threads/{id}/settings',
       [ ChatController::class , 'settings' ])->whereNumber('id');
   Route::post('chat/threads/{id}/typing',
       [ ChatController::class , 'typing' ])->whereNumber('id');
   Route::get ('chat/search',                   [ ChatController::class , 'search' ]);
+  Route::get ('chat/starred',                  [ ChatController::class , 'starred' ]);
 
   Route::get('agent/outgoing-transfers/pending',
       [ AgentIncomingTransfersController::class , 'pendingOutgoing' ]);

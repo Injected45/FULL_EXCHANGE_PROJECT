@@ -190,7 +190,9 @@ class _VoiceBubbleState extends State<VoiceBubble> {
     final progress = total.inMilliseconds == 0
         ? 0.0
         : (_pos.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0);
-    final fg = widget.mine ? Colors.white : R.primaryDark;
+    // لونٌ واحد للفقاعتين: الخلفية صارت فاتحة في الحالتين (قرار المالك،
+    // 6 سبتمبر 2026)، فالأبيض عليها لا يُقرأ.
+    final fg = R.primaryDark;
 
     return SizedBox(
       width: 218,
@@ -205,7 +207,7 @@ class _VoiceBubbleState extends State<VoiceBubble> {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: widget.mine ? R.whiteA(.22) : R.primaryA(.12),
+                color: R.primaryA(.14),
               ),
               child: _loading
                   ? SizedBox(
@@ -230,7 +232,7 @@ class _VoiceBubbleState extends State<VoiceBubble> {
                       textDirection: TextDirection.ltr,
                       child: Text(_fmt(_playing || _pos > Duration.zero ? _pos : total),
                           style: T.plex(10, FontWeight.w500,
-                              color: widget.mine ? R.whiteA(.8) : R.inkA(.5))),
+                              color: R.inkA(.5))),
                     ),
                     const Spacer(),
                     // السرعة تظهر بعد بدء التشغيل: زرٌّ لا يفعل شيئاً قبله.
@@ -242,7 +244,7 @@ class _VoiceBubbleState extends State<VoiceBubble> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 7, vertical: 2),
                           decoration: BoxDecoration(
-                            color: widget.mine ? R.whiteA(.2) : R.primaryA(.1),
+                            color: R.primaryA(.12),
                             borderRadius: BorderRadius.circular(99),
                           ),
                           child: Directionality(

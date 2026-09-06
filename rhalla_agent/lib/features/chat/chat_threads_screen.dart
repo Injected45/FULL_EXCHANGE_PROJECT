@@ -8,6 +8,7 @@ import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import 'chat_repository.dart';
 import 'chat_screen.dart';
+import 'starred_screen.dart';
 
 /// قائمة محادثات الوكيل: الإدارة أوّلاً، ثم موظّفوه.
 ///
@@ -26,7 +27,20 @@ class ChatThreadsScreen extends ConsumerWidget {
         children: [
           // بلا زرّ رجوع: هذه تبويبٌ في الشريط لا شاشةٌ مدفوعة، والرجوع منها
           // يعني الخروج من التطبيق.
-          const RhallaAppBar(title: 'الدردشة'),
+          RhallaAppBar(
+            title: 'الدردشة',
+            // مدخل «الرسائل المهمّة» هنا لا داخل كل محادثة: القائمة تجمع
+            // المميَّز من المحادثات كلّها، فموضعها فوقها جميعاً.
+            trailing: IconButton(
+              tooltip: 'الرسائل المهمّة',
+              onPressed: () => Navigator.of(context, rootNavigator: true).push(
+                MaterialPageRoute(builder: (_) => const StarredScreen()),
+              ),
+              icon: Icon(Icons.star_outline_rounded,
+                  size: 22, color: R.primaryDark),
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            ),
+          ),
           Expanded(
             child: async.when(
               loading: () => Center(
@@ -73,6 +87,43 @@ class ChatThreadsScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// أسماء أيام الأسبوع — `DateTime.weekday` يبدأ من الاثنين = 1.
+const _weekdays = [
+  'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد',
+];
+
+/// طابع صفّ قائمة المحادثات — سلّمٌ من أربع درجات (أمر المالك، 6 سبتمبر
+/// 2026: «بنفس الآلية والأسلوب» المعروفين في تطبيقات المحادثة):
+///
+/// | متى | ما يُعرض |
+/// |---|---|
+/// | اليوم | الساعة — `14:33` |
+/// | أمس | «أمس» |
+/// | خلال الأسبوع الماضي | اسم اليوم — «الثلاثاء» |
+/// | أقدم | التاريخ — `2026-08-28` |
+///
+/// والغرض أن يعرف الوكيل **متى** بأقصر نصّ ممكن: الساعة لا تفيد بعد يوم،
+/// واسم اليوم لا يفيد بعد أسبوع لأنه يتكرّر فيلتبس بأمسِ الأسبوع.
+///
+/// والمقارنة بالأيام التقويمية لا بفارق الساعات: رسالةٌ في الحادية عشرة
+/// مساءً وأخرى في الواحدة صباحاً بينهما ساعتان وهما في يومين مختلفين.
+String _listStamp(String raw) {
+  final d = DateTime.tryParse(raw.trim());
+  if (d == null) return '';
+
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(d.year, d.month, d.day);
+  final diff = today.difference(day).inDays;
+
+  if (diff == 0) return Fmt.hhmm(raw);
+  if (diff == 1) return 'أمس';
+  if (diff > 1 && diff < 7) return _weekdays[day.weekday - 1];
+
+  return '${day.year}-${day.month.toString().padLeft(2, '0')}'
+      '-${day.day.toString().padLeft(2, '0')}';
 }
 
 class _ThreadCard extends StatelessWidget {
@@ -140,12 +191,21 @@ class _ThreadCard extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                // ساعةٌ لرسائل اليوم، و«أمس»، وتاريخٌ لما قبلهما. الطابع
+                // الكامل في صفٍّ ضيّق يُقصّ ولا يُقرأ.
+                //
+                // والاتجاه يُفرض على الأرقام وحدها: «أمس» كلمةٌ عربية،
+                // وفرضُ LTR عليها يقلبها.
                 if (thread.lastMessageAt.isNotEmpty)
-                  Directionality(
-                    textDirection: TextDirection.ltr,
-                    child: Text(Fmt.stamp(thread.lastMessageAt),
-                        style: T.plex(10, FontWeight.w400, color: R.inkA(.45))),
-                  ),
+                  Builder(builder: (_) {
+                    final s = _listStamp(thread.lastMessageAt);
+                    final t = Text(s,
+                        style: T.plex(10, FontWeight.w400, color: R.inkA(.45)));
+                    return RegExp(r'^[0-9:\-]+$').hasMatch(s)
+                        ? Directionality(
+                            textDirection: TextDirection.ltr, child: t)
+                        : t;
+                  }),
                 if (unread > 0) ...[
                   const SizedBox(height: 6),
                   Container(

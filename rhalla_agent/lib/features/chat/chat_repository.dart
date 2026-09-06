@@ -44,6 +44,54 @@ class ChatThread {
       );
 }
 
+/// حالة إرسال الرسالة (البند 7).
+enum SendState { sending, sent, failed }
+
+/// رسالةٌ مميّزة بنجمة، ومعها اسم محادثتها (البند 30).
+///
+/// اسم المحادثة يأتي من الخادم لا يُبنى هنا: القائمة تجمع رسائل من محادثات
+/// شتّى، وبلا مصدرها يفتحها الوكيل واحدةً واحدةً ليعرف من قالها.
+class StarredMessage {
+  const StarredMessage({
+    required this.id,
+    required this.threadId,
+    required this.threadTitle,
+    required this.senderName,
+    required this.body,
+    required this.attachmentKind,
+    required this.createdAt,
+  });
+
+  final int id;
+  final int threadId;
+  final String threadTitle;
+  final String senderName;
+  final String body;
+  final String attachmentKind;
+  final String createdAt;
+
+  /// نصّها، أو وصفُ مرفقها إن كانت بلا تعليق.
+  String get preview {
+    if (body.isNotEmpty) return body;
+    return switch (attachmentKind) {
+      'IMAGE' => '📷 صورة',
+      'AUDIO' => '🎤 رسالة صوتية',
+      'FILE' => '📎 ملف',
+      _ => '—',
+    };
+  }
+
+  factory StarredMessage.fromJson(Map<String, dynamic> j) => StarredMessage(
+        id: int.tryParse('${j['id']}') ?? 0,
+        threadId: int.tryParse('${j['thread_id']}') ?? 0,
+        threadTitle: '${j['thread_title'] ?? ''}'.trim(),
+        senderName: '${j['sender_name'] ?? ''}'.trim(),
+        body: j['body'] == null ? '' : '${j['body']}',
+        attachmentKind: '${j['attachment_kind'] ?? ''}'.trim(),
+        createdAt: '${j['created_at'] ?? ''}'.trim(),
+      );
+}
+
 /// رسالة واحدة.
 ///
 /// [senderKind] هو ما يُبنى عليه جانبُ الفقاعة — لا مقارنةُ رقم المرسِل
@@ -59,6 +107,9 @@ class ChatMessage {
     this.deleted = false,
     this.edited = false,
     this.pinned = false,
+    this.clientId = '',
+    this.sendState = SendState.sent,
+    this.localPath = '',
     this.replyToId,
     this.replyBody = '',
     this.replySenderName = '',
@@ -100,14 +151,39 @@ class ChatMessage {
   final bool edited;
   final bool pinned;
 
+  /// مُعرّف الجهاز لهذه الرسالة (البند 68).
+  ///
+  /// يُولَّد **قبل** الإرسال ويُرسل معها، فيعرف الخادم أن إعادة المحاولة هي
+  /// الرسالة نفسها لا رسالةٌ ثانية. وهو أيضاً ما تُطابَق به النسخة المحلّية
+  /// المتفائلة مع ما يعود من الخادم — فلا تظهر الرسالة مرّتين.
+  final String clientId;
+
+  /// حالة الإرسال (البند 7): جاري · تمّ · فشل.
+  final SendState sendState;
+
+  /// مسار الملف على الجهاز — لعرض الصورة فوراً قبل أن تُرفع.
+  final String localPath;
+
+  bool get pending => sendState == SendState.sending;
+  bool get failed => sendState == SendState.failed;
+
   bool get hasAttachment => attachmentPath.isNotEmpty;
   bool get isImage => attachmentKind == 'IMAGE';
   bool get isAudio => attachmentKind == 'AUDIO';
   bool get hasReply => replyToId != null;
 
   /// نسخةٌ معدَّلة — للتفاؤل في الواجهة قبل تأكيد الخادم.
-  ChatMessage copyWith({String? body, bool? edited, bool? pinned, bool? deleted}) =>
+  ChatMessage copyWith({
+    String? body,
+    bool? edited,
+    bool? pinned,
+    bool? deleted,
+    SendState? sendState,
+  }) =>
       ChatMessage(
+        clientId: clientId,
+        sendState: sendState ?? this.sendState,
+        localPath: localPath,
         id: id,
         senderKind: senderKind,
         senderName: senderName,
@@ -147,6 +223,7 @@ class ChatMessage {
         deleted: j['deleted_at'] != null,
         edited: j['edited_at'] != null,
         pinned: j['pinned_at'] != null,
+        clientId: '${j['client_id'] ?? ''}',
         replyToId: j['reply_to_id'] == null
             ? null
             : int.tryParse('${j['reply_to_id']}'),
@@ -210,6 +287,7 @@ class ChatPage {
     this.reactions = const {},
     this.starred = const {},
     this.typing,
+    this.pinned,
   });
 
   final List<ChatMessage> items;
@@ -222,6 +300,9 @@ class ChatPage {
   final Set<int> starred;
 
   final ChatTyping? typing;
+
+  /// الرسالة المثبَّتة السارية — شريطٌ أعلى المحادثة (البند 31).
+  final ChatMessage? pinned;
 
   static const empty = ChatPage(items: [], receipts: ChatReceipts());
 
@@ -298,9 +379,10 @@ class ChatRepository {
     String body, {
     String? filePath,
     int? replyToId,
+    String? clientId,
   }) =>
       _send('/chat/threads/$threadId/messages', body,
-          filePath: filePath, replyToId: replyToId);
+          filePath: filePath, replyToId: replyToId, clientId: clientId);
 
   Future<void> deleteMessage(int threadId, int messageId) =>
       _api.delete('/chat/threads/$threadId/messages/$messageId');
@@ -324,12 +406,32 @@ class ChatRepository {
       _api.post('/chat/threads/$threadId/messages/$messageId/star',
           body: {'star': on});
 
-  Future<void> pinMessage(int threadId, int messageId, bool on) =>
-      _api.post('/chat/threads/$threadId/messages/$messageId/pin', body: {'pin': on});
+  /// [days] — 1 يوم · 7 أسبوع · 30 شهر · 0 يفكّ التثبيت.
+  Future<void> pinMessage(int threadId, int messageId, int days) =>
+      _api.post('/chat/threads/$threadId/messages/$messageId/pin',
+          body: {'days': days});
+
+  Future<void> forward(int threadId, int messageId, int toThreadId) =>
+      _api.post('/chat/threads/$threadId/messages/$messageId/forward',
+          body: {'to_thread_id': toThreadId});
 
   /// كتم · تثبيت · أرشفة · قفل · تحديد كغير مقروءة (البنود 10, 32–34, 59).
   Future<void> threadSettings(int threadId, Map<String, dynamic> changes) =>
       _api.put('/chat/threads/$threadId/settings', body: changes);
+
+  /// الرسائل المميّزة بنجمة عبر كل محادثات الوكيل.
+  Future<List<StarredMessage>> starred() async {
+    try {
+      final env = await _api.get('/chat/starred');
+      return (env.row?['items'] as List? ?? const [])
+          .whereType<Map>()
+          .map((m) => StarredMessage.fromJson(m.cast<String, dynamic>()))
+          .toList();
+    } on ApiFailure catch (e) {
+      if (e.isEmptyResult) return const [];
+      rethrow;
+    }
+  }
 
   Future<List<ChatMessage>> search(String q) async {
     if (q.trim().length < 2) return const [];
@@ -357,9 +459,10 @@ class ChatRepository {
     String body, {
     String? filePath,
     int? replyToId,
+    String? clientId,
   }) =>
       _send('/device/employee/chat', body,
-          filePath: filePath, replyToId: replyToId);
+          filePath: filePath, replyToId: replyToId, clientId: clientId);
 
   Future<void> employeeDeleteMessage(int messageId) =>
       _api.delete('/device/employee/chat/$messageId');
@@ -381,8 +484,8 @@ class ChatRepository {
   Future<void> employeeStarMessage(int messageId, bool on) =>
       _api.post('/device/employee/chat/$messageId/star', body: {'star': on});
 
-  Future<void> employeePinMessage(int messageId, bool on) =>
-      _api.post('/device/employee/chat/$messageId/pin', body: {'pin': on});
+  Future<void> employeePinMessage(int messageId, int days) =>
+      _api.post('/device/employee/chat/$messageId/pin', body: {'days': days});
 
   // ── المشترك ───────────────────────────────────────────────────────
 
@@ -410,6 +513,10 @@ class ChatRepository {
             .toSet(),
         typing: ChatTyping.fromJson(
             (data['typing'] as Map?)?.cast<String, dynamic>()),
+        pinned: data['pinned'] is Map
+            ? ChatMessage.fromJson(
+                (data['pinned'] as Map).cast<String, dynamic>())
+            : null,
       );
     } on ApiFailure catch (e) {
       if (e.isEmptyResult) return ChatPage.empty;
@@ -426,6 +533,7 @@ class ChatRepository {
     String body, {
     String? filePath,
     int? replyToId,
+    String? clientId,
   }) async {
     final Object payload;
 
@@ -433,12 +541,14 @@ class ChatRepository {
       payload = FormData.fromMap({
         'body': body,
         'reply_to_id': ?replyToId,
+        'client_id': ?clientId,
         'attachment': await MultipartFile.fromFile(filePath),
       });
     } else {
       payload = {
         'body': body,
         'reply_to_id': ?replyToId,
+        'client_id': ?clientId,
       };
     }
 
@@ -463,4 +573,9 @@ final chatRepositoryProvider =
 
 final chatThreadsProvider = FutureProvider.autoDispose<List<ChatThread>>(
   (ref) => ref.watch(chatRepositoryProvider).threads(),
+);
+
+final starredMessagesProvider =
+    FutureProvider.autoDispose<List<StarredMessage>>(
+  (ref) => ref.watch(chatRepositoryProvider).starred(),
 );

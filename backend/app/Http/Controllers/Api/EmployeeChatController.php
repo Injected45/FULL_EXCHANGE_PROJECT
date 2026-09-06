@@ -49,8 +49,10 @@ class EmployeeChatController extends BaseController
         $after = max(0, (int) $request->query('after_id', 0));
         $messages = $this->chat->messages((int) $thread->id, $after);
 
+        // «وصلت» مع كل نبضة، و«قُرئت» حين تكون الشاشة مفتوحة فعلاً —
+        // كنظيرتها في مسار الوكيل.
+        $this->chat->markDelivered((int) $thread->id, ChatService::EMPLOYEE, (int) $employee->id);
         if ($after === 0 || $messages !== []) {
-            $this->chat->markDelivered((int) $thread->id, ChatService::EMPLOYEE, (int) $employee->id);
             $this->chat->markRead((int) $thread->id, ChatService::EMPLOYEE, (int) $employee->id);
         }
 
@@ -64,6 +66,7 @@ class EmployeeChatController extends BaseController
             'reactions' => $this->chat->reactionsFor($ids, ChatService::EMPLOYEE, $me),
             'starred'   => $this->chat->starredIn($ids, ChatService::EMPLOYEE, $me),
             'typing'    => $this->chat->typingIn((int) $thread->id, ChatService::EMPLOYEE),
+            'pinned'    => $this->chat->pinnedIn((int) $thread->id),
         ], 'Success');
     }
 
@@ -92,7 +95,9 @@ class EmployeeChatController extends BaseController
             $employee->full_name ?: null,
             (string) $request->input('body', ''),
             $attachment,
-            $replyTo > 0 ? $replyTo : null
+            $replyTo > 0 ? $replyTo : null,
+            // مُعرّف الجهاز — كنظيره في مسار الوكيل (البند 68).
+            mb_substr((string) $request->input('client_id', ''), 0, 64) ?: null
         );
 
         if (!$msg) {
@@ -174,8 +179,14 @@ class EmployeeChatController extends BaseController
             return $this->sendError('تعذّر فتح المحادثة.', [], 404);
         }
 
+        // المدد المسموحة وحدها — كنظيرتها في مسار الوكيل.
+        $days = (int) $request->input('days', 7);
+        if (!in_array($days, [0, 1, 7, 30], true)) {
+            return $this->sendError('مدّة غير مسموحة.', [], 422);
+        }
+
         $this->chat->pinMessage($messageId, (int) $thread->id,
-            ChatService::EMPLOYEE, $request->boolean('pin', true));
+            ChatService::EMPLOYEE, $days);
 
         return $this->sendResponse(['ok' => true], 'Success');
     }

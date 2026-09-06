@@ -121,6 +121,12 @@ class AdminChatController extends Controller
         $messages = [];
         if ($open > 0 && in_array($open, $ids, true)) {
             $messages = $this->chat->messages($open, 0, 200);
+            // «وصلت» ثم «قُرئت» — بهذا الترتيب.
+            //
+            // كانت `markRead` وحدها هنا، فبقيت رسائل الوكيل إلى الإدارة
+            // بشرطةٍ واحدة أبداً: العلامة الثانية تُقرأ من
+            // `last_delivered_message_id` ولم يكن أحدٌ يكتبه في هذا المسار.
+            $this->chat->markDelivered($open, ChatService::ADMIN, 0);
             $this->chat->markRead($open, ChatService::ADMIN, 0);
         }
 
@@ -172,6 +178,10 @@ class AdminChatController extends Controller
         $after = max(0, (int) $r->query('after_id', 0));
         $items = $this->chat->messages($id, $after, 100);
 
+        // بلا شرط على وصول رسائل: نبضةُ الصفحة نفسها دليلٌ على أن موظّف
+        // الإدارة أمامها، وهو معنى «وصلت». وربطُها بوصول جديدٍ كان يجعل
+        // العلامة تتأخّر إلى أن يُرسل الوكيل رسالةً أخرى.
+        $this->chat->markDelivered($id, ChatService::ADMIN, 0);
         if ($items !== []) {
             $this->chat->markRead($id, ChatService::ADMIN, 0);
         }

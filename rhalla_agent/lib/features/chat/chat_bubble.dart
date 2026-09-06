@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../core/format/fmt.dart';
@@ -19,7 +21,16 @@ class ChatBubble extends StatelessWidget {
     this.reactions = const {},
     this.starred = false,
     this.onTapReaction,
+    this.onRetry,
   });
+
+  // القائمة تُفتح بضغطةٍ مطوّلة على الفقاعة (اقتراح المالك، 6 سبتمبر 2026)،
+  // ولا زرّ لها. جرّبتُ سهماً صغيراً في الزاوية فكان إمّا نشازاً بدائرته أو
+  // هدفاً يُخطئه الإبهام بدونها — والضغطة المطوّلة هي ما اعتاده المستخدم
+  // أصلاً في كل تطبيق محادثة، فلا شيء يحتاج أن يتعلّمه.
+
+  /// إعادة إرسال رسالةٍ فشلت (البند 67).
+  final VoidCallback? onRetry;
 
   /// تفاعلات هذه الرسالة — رمزٌ وعدده، وهل تفاعلتُ أنا به (البند 25).
   final Map<String, ReactionCount> reactions;
@@ -44,6 +55,79 @@ class ChatBubble extends StatelessWidget {
 
   final VoidCallback? onTapImage;
 
+  /// خلفية الفقاعة الصادرة — **مسحةٌ فاتحة من لون الشركة، لا اللون نفسه**
+  /// (قرار المالك، 6 سبتمبر 2026: «الأخضر الداكن صعب على العين»).
+  ///
+  /// ولّدتُها من `R.primary` لا لوناً ثابتاً، فتتبع هوية كل شركة تلقائياً:
+  /// شركةٌ لونها أزرق تحصل على مسحةٍ زرقاء بالقدر نفسه من الخفّة.
+  ///
+  /// ⚠ **مصمَتة لا شفّافة** (`alphaBlend` فوق الأبيض): الفقاعات تقف على
+  /// الخلفية المتدرّجة للتطبيق، ولونٌ شفّاف يلتقط ما تحته فيختلف من موضعٍ
+  /// إلى آخر في الشاشة نفسها.
+  /// 0.18 لا 0.15: أضعفَ من ذلك تبدو الفقاعة رماديةً لا ملوّنة، فلا يرى
+  /// الوكيل أن ثيمه غيّر شيئاً — وهو ما طلب أن يراه (6 سبتمبر 2026).
+  Color get _bg => mine
+      ? Color.alphaBlend(R.primaryA(.18), Colors.white)
+      : Colors.white;
+
+  Color get _border => mine ? R.primaryA(.34) : R.inkA(.08);
+
+  /// النصّ صار داكناً في الفقاعتين معاً بعد تفتيح الخلفية — أبيضُ على مسحةٍ
+  /// فاتحة لا يُقرأ.
+  Color get _fg => R.ink;
+
+  /// الوقت والعلامات الثانوية.
+  Color get _muted => R.inkA(.45);
+
+  /// الساعة والعلامات: مُعدَّلة · محفوظة · مثبَّتة · حالة الإرسال.
+  ///
+  /// صفٌّ واحد يُستعمل في موضعين — داخل الفقرة حين يوجد نصّ، ومستقلّاً حين
+  /// لا نصّ (صورةٌ أو صوتٌ وحدهما). ونسخُه مرّتين كان يعني أن إضافة علامةٍ
+  /// جديدة تُنسى في أحدهما.
+  Widget _meta() => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Directionality(
+            // الساعة رقمٌ — يُفرض اتجاهه وإلا انقلب داخل الفقرة العربية.
+            textDirection: TextDirection.ltr,
+            child: Text(
+              // الساعة وحدها بلا تاريخ ولا ثوانٍ (قرار المالك، 5 سبتمبر
+              // 2026): التاريخ في فاصل اليوم أعلى المجموعة.
+              Fmt.hhmm(message.createdAt),
+              style: T.plex(10, FontWeight.w400, color: _muted),
+            ),
+          ),
+          // «تم التعديل» ظاهرة ولا تُخفى (البند 28).
+          if (message.edited) ...[
+            const SizedBox(width: 5),
+            Text('مُعدَّلة',
+                style: T.plex(9.5, FontWeight.w400, color: R.inkA(.4))),
+          ],
+          if (starred) ...[
+            const SizedBox(width: 5),
+            Icon(Icons.star_rounded, size: 12, color: R.warnIcon),
+          ],
+          if (message.pinned) ...[
+            const SizedBox(width: 4),
+            Icon(Icons.push_pin_rounded, size: 11, color: R.inkA(.45)),
+          ],
+          // الإيصال على رسائلي وحدها: علامةٌ على كلام الآخر تعني «قرأتُها
+          // أنا»، وهي معلومةٌ لا يحتاجها.
+          //
+          // وقبله حالة الإرسال (البند 7): ساعةٌ صغيرة أثناء الإرسال، وعلامةُ
+          // خطأ عند الفشل — والفقاعة تبقى معروضة فلا يضيع ما كتبه الوكيل.
+          if (mine) ...[
+            const SizedBox(width: 5),
+            if (message.pending)
+              Icon(Icons.schedule_rounded, size: 12, color: R.inkA(.4))
+            else if (message.failed)
+              Icon(Icons.error_outline_rounded, size: 13, color: R.error)
+            else
+              _Ticks(id: message.id, receipts: receipts),
+          ],
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
@@ -63,8 +147,8 @@ class ChatBubble extends StatelessWidget {
               ? const EdgeInsets.all(4)
               : const EdgeInsets.fromLTRB(14, 10, 14, 8),
           decoration: BoxDecoration(
-            color: mine ? R.primary : Colors.white,
-            border: Border.all(color: mine ? R.primary : R.inkA(.08)),
+            color: _bg,
+            border: Border.all(color: _border),
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(16),
               topRight: const Radius.circular(16),
@@ -89,7 +173,18 @@ class ChatBubble extends StatelessWidget {
                   borderRadius: BorderRadius.circular(13),
                   child: GestureDetector(
                     onTap: onTapImage,
-                    child: Image.network(
+                    // الصورة من القرص ما دامت تُرفع: عرضُها فوراً هو ما يجعل
+                    // الإرسال يبدو لحظياً — وانتظارُ رفعها ثم تنزيلها من
+                    // الخادم لعرضها هو ذهابٌ وإياب بلا داعٍ.
+                    child: message.localPath.isNotEmpty
+                        ? Image.file(
+                            File(message.localPath),
+                            fit: BoxFit.cover,
+                            height: 210,
+                            width: double.infinity,
+                            errorBuilder: (_, _, _) => const SizedBox(height: 210),
+                          )
+                        : Image.network(
                       imageUrl,
                       headers: imageHeaders,
                       fit: BoxFit.cover,
@@ -133,64 +228,92 @@ class ChatBubble extends StatelessWidget {
 
               if (message.hasAttachment && !message.isImage && !message.isAudio)
                 _FileChip(message: message, mine: mine),
-
+              // النصّ والساعة في فقاعةٍ واحدة، والساعة في زاويتها السفلى
+              // اليسرى (أمر المالك، 6 سبتمبر 2026: «كما في فقاعات واتساب»).
+              //
+              // الحيلة شاغلٌ **شفّاف** بمقاس الساعة في آخر النصّ: يحجز لها
+              // موضعها في السطر الأخير فلا يمرّ الكلام تحتها، ولا يُرسم —
+              // ثم تُرسم الساعة الحقيقية في زاوية الفقاعة بـ`Positioned`.
+              //
+              // والمحاولة السابقة وضعتها `WidgetSpan` مرئياً، فسالت ملتصقةً
+              // بآخر كلمة أينما وقعت — وهو ما شكا منه المالك.
+              //
+              // و`bottom: -1` تُنزلها درجةً تحت خطّ الكلام: مساواتُها للسطر
+              // تجعلها تُقرأ جزءاً من الجملة لا طابعاً عليها.
               if (message.body.isNotEmpty)
                 Padding(
                   padding: EdgeInsets.symmetric(
                       horizontal: message.isImage ? 10 : 0),
-                  child: Text(
-                    message.body,
-                    style: T.kufi(14.5, FontWeight.w500,
-                        height: 1.5, color: mine ? Colors.white : R.ink),
-                  ),
-                ),
-
-              const SizedBox(height: 5),
-              Padding(
-                padding:
-                    EdgeInsets.symmetric(horizontal: message.isImage ? 10 : 0),
-                child: Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Stack(
+                    clipBehavior: Clip.none,
                     children: [
-                      Directionality(
-                        textDirection: TextDirection.ltr,
-                        child: Text(
-                          Fmt.stamp(message.createdAt),
-                          style: T.plex(10, FontWeight.w400,
-                              color: mine ? R.whiteA(.75) : R.inkA(.45)),
-                        ),
+                      Text.rich(
+                        TextSpan(children: [
+                          TextSpan(text: message.body),
+                          WidgetSpan(
+                            alignment: PlaceholderAlignment.middle,
+                            child: Opacity(
+                              opacity: 0,
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 12),
+                                child: _meta(),
+                              ),
+                            ),
+                          ),
+                        ]),
+                        style: T.kufi(14.5, FontWeight.w500,
+                            height: 1.5, color: _fg),
                       ),
-                      // «تم التعديل» ظاهرة ولا تُخفى (البند 28).
-                      if (message.edited) ...[
-                        const SizedBox(width: 5),
-                        Text('مُعدَّلة',
-                            style: T.plex(9.5, FontWeight.w400,
-                                color: mine ? R.whiteA(.7) : R.inkA(.4))),
-                      ],
-                      if (starred) ...[
-                        const SizedBox(width: 5),
-                        Icon(Icons.star_rounded,
-                            size: 12,
-                            color: mine ? R.whiteA(.85) : R.warnIcon),
-                      ],
-                      if (message.pinned) ...[
-                        const SizedBox(width: 4),
-                        Icon(Icons.push_pin_rounded,
-                            size: 11,
-                            color: mine ? R.whiteA(.85) : R.inkA(.45)),
-                      ],
-                      // الإيصال على رسائلي وحدها: علامةٌ على كلام الآخر
-                      // تعني «قرأتُها أنا»، وهي معلومةٌ لا يحتاجها.
-                      if (mine) ...[
-                        const SizedBox(width: 5),
-                        _Ticks(id: message.id, receipts: receipts),
-                      ],
+                      PositionedDirectional(
+                        bottom: -1,
+                        end: 0,
+                        child: _meta(),
+                      ),
                     ],
                   ),
                 ),
-              ),
+
+              // بلا نصّ (صورة أو صوت وحدهما): الساعة في صفٍّ مستقلّ، فلا
+              // فقرة تسيل فيها.
+              if (message.body.isEmpty) ...[
+                const SizedBox(height: 5),
+                Padding(
+                  padding:
+                      EdgeInsets.symmetric(horizontal: message.isImage ? 10 : 0),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: _meta(),
+                  ),
+                ),
+              ],
+
+              // «فشل الإرسال · إعادة المحاولة» (البند 67) — داخل الفقاعة
+              // وتحت النصّ، فيبقى ما كتبه الوكيل معروضاً ولا يُعاد كتابته.
+              if (message.failed && onRetry != null) ...[
+                const SizedBox(height: 6),
+                InkWell(
+                  onTap: onRetry,
+                  borderRadius: BorderRadius.circular(99),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: R.error.withValues(alpha: .10),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.refresh_rounded, size: 13, color: R.error),
+                        const SizedBox(width: 5),
+                        Text('فشل الإرسال · إعادة المحاولة',
+                            style: T.plex(10.5, FontWeight.w600,
+                                color: R.error)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
 
               // التفاعلات أسفل الفقاعة داخلها (البند 25): خارجَها كانت
               // تُزيح الفقاعة التالية وتكسر انتظام العمود.
@@ -253,10 +376,10 @@ class _ReactionChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
           decoration: BoxDecoration(
-            color: onBubble ? R.whiteA(.18) : R.inkA(.05),
+            color: R.inkA(.05),
             border: Border.all(
               color: mine
-                  ? (onBubble ? Colors.white70 : R.primary)
+                  ? R.primary
                   : Colors.transparent,
               width: 1.2,
             ),
@@ -272,7 +395,7 @@ class _ReactionChip extends StatelessWidget {
                   textDirection: TextDirection.ltr,
                   child: Text('$count',
                       style: T.plex(10, FontWeight.w700,
-                          color: onBubble ? Colors.white : R.inkA(.6))),
+                          color: R.inkA(.6))),
                 ),
               ],
             ],
@@ -281,7 +404,17 @@ class _ReactionChip extends StatelessWidget {
       );
 }
 
-/// ✓ أُرسلت · ✓✓ وصلت · ✓✓ زرقاء قُرئت — كما اعتادها المستخدم.
+/// حالات التسليم الثلاث كما يعرفها المستخدم (قرار المالك، 6 سبتمبر 2026):
+///
+/// | العلامة | المعنى |
+/// |---|---|
+/// | ✓ واحدة، باهتة | وصلت الخادم، وجهاز الطرف الآخر لم يسحبها بعد — غالباً غير متّصل |
+/// | ✓✓ باهتة | بلغت جهازه ولم يفتحها |
+/// | ✓✓ زرقاء ساطعة | فتح المحادثة وقرأها |
+///
+/// واللون الباهت هنا **أبيض شفّاف لا رمادي**: الفقاعة الصادرة خضراء داكنة،
+/// والرمادي عليها لا يُرى أصلاً. والأزرق فاتحٌ للسبب نفسه — الأزرق القياسي
+/// يغرق في الأخضر.
 class _Ticks extends StatelessWidget {
   const _Ticks({required this.id, required this.receipts});
 
@@ -295,9 +428,11 @@ class _Ticks extends StatelessWidget {
 
     return Icon(
       delivered ? Icons.done_all_rounded : Icons.check_rounded,
-      size: 14,
-      // أزرق فاتح على الأخضر: الأزرق القياسي لا يُرى على فقاعة داكنة.
-      color: read ? const Color(0xFF7FD4FF) : R.whiteA(.7),
+      // الزرقاء أكبر قليلاً: الفارق بين شرطتين باهتتين وشرطتين زرقاوين هو
+      // أهمّ فارقٍ في المحادثة، ولونٌ وحده على أيقونةٍ بحجم 14 لا يكفي
+      // لعينٍ تمرّ سريعاً.
+      size: read ? 15 : 14,
+      color: read ? const Color(0xFF1E9BD7) : R.inkA(.38),
     );
   }
 }
@@ -314,11 +449,11 @@ class _Quote extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 7),
         padding: const EdgeInsets.fromLTRB(9, 6, 9, 6),
         decoration: BoxDecoration(
-          color: mine ? R.whiteA(.16) : R.inkA(.04),
+          color: R.inkA(.05),
           // شريطٌ في الجانب المبدوء به — علامة الاقتباس المعروفة.
           border: BorderDirectional(
             start: BorderSide(
-                color: mine ? Colors.white70 : R.primary, width: 3),
+                color: R.primary, width: 3),
           ),
           borderRadius: BorderRadius.circular(8),
         ),
@@ -329,7 +464,7 @@ class _Quote extends StatelessWidget {
             if (message.replySenderName.isNotEmpty)
               Text(message.replySenderName,
                   style: T.plex(10.5, FontWeight.w700,
-                      color: mine ? Colors.white : R.primaryDark)),
+                      color: R.primaryDark)),
             Text(
               message.replyPreview.isEmpty
                   ? 'رسالة محذوفة'
@@ -337,7 +472,7 @@ class _Quote extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: T.kufi(12, FontWeight.w400,
-                  color: mine ? R.whiteA(.85) : R.inkA(.6)),
+                  color: R.inkA(.6)),
             ),
           ],
         ),
@@ -358,14 +493,14 @@ class _FileChip extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: mine ? R.whiteA(.16) : R.inkA(.04),
+        color: R.inkA(.05),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.insert_drive_file_outlined,
-              size: 18, color: mine ? Colors.white : R.primary),
+              size: 18, color: R.primary),
           const SizedBox(width: 8),
           Flexible(
             child: Column(
@@ -376,12 +511,12 @@ class _FileChip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: T.kufi(12.5, FontWeight.w600,
-                        color: mine ? Colors.white : R.ink)),
+                        color: R.ink)),
                 Directionality(
                   textDirection: TextDirection.ltr,
                   child: Text('$kb KB',
                       style: T.plex(10, FontWeight.w400,
-                          color: mine ? R.whiteA(.7) : R.inkA(.45))),
+                          color: R.inkA(.45))),
                 ),
               ],
             ),

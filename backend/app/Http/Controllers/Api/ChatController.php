@@ -159,10 +159,15 @@ class ChatController extends BaseController
         $after = max(0, (int) $request->query('after_id', 0));
         $messages = $this->chat->messages($id, $after);
 
-        // فتحُ المحادثة يعني قراءتها. ولا يُعلَّم عند الجلب التزايدي بلا
-        // رسائل: الوكيل قد يكون غادر الشاشة والاستطلاع ما زال يعمل.
+        // «وصلت» مع كل نبضة، بلا شرط.
+        //
+        // النبضة نفسها دليلٌ على أن جهاز الوكيل متّصل ويسحب المحادثة — وهو
+        // بالضبط معنى الشرطتين الرماديتين. وربطُها بوصول رسالةٍ جديدة كان
+        // يُبقي رسالة الطرف الآخر بشرطةٍ واحدة إلى أن يردّ عليها.
+        $this->chat->markDelivered($id, ChatService::AGENT, (int) $user->id);
+
+        // «قُرئت» أضيق: الشاشة مفتوحة والرسائل بين يديه.
         if ($after === 0 || $messages !== []) {
-            $this->chat->markDelivered($id, ChatService::AGENT, (int) $user->id);
             $this->chat->markRead($id, ChatService::AGENT, (int) $user->id);
         }
 
@@ -180,6 +185,9 @@ class ChatController extends BaseController
             // حالة الطرف الآخر تُقرأ مع النبضة نفسها: طلبٌ ثانٍ كل خمس ثوانٍ
             // من أجل «يكتب الآن» يضاعف حركة الشبكة بلا داعٍ.
             'typing'    => $this->chat->typingIn($id, ChatService::AGENT),
+            // المثبَّتة السارية — شريطٌ أعلى المحادثة، لا علامةٌ على الفقاعة
+            // وحدها: الغرض من التثبيت أن تُرى بلا بحث.
+            'pinned'    => $this->chat->pinnedIn($id),
         ], 'Success');
     }
 
@@ -218,7 +226,11 @@ class ChatController extends BaseController
             $user->name ?: null,
             (string) $request->input('body', ''),
             $attachment,
-            $replyTo > 0 ? $replyTo : null
+            $replyTo > 0 ? $replyTo : null,
+            // مُعرّف الجهاز (البند 68): إعادة المحاولة بالمُعرّف نفسه تعيد
+            // الرسالة القائمة بدل كتابة ثانية. يُقصّ عند 64 لأنه عمود
+            // بذلك الطول، ونصٌّ أطول كان يُسقط الطلب في قاعدة البيانات.
+            mb_substr((string) $request->input('client_id', ''), 0, 64) ?: null
         );
 
         if (!$msg) {
@@ -353,17 +365,46 @@ class ChatController extends BaseController
             : $this->sendError($err, [], 422);
     }
 
-    /** POST chat/threads/{id}/messages/{messageId}/pin  {pin} */
+    /** POST chat/threads/{id}/messages/{messageId}/pin  {days} — 0 يفكّ. */
     public function pin(Request $request, int $id, int $messageId)
     {
         if (!$this->guard($id)) {
             return $this->sendError('المحادثة غير موجودة.', [], 404);
         }
 
-        $this->chat->pinMessage($messageId, $id, ChatService::AGENT,
-            $request->boolean('pin', true));
+        // المدد المسموحة وحدها: يوم · أسبوع · شهر · فكّ. رقمٌ حرّ من الطلب
+        // يفتح تثبيتاً لعشر سنين، وهو تثبيتٌ دائم بابٍ خلفي.
+        $days = (int) $request->input('days', 7);
+        if (!in_array($days, [0, 1, 7, 30], true)) {
+            return $this->sendError('مدّة غير مسموحة.', [], 422);
+        }
+
+        $this->chat->pinMessage($messageId, $id, ChatService::AGENT, $days);
 
         return $this->sendResponse(['ok' => true], 'Success');
+    }
+
+    /**
+     * POST chat/threads/{id}/messages/{messageId}/forward  {to_thread_id}
+     *
+     * ⚠ **المحادثتان تُفحصان معاً**: المصدر والوجهة. فحصُ إحداهما يفتح باب
+     * نقل كلامٍ من محادثةٍ لا يشارك فيها المُرسِل، أو إليها (البندان 36 و62).
+     */
+    public function forward(Request $request, int $id, int $messageId)
+    {
+        $user = Auth::user();
+        $to = (int) $request->input('to_thread_id');
+
+        if (!$this->guard($id) || $to <= 0 || !$this->guard($to)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $msg = $this->chat->forward($messageId, $id, $to, ChatService::AGENT,
+            (int) $user->id, $user->name ?: null);
+
+        return $msg === null
+            ? $this->sendError('الرسالة غير موجودة.', [], 404)
+            : $this->sendResponse(['message' => $msg], 'أُعيد التوجيه.');
     }
 
     /** POST chat/threads/{id}/messages/{messageId}/star  {star} */
@@ -429,6 +470,42 @@ class ChatController extends BaseController
             $user->name ?: null, (string) $request->input('state', 'NONE'));
 
         return $this->sendResponse(['ok' => true], 'Success');
+    }
+
+    /**
+     * GET chat/starred — الرسائل المميّزة بنجمة، عبر كل محادثات الوكيل.
+     *
+     * ومعها اسم المحادثة: قائمةٌ من رسائل بلا مصدرها تجعل الوكيل يفتحها
+     * واحدةً واحدةً ليعرف من قالها.
+     */
+    public function starred()
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return $this->sendError('غير مصرّح.', [], 401);
+        }
+
+        $threads = DB::table('chat_threads as t')
+            ->leftJoin('employees as e', 'e.id', '=', 't.employee_id')
+            ->where('t.agent_id', (int) $user->id)
+            ->get(['t.id', 't.kind', 'e.full_name']);
+
+        $titles = [];
+        foreach ($threads as $t) {
+            $titles[(int) $t->id] = $t->kind === ChatService::ADMIN
+                ? 'دعم الرحالة'
+                : ($t->full_name ?: 'موظّف');
+        }
+
+        $items = $this->chat->starredMessages(
+            array_keys($titles), ChatService::AGENT, (int) $user->id
+        );
+
+        foreach ($items as $m) {
+            $m->thread_title = $titles[(int) $m->thread_id] ?? '';
+        }
+
+        return $this->sendResponse(['items' => $items], 'Success');
     }
 
     /**

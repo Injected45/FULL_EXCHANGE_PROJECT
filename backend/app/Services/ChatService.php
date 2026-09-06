@@ -159,6 +159,9 @@ class ChatService
         $cols = [
             'm.id', 'm.thread_id', 'm.sender_kind', 'm.sender_id', 'm.sender_name',
             'm.body', 'm.created_at', 'm.deleted_at', 'm.reply_to_id',
+            // يعود إلى الجهاز ليطابق نسخته المحلّية بما وصل — بغيره تظهر
+            // الرسالة مرّتين: واحدةً متفائلة وواحدةً من الاستطلاع.
+            'm.client_id', 'm.edited_at', 'm.pinned_at',
             'm.attachment_path', 'm.attachment_name', 'm.attachment_mime',
             'm.attachment_size', 'm.attachment_kind',
             'r.body as reply_body',
@@ -560,17 +563,87 @@ class ChatService
         return null;
     }
 
-    /** تثبيت رسالة داخل المحادثة أو فكّه (البند 31). */
-    public function pinMessage(int $messageId, int $threadId, string $kind, bool $pin): bool
+    /**
+     * تثبيت رسالة **لمدّة** أو فكّه (البند 31، وأمر المالك 6 سبتمبر 2026).
+     *
+     * [$days] عددُ أيام: 1 يوم · 7 أسبوع · 30 شهر. و0 يفكّ التثبيت.
+     * والمدّة تُحسب من الآن، فتثبيتُ رسالةٍ قديمة يبدأ من لحظة تثبيتها.
+     */
+    public function pinMessage(int $messageId, int $threadId, string $kind, int $days): bool
     {
+        $pin = $days > 0;
+
         return DB::table('chat_messages')
             ->where('id', $messageId)
             ->where('thread_id', $threadId)
             ->whereNull('deleted_at')
             ->update([
-                'pinned_at' => $pin ? now() : null,
-                'pinned_by' => $pin ? $kind : null,
+                'pinned_at'    => $pin ? now() : null,
+                'pinned_by'    => $pin ? $kind : null,
+                'pinned_until' => $pin ? now()->addDays($days) : null,
             ]) > 0;
+    }
+
+    /**
+     * الرسالة المثبَّتة السارية في محادثة — أحدثُها إن تعدّدت.
+     *
+     * الترشيح على `pinned_until` وقتَ القراءة لا بمهمّة دورية ترفع
+     * التثبيت: مهمّةٌ مجدولة على الخادم من أجل إخفاء سطرٍ ثمنٌ لا يُبرَّر،
+     * والمقارنة هنا تكلّف لا شيء.
+     */
+    public function pinnedIn(int $threadId): ?object
+    {
+        return DB::table('chat_messages')
+            ->where('thread_id', $threadId)
+            ->whereNull('deleted_at')
+            ->whereNotNull('pinned_at')
+            ->where(function ($q) {
+                $q->whereNull('pinned_until')->orWhere('pinned_until', '>', now());
+            })
+            ->orderByDesc('pinned_at')
+            ->first(['id', 'body', 'sender_name', 'attachment_kind', 'pinned_until']);
+    }
+
+    /**
+     * إعادة توجيه رسالة إلى محادثةٍ أخرى (أمر المالك، 6 سبتمبر 2026).
+     *
+     * ⚠ **لا تكسر العزل** (البند 36): المحادثتان — المصدر والوجهة — تُفحصان
+     * كلتاهما في المتحكّم قبل استدعاء هذه، فلا يُنقل شيء إلى محادثةٍ لا
+     * يشارك فيها المُرسِل. والمرفق يُشار إليه ولا يُنسخ على القرص: الملف
+     * نفسه، والحقّ فيه يأتي من عضوية المحادثة لا من اسم الملف.
+     *
+     * ولا يُنقل الاقتباس: الرسالة المقتبَسة تخصّ محادثتها، ونقلُها يعرض
+     * على الوجهة كلاماً لم يُقَل فيها.
+     */
+    public function forward(int $messageId, int $fromThread, int $toThread,
+                            string $kind, int $id, ?string $name): ?object
+    {
+        $src = DB::table('chat_messages')
+            ->where('id', $messageId)
+            ->where('thread_id', $fromThread)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if (!$src) {
+            return null;
+        }
+
+        return $this->send(
+            $toThread,
+            $kind,
+            $id,
+            $name,
+            (string) ($src->body ?? ''),
+            $src->attachment_path === null ? [] : [
+                'path' => $src->attachment_path,
+                'name' => $src->attachment_name,
+                'mime' => $src->attachment_mime,
+                'size' => $src->attachment_size,
+                'kind' => $src->attachment_kind,
+            ],
+            null,
+            'fwd' . $messageId . '_' . $toThread . '_' . now()->timestamp
+        );
     }
 
     /** حفظ رسالة أو إلغاء حفظها — لهذا المشارك وحده (البند 30). */
@@ -596,6 +669,37 @@ class ChatService
             'actor_id'   => $id,
             'created_at' => now(),
         ]);
+    }
+
+    /**
+     * الرسائل المحفوظة كاملةً — لشاشة «المهمّة» (البند 30).
+     *
+     * ⚠ النطاق [$threadIds] يأتي من الخادم لا من الطلب: محادثات هذا
+     * المشارك وحدها، فلا يرى محفوظات غيره ولو خمّن رقماً.
+     *
+     * والمحذوفة تُستبعد: رسالةٌ حُذفت لا يُرجَع إليها، وعرضُ «حُذفت هذه
+     * الرسالة» في قائمة المهمّة وعدٌ خُلف.
+     */
+    public function starredMessages(array $threadIds, string $kind, int $id, int $limit = 100): array
+    {
+        if ($threadIds === []) {
+            return [];
+        }
+
+        return DB::table('chat_stars as s')
+            ->join('chat_messages as m', 'm.id', '=', 's.message_id')
+            ->whereIn('s.thread_id', $threadIds)
+            ->where('s.actor_kind', $kind)
+            ->where('s.actor_id', $id)
+            ->whereNull('m.deleted_at')
+            ->orderByDesc('s.id')
+            ->limit($limit)
+            ->get([
+                'm.id', 'm.thread_id', 'm.sender_kind', 'm.sender_name',
+                'm.body', 'm.created_at', 'm.attachment_kind',
+                's.created_at as starred_at',
+            ])
+            ->all();
     }
 
     /** أرقام الرسائل المحفوظة في صفحة — استعلامٌ واحد. */
