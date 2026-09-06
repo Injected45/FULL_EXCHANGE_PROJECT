@@ -57,3 +57,7 @@ vendor/
 # يحتاج تثبيت Node على الخادم — وهو ما لا يُتاح على استضافةٍ مشتركة.
 # فإن غُيّرت واجهة React، أعد `npm run build` وأودِع الناتج معها.
 backend/support-app/node_modules/
+
+# تطبيق الدعم — مخرجاتُ البناء تُولَّد
+rhalla_support/build/
+rhalla_support/.dart_tool/

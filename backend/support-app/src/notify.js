@@ -60,6 +60,10 @@ export function beep() {
 }
 
 export function notificationState() {
+  // داخل الغلاف لا إذنَ يُطلب: التنبيه من النظام لا من المتصفّح، فيُبلَّغ
+  // أنه ممنوح — وإلا ظلّ زرّ «تفعيل الإشعارات» ظاهراً في التطبيق يطلب إذناً
+  // لا وجود له.
+  if (native()) return 'granted'
   if (!('Notification' in window)) return 'unsupported'
   return Notification.permission
 }
@@ -74,7 +78,33 @@ export async function askPermission() {
   }
 }
 
+/**
+ * هل نحن داخل غلاف الهاتف؟
+ *
+ * ⚠ `WebView` على أندرويد **لا تدعم `Notification` API إطلاقاً** — لا
+ * ترفضها بإذن، بل لا توجد. فلولا هذا الجسر لصمتت اللوحةُ على الهاتف صمتاً
+ * تامّاً مهما وصلها من رسائل، وهو أسوأُ من عدم وجود التطبيق: موظّفٌ يظنّ
+ * أنه مُنبَّه وليس كذلك.
+ *
+ * والغلاف يحقن قناةً باسم `RhallaNative`، فتُستعمل حيث توجد ويُرجع إلى
+ * إشعار المتصفّح حيث لا توجد — فرعٌ واحد لا شيفرتان.
+ */
+const native = () =>
+  (typeof window !== 'undefined' && window.RhallaNative) || null
+
 export function showNotification(title, body, onClick) {
+  const bridge = native()
+  if (bridge) {
+    try {
+      // النغمة والاهتزاز من النظام نفسه — وهو ما اعتاده صاحب الهاتف،
+      // ويعمل والجهاز في جيبه.
+      bridge.postMessage('alert')
+      return
+    } catch {
+      /* الجسر موجودٌ ولم يعمل — يُكمَل إلى إشعار المتصفّح أدناه. */
+    }
+  }
+
   if (!('Notification' in window) || Notification.permission !== 'granted') return
   try {
     const n = new Notification(title, {
