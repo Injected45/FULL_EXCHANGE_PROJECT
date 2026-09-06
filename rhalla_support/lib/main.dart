@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
@@ -69,14 +69,21 @@ class SupportApp extends StatelessWidget {
 ///
 /// ولا يُدفن في الشيفرة: خادمُ المكتب اليوم غيرُ خادم الاستضافة غداً،
 /// وعنوانٌ مدفون يعني إصداراً جديداً من التطبيق لتغيير سطر.
+///
+/// ⚠ **`shared_preferences` لا `flutter_secure_storage`** — وهو الصواب لا
+/// التنازل: المحفوظ هنا **عنوانُ خادمٍ لا سرّ**، يعرفه كلُّ موظّفٍ في المكتب
+/// ويُكتب على السبّورة. وتشفيرُه يعطي انطباعاً كاذباً بأن هنا سرّاً يُحمى،
+/// ويجرّ حزمةً تطلب Android SDK 37 (النسخة 11) — فيفشل البناء من أجل لا شيء.
+///
+/// ⚠ ولا يُحفظ هنا رمزُ جلسةٍ ولا كلمةُ مرور: تلك كلُّها داخل الـ WebView،
+/// في `localStorage` الخاصّ بأصل الصفحة، معزولةً كما في أي متصفّح.
 class Settings {
   static const _key = 'support_base_url';
-  // بلا `AndroidOptions`: النسخة 11 تُشفّر افتراضياً وأسقطت الخيار القديم.
-  static const _store = FlutterSecureStorage();
 
   static Future<String?> baseUrl() async {
     try {
-      final v = await _store.read(key: _key);
+      final p = await SharedPreferences.getInstance();
+      final v = p.getString(_key);
       return (v == null || v.trim().isEmpty) ? null : v.trim();
     } catch (_) {
       return null;
@@ -85,7 +92,8 @@ class Settings {
 
   static Future<void> setBaseUrl(String v) async {
     try {
-      await _store.write(key: _key, value: v.trim());
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_key, v.trim());
     } catch (_) {
       /* جهازٌ يمنع التخزين — يبقى العنوان لهذه الجلسة. */
     }
