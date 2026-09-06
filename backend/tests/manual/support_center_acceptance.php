@@ -163,9 +163,25 @@ $agentStaffId = $mkStaff('t.agent', 'موظّف الاختبار', SupportPermis
 $r = $call('POST', '/support/auth/login', null, ['username' => 't.agent', 'password' => 'Test1234']);
 $agentTok = $r['body']['data']['token'] ?? null;
 $check('دخول موظّف الدعم', $r['status'] === 200);
-$check('صلاحياته الافتراضية ثمانٍ',
-    count($r['body']['data']['staff']['permissions'] ?? []) === 8,
+$check('صلاحياته الافتراضية تسع',
+    count($r['body']['data']['staff']['permissions'] ?? []) === 9,
     'عدد=' . count($r['body']['data']['staff']['permissions'] ?? []));
+
+/* ⚠ أهمُّ فحصٍ هنا: موظّف الدعم يرى الوكلاء **فور إنشائه**.
+ *
+ * كان يرى المُسنَدة إليه وغيرَ المُسنَدة وحدها، فأنشأ المالك موظّفاً
+ * وكانت محادثةُ الوكيل الوحيد مُسنَدةً إلى مديرٍ آخر — فلم يرَ وكيلاً
+ * واحداً ولم يستطع الردّ على أحد. حسابٌ يُنشأ ولا يعمل، ولا شيء في
+ * الشاشة يقول لماذا. */
+$check('ويرى الوكلاء فور إنشائه — بلا منحٍ يدويّ',
+    in_array('VIEW_ALL_THREADS', $r['body']['data']['staff']['permissions'] ?? [], true));
+
+/* المقارنة بقائمة المدير: الموظّفُ يرى ما يراه، لا أقلّ. */
+$adminSees = $call('GET', '/support/threads', $adminTok)['body']['data']['items'] ?? [];
+$agentSees = $call('GET', '/support/threads', $agentTok)['body']['data']['items'] ?? [];
+$check('ويرى ما يراه المدير نفسُه — لا قائمةً فارغة',
+    count($agentSees) === count($adminSees),
+    'الموظّف ' . count($agentSees) . ' · المدير ' . count($adminSees));
 
 $denied = [
     'إدارة الحسابات'   => ['GET',  '/support/staff', []],

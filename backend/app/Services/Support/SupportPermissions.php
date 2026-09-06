@@ -83,7 +83,20 @@ class SupportPermissions
      */
     public const ROLE_CEILING = [
         self::SUPPORT_AGENT => [
-            'VIEW_THREADS', 'REPLY', 'SEND_ATTACHMENT', 'SEND_VOICE',
+            'VIEW_THREADS',
+            // ⚠ أُضيفت بأمر المالك (6 سبتمبر 2026) بعد أن ظهر العيب عملياً.
+            //
+            // كان موظّف الدعم يرى المُسنَدة إليه وغيرَ المُسنَدة وحدها. فأنشأ
+            // المالك موظّفاً، وكانت محادثةُ الوكيل الوحيد مُسنَدةً إلى مدير
+            // النظام — فلم يرَ الموظّفُ **وكيلاً واحداً**، ولم يستطع أن يردّ
+            // على أحد. أي أن الحساب أُنشئ ولا يعمل، ولا شيء في الشاشة يقول
+            // لماذا.
+            //
+            // والغرض من الموظّف متابعةُ الوكلاء، فرؤيتُهم شرطُ وجوده.
+            // والتزاحمُ الذي كان يمنعه الحدُّ القديم يُعالجه الإسناد نفسُه:
+            // اسمُ المسؤول ظاهرٌ على كل محادثة، والحالةُ تقول أين وصلت.
+            'VIEW_ALL_THREADS',
+            'REPLY', 'SEND_ATTACHMENT', 'SEND_VOICE',
             'EDIT_OWN_MESSAGE', 'PIN_MESSAGE', 'FORWARD_MESSAGE',
             'SEARCH_MESSAGES', 'ASSIGN_SELF', 'CHANGE_STATUS',
         ],
@@ -107,7 +120,11 @@ class SupportPermissions
      */
     public const ROLE_DEFAULTS = [
         self::SUPPORT_AGENT => [
-            'VIEW_THREADS', 'REPLY', 'SEND_ATTACHMENT', 'SEND_VOICE',
+            // `VIEW_ALL_THREADS` افتراضيّةٌ لا ممنوحةً باليد: موظّفٌ يُنشأ
+            // ولا يرى وكيلاً واحداً هو حسابٌ لا يعمل، ومن أنشأه لا يعلم أن
+            // عليه منحَ شيءٍ بعد الإنشاء.
+            'VIEW_THREADS', 'VIEW_ALL_THREADS',
+            'REPLY', 'SEND_ATTACHMENT', 'SEND_VOICE',
             'EDIT_OWN_MESSAGE', 'SEARCH_MESSAGES', 'ASSIGN_SELF',
             'CHANGE_STATUS',
         ],
