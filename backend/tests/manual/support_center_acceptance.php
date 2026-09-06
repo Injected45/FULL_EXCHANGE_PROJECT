@@ -142,7 +142,7 @@ $adminTok = $r['body']['data']['token'] ?? null;
 $check('يُصدر رمزاً', is_string($adminTok) && strlen($adminTok) === 64);
 $check('يُرجع الدور والصلاحيات',
     ($r['body']['data']['staff']['role'] ?? '') === 'ADMIN'
-    && count($r['body']['data']['staff']['permissions'] ?? []) === 18,
+    && count($r['body']['data']['staff']['permissions'] ?? []) === 22,
     'صلاحيات=' . count($r['body']['data']['staff']['permissions'] ?? []));
 $check('يُرجع كتالوج الصلاحيات', count($r['body']['data']['catalog'] ?? []) === 3);
 
@@ -163,8 +163,8 @@ $agentStaffId = $mkStaff('t.agent', 'موظّف الاختبار', SupportPermis
 $r = $call('POST', '/support/auth/login', null, ['username' => 't.agent', 'password' => 'Test1234']);
 $agentTok = $r['body']['data']['token'] ?? null;
 $check('دخول موظّف الدعم', $r['status'] === 200);
-$check('صلاحياته الافتراضية تسع',
-    count($r['body']['data']['staff']['permissions'] ?? []) === 9,
+$check('صلاحياته الافتراضية إحدى عشرة',
+    count($r['body']['data']['staff']['permissions'] ?? []) === 11,
     'عدد=' . count($r['body']['data']['staff']['permissions'] ?? []));
 
 /* ⚠ أهمُّ فحصٍ هنا: موظّف الدعم يرى الوكلاء **فور إنشائه**.
@@ -569,7 +569,14 @@ $fk = DB::select("SELECT OBJECT_NAME(referenced_object_id) d FROM sys.foreign_ke
 $dests = array_unique(array_column($fk, 'd'));
 sort($dests);
 $check('كل المفاتيح الأجنبية داخلية',
-    $dests === ['chat_threads', 'support_staff'], implode(' · ', $dests));
+    /*
+     * ⚠ الفحصُ ليس على عددٍ ثابت بل على **الوجهات**: كلُّ مفتاحٍ يشير إلى
+     * جدولِ دردشةٍ أو جدولِ دعم، وليس إلى جدولٍ ماليّ واحد. فإضافةُ مفتاحٍ
+     * جديد لجدولٍ داخليّ (كـ`support_tag_defs`) تمرّ، وإضافةُ مفتاحٍ إلى
+     * `wallet` أو `InternalEx` تسقط فوراً — وهو المقصود.
+     */
+    $dests === ['chat_threads', 'support_staff', 'support_tag_defs'],
+    implode(' · ', $dests));
 
 $tr = DB::select("SELECT name FROM sys.triggers WHERE OBJECT_NAME(parent_id) LIKE 'support[_]%'");
 $check('لا محفّزات على جداول الدعم', count($tr) === 0, 'عدد=' . count($tr));

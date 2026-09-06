@@ -54,6 +54,23 @@ class SupportPermissions
         'FORWARD_MESSAGE'   => ['threads', 'إعادة توجيه رسالة'],
         'SEARCH_MESSAGES'   => ['threads', 'البحث في الرسائل'],
 
+        // ── التصنيف والأولوية (بندا المالك 3 و4) ───────────────────
+        //
+        // مفصولةٌ عن `CHANGE_STATUS` عمداً: الحالةُ تقول أين وصل العمل
+        // وتخصّ من يعمل عليها، والأولويةُ تقول ما ترتيبها بين غيرها وهي
+        // قرارُ تنظيمٍ أوسع. وموظّفٌ يرفع أولويةَ محادثاته كلَّها إلى
+        // «حرجة» يُلغي معنى الأولوية على الفريق كلِّه.
+        'SET_PRIORITY'      => ['workflow', 'تغيير أولوية المحادثة'],
+        'SET_CATEGORY'      => ['workflow', 'تصنيف المحادثة ووسمُها'],
+        'MANAGE_TAXONOMY'   => ['admin', 'إدارة التصنيفات والوسوم'],
+
+        // ── الملاحظات الداخلية (البند 7) ───────────────────────────
+        //
+        // ⚠ صلاحيةٌ مستقلّة عن `REPLY`: من يردّ على الوكيل ليس بالضرورة من
+        // يُطلعه الفريقُ على مداولاته. والقراءةُ والكتابةُ مفتاحٌ واحد —
+        // من يكتب ملاحظةً يقرأ ما قبلها بالضرورة.
+        'INTERNAL_NOTES'    => ['threads', 'كتابة الملاحظات الداخلية وقراءتها'],
+
         // ── الإسناد والحالة ────────────────────────────────────────
         'ASSIGN_SELF'       => ['workflow', 'استلام محادثة لنفسه'],
         'ASSIGN_OTHERS'     => ['workflow', 'إسناد محادثة إلى غيره'],
@@ -99,6 +116,7 @@ class SupportPermissions
             'REPLY', 'SEND_ATTACHMENT', 'SEND_VOICE',
             'EDIT_OWN_MESSAGE', 'PIN_MESSAGE', 'FORWARD_MESSAGE',
             'SEARCH_MESSAGES', 'ASSIGN_SELF', 'CHANGE_STATUS',
+            'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES',
         ],
         self::SUPERVISOR => [
             'VIEW_THREADS', 'VIEW_ALL_THREADS', 'REPLY', 'SEND_ATTACHMENT',
@@ -106,6 +124,10 @@ class SupportPermissions
             'FORWARD_MESSAGE', 'SEARCH_MESSAGES', 'ASSIGN_SELF',
             'ASSIGN_OTHERS', 'CHANGE_STATUS', 'CLOSE_THREAD',
             'REOPEN_THREAD', 'VIEW_AUDIT', 'VIEW_STATS',
+            'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES',
+            // المشرف يدير التصنيفات: هو من يرى تكرار المشاكل فيعرف أيَّ
+            // تصنيفٍ يلزم — والمديرُ لا يقرأ المحادثات يومياً.
+            'MANAGE_TAXONOMY',
         ],
         // المدير سقفُه الكتالوج كلّه — ويبقى محتاجاً إلى الصفوف.
         self::ADMIN => null,
@@ -127,6 +149,12 @@ class SupportPermissions
             'REPLY', 'SEND_ATTACHMENT', 'SEND_VOICE',
             'EDIT_OWN_MESSAGE', 'SEARCH_MESSAGES', 'ASSIGN_SELF',
             'CHANGE_STATUS',
+            // التصنيفُ والملاحظةُ من عملِه اليوميّ: من يقرأ المشكلة هو من
+            // يعرف نوعَها، ومن يعمل عليها هو من يكتب لزميله ما وجده.
+            'SET_CATEGORY', 'INTERNAL_NOTES',
+            // ⚠ `SET_PRIORITY` **ليست افتراضية** وإن كانت تحت سقفه:
+            // موظّفٌ يرفع أولويةَ محادثاته كلَّها يُلغي معنى الأولوية على
+            // الفريق. تُمنح لمن يُوثَق بحكمه فيها.
         ],
         self::SUPERVISOR => [
             'VIEW_THREADS', 'VIEW_ALL_THREADS', 'REPLY', 'SEND_ATTACHMENT',
@@ -134,6 +162,7 @@ class SupportPermissions
             'FORWARD_MESSAGE', 'SEARCH_MESSAGES', 'ASSIGN_SELF',
             'ASSIGN_OTHERS', 'CHANGE_STATUS', 'CLOSE_THREAD',
             'REOPEN_THREAD', 'VIEW_STATS',
+            'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES', 'MANAGE_TAXONOMY',
         ],
         self::ADMIN => [
             'VIEW_THREADS', 'VIEW_ALL_THREADS', 'REPLY', 'SEND_ATTACHMENT',
@@ -142,6 +171,7 @@ class SupportPermissions
             'ASSIGN_OTHERS', 'CHANGE_STATUS', 'CLOSE_THREAD',
             'REOPEN_THREAD', 'MANAGE_STAFF', 'MANAGE_PERMISSIONS',
             'VIEW_AUDIT', 'VIEW_STATS',
+            'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES', 'MANAGE_TAXONOMY',
         ],
     ];
 

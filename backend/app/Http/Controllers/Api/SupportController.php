@@ -6,6 +6,7 @@ use App\Http\Controllers\BaseController;
 use App\Services\ChatService;
 use App\Services\Support\SupportAudit;
 use App\Services\Support\SupportPermissions;
+use App\Services\Support\SupportOps;
 use App\Services\Support\SupportStaffService;
 use App\Services\Support\SupportThreadService;
 use Illuminate\Http\Request;
@@ -47,6 +48,7 @@ class SupportController extends BaseController
         private SupportThreadService $threads,
         private SupportStaffService $staffSvc,
         private SupportAudit $audit,
+        private SupportOps $ops,
     ) {
     }
 
@@ -209,9 +211,13 @@ class SupportController extends BaseController
         //
         // والسلوك مطابق: الاستعلام المحذوف كان شرطُه `id > after_id`، وهو
         // لا يُرجع شيئاً حين `max <= after`.
+        // ⚠ الملاحظات الداخلية تُطلب صراحةً ولمن يملكها وحده — والافتراض
+        // في `messages` إخفاؤها، فمن ينسى هنا يحصل على السلوك الآمن.
+        $seeNotes = $this->can($r, 'INTERNAL_NOTES');
+
         $items = (!$first && $maxId <= $after)
             ? []
-            : $this->chat->messages($id, $after);
+            : $this->chat->messages($id, $after, 50, $seeNotes);
 
         // «وصلت» مع كل نبضة، و«قُرئت» عند فتح الشاشة أو وصول جديد — الترتيب
         // نفسه المعتمد في تطبيق الوكيل، ولسببه نفسه. ورحلةٌ واحدة بدل ستّ.
@@ -253,7 +259,22 @@ class SupportController extends BaseController
                 'assigned_to'   => $ctx->assigned_to !== null ? (int) $ctx->assigned_to : null,
                 'assignee_name' => $ctx->assignee_name,
                 'close_note'    => $ctx->close_note,
+
+                // ── التشغيل (بنود 3 · 4 · 12) ──────────────────────
+                'priority'       => $pri = ($ctx->priority ?: SupportOps::NORMAL),
+                'priority_label' => SupportOps::PRIORITIES[$pri]['label'],
+                'priority_color' => SupportOps::PRIORITIES[$pri]['color'],
+                // الرقمُ المرجعي يُولَّد عند أوّل فتحٍ للحالة لا عند
+                // إنشائها: محادثاتٌ لم يفتحها أحد لا تحتاج مرجعاً يُملى.
+                'reference'      => $first ? $this->ops->ensureReference($id) : $ctx->reference,
+                'category_id'    => $ctx->category_id ? (int) $ctx->category_id : null,
+                'category_name'  => $ctx->category_name,
+                'category_color' => $ctx->category_color,
+                'tags'           => $this->ops->tagsForThreads([$id])[$id] ?? [],
             ],
+            // هل يرى هذا الموظّف الملاحظات الداخلية؟ الواجهة ترسم زرَّها
+            // بناءً عليه — والرفضُ الحقيقي في الخادم على أي حال.
+            'can_internal' => $seeNotes,
         ], 'Success');
     }
 
@@ -302,6 +323,20 @@ class SupportController extends BaseController
 
         $me = $this->me($r);
 
+        // ── ملاحظةٌ داخلية أم ردٌّ على الوكيل؟ (البند 7) ──────────────
+        //
+        // ⚠ صلاحيةٌ مستقلّة: من يردّ على الوكيل ليس بالضرورة من يُطلعه
+        // الفريقُ على مداولاته. والفحصُ هنا قبل أي كتابة.
+        $isInternal = (bool) $r->input('internal', false);
+        if ($isInternal && !$this->can($r, 'INTERNAL_NOTES')) {
+            return $this->deny($r, 'INTERNAL_NOTES',
+                'لا تملك صلاحية الملاحظات الداخلية.', $id);
+        }
+        // ولا يُشترط `REPLY` للملاحظة: هي ليست رداً على الوكيل أصلاً.
+        if (!$isInternal && !$this->can($r, 'REPLY')) {
+            return $this->deny($r, 'REPLY', 'لا تملك صلاحية الردّ.', $id);
+        }
+
         $attachment = [];
         if ($r->hasFile('attachment')) {
             $file = $r->file('attachment');
@@ -339,6 +374,7 @@ class SupportController extends BaseController
             $attachment,
             $replyTo > 0 ? $replyTo : null,
             mb_substr((string) $r->input('client_id', ''), 0, 64) ?: null,
+            $isInternal,
         );
 
         if (!$msg) {
@@ -354,10 +390,22 @@ class SupportController extends BaseController
         $msg->support_staff_id = (int) $me->id;
         $msg->staff_name = $me->name;
 
-        $this->threads->onSupportReply($id, $me);
-        $this->audit->log($me, SupportAudit::REPLY, $id, null, null, $r->ip());
+        // ⚠ الملاحظة الداخلية لا تُغيّر حالة المحادثة.
+        //
+        // `onSupportReply` تنقلها إلى «بانتظار الوكيل» — وذلك كذبٌ حين لا
+        // يكون الوكيل قد رأى شيئاً. ملاحظةُ «تواصلتُ معه هاتفياً» لا تجعل
+        // الكرةَ في ملعبه.
+        if (!$isInternal) {
+            $this->threads->onSupportReply($id, $me);
+            $this->audit->log($me, SupportAudit::REPLY, $id, null, null, $r->ip());
+        } else {
+            // تُسجَّل في الشريط الزمني لا في نصّها: الشريط يقول «كُتبت
+            // ملاحظة» ومن كتبها ومتى — ونصُّها في المحادثة لمن يملك قراءتَها.
+            $this->ops->event($id, SupportOps::EV_NOTE, $me);
+            $this->audit->log($me, 'NOTE', $id, null, null, $r->ip());
+        }
 
-        return $this->sendResponse(['message' => $msg], 'تم الإرسال.');
+        return $this->sendResponse(['message' => $msg], $isInternal ? 'حُفظت الملاحظة.' : 'تم الإرسال.');
     }
 
     /**
@@ -509,7 +557,9 @@ class SupportController extends BaseController
         );
 
         return $this->sendResponse([
-            'items' => $ids === [] ? [] : $this->chat->search($ids, $term),
+            'items' => $ids === []
+                ? []
+                : $this->chat->search($ids, $term, 40, $this->can($r, 'INTERNAL_NOTES')),
         ], 'Success');
     }
 
@@ -594,6 +644,147 @@ class SupportController extends BaseController
     public function assignees()
     {
         return $this->sendResponse(['items' => $this->staffSvc->assignees()], 'Success');
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  التشغيل: الأولوية والتصنيف والوسوم والشريط الزمني
+    //  (بنود المالك 3 · 4 · 12 · 17)
+    // ══════════════════════════════════════════════════════════════════
+
+    /** POST support/threads/{id}/priority  {priority} */
+    public function priority(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $me  = $this->me($r);
+        $out = $this->ops->setPriority($id, (string) $r->input('priority', ''), $me);
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        $this->audit->log($me, 'PRIORITY', $id, (string) $r->input('priority'), null, $r->ip());
+
+        return $this->sendResponse(['ok' => true], 'تم التحديث.');
+    }
+
+    /** POST support/threads/{id}/category  {category_id|null} */
+    public function category(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $raw = $r->input('category_id');
+        $out = $this->ops->setCategory(
+            $id,
+            ($raw === null || $raw === '') ? null : (int) $raw,
+            $this->me($r),
+        );
+
+        return isset($out['error'])
+            ? $this->sendError($out['error'], [], 422)
+            : $this->sendResponse(['ok' => true], 'تم التصنيف.');
+    }
+
+    /** POST support/threads/{id}/tags  {tag_id}  ·  DELETE .../tags/{tagId} */
+    public function addTag(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $out = $this->ops->addTag($id, (int) $r->input('tag_id', 0), $this->me($r));
+
+        return isset($out['error'])
+            ? $this->sendError($out['error'], [], 422)
+            : $this->sendResponse(['ok' => true], 'أُضيف الوسم.');
+    }
+
+    public function removeTag(Request $r, int $id, int $tagId)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $this->ops->removeTag($id, $tagId, $this->me($r));
+
+        return $this->sendResponse(['ok' => true], 'أُزيل الوسم.');
+    }
+
+    /** GET support/threads/{id}/timeline */
+    public function timeline(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        return $this->sendResponse([
+            'items' => $this->ops->timeline($id),
+        ], 'Success');
+    }
+
+    /**
+     * GET support/taxonomy — التصنيفات والوسوم والأولويات معاً.
+     *
+     * نداءٌ واحد لا ثلاثة: الواجهة تحتاجها كلَّها عند فتح الشاشة، وثلاثةُ
+     * نداءاتٍ إلى قاعدةٍ بعيدة ثمنُها ثلاثُ رحلات — والقوائمُ صغيرةٌ ثابتة.
+     */
+    public function taxonomy(Request $r)
+    {
+        $all = $this->can($r, 'MANAGE_TAXONOMY');
+
+        return $this->sendResponse([
+            'categories' => $this->ops->categories(!$all),
+            'tags'       => $this->ops->tags(!$all),
+            'priorities' => SupportOps::PRIORITIES,
+        ], 'Success');
+    }
+
+    /** POST support/taxonomy/categories  ·  POST support/taxonomy/tags */
+    public function createCategory(Request $r)
+    {
+        $out = $this->ops->createCategory(
+            (string) $r->input('name', ''), $r->input('color'), $this->me($r));
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        $this->audit->log($this->me($r), 'TAXONOMY', null, 'CATEGORY',
+            (string) $r->input('name'), $r->ip());
+
+        return $this->sendResponse($out, 'أُضيف التصنيف.');
+    }
+
+    public function createTag(Request $r)
+    {
+        $out = $this->ops->createTag(
+            (string) $r->input('name', ''), $r->input('color'), $this->me($r));
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        $this->audit->log($this->me($r), 'TAXONOMY', null, 'TAG',
+            (string) $r->input('name'), $r->ip());
+
+        return $this->sendResponse($out, 'أُضيف الوسم.');
+    }
+
+    /** PUT support/taxonomy/categories/{id}  ·  .../tags/{id}  {is_active} */
+    public function setCategoryActive(Request $r, int $id)
+    {
+        $this->ops->setCategoryActive($id, (bool) $r->input('is_active', true));
+        return $this->sendResponse(['ok' => true], 'تم التحديث.');
+    }
+
+    public function setTagActive(Request $r, int $id)
+    {
+        $this->ops->setTagActive($id, (bool) $r->input('is_active', true));
+        return $this->sendResponse(['ok' => true], 'تم التحديث.');
     }
 
     // ══════════════════════════════════════════════════════════════════

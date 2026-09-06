@@ -498,3 +498,44 @@ Route::prefix('support')->group(function () {
     Route::get('audit', [SupportController::class, 'auditLog'])
         ->middleware('support:VIEW_AUDIT');
 });
+
+/*
+|--------------------------------------------------------------------------
+| مركز الدعم — التشغيل: الأولوية والتصنيف والوسوم والشريط الزمني
+|--------------------------------------------------------------------------
+|
+| (بنود المالك 3 · 4 · 7 · 12 · 17)
+|
+| ⚠ تطويرٌ فوق القائم: لا مسارَ هنا يُكرّر مساراً موجوداً، والملاحظةُ
+| الداخلية تمرّ بمسار الإرسال نفسِه بعلامةٍ في الجسم — لا بمسارٍ ثانٍ.
+|
+| ⚠ ولا مسار يمسّ المال.
+|
+*/
+Route::prefix('support')->group(function () {
+
+    // التصنيفات والوسوم والأولويات — تُقرأ لكل من يفتح صندوق الوارد.
+    Route::get('taxonomy', [SupportController::class, 'taxonomy'])
+        ->middleware('support:VIEW_THREADS');
+
+    Route::post('threads/{id}/priority', [SupportController::class, 'priority'])
+        ->middleware('support:SET_PRIORITY')->whereNumber('id');
+
+    Route::middleware('support:SET_CATEGORY')->group(function () {
+        Route::post  ('threads/{id}/category',      [SupportController::class, 'category'])->whereNumber('id');
+        Route::post  ('threads/{id}/tags',          [SupportController::class, 'addTag'])->whereNumber('id');
+        Route::delete('threads/{id}/tags/{tagId}',  [SupportController::class, 'removeTag'])
+            ->whereNumber('id')->whereNumber('tagId');
+    });
+
+    Route::get('threads/{id}/timeline', [SupportController::class, 'timeline'])
+        ->middleware('support:VIEW_THREADS')->whereNumber('id');
+
+    // إدارة التصنيفات — «بدون تعديل الكود كل مرة» (نصّ البند 4).
+    Route::middleware('support:MANAGE_TAXONOMY')->group(function () {
+        Route::post('taxonomy/categories',      [SupportController::class, 'createCategory']);
+        Route::post('taxonomy/tags',            [SupportController::class, 'createTag']);
+        Route::put ('taxonomy/categories/{id}', [SupportController::class, 'setCategoryActive'])->whereNumber('id');
+        Route::put ('taxonomy/tags/{id}',       [SupportController::class, 'setTagActive'])->whereNumber('id');
+    });
+});

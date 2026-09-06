@@ -149,7 +149,21 @@ class ChatService
      * الترتيب تصاعدي والسقف يقتطع **الأحدث** لا الأقدم: من يفتح محادثةً
      * قديمة يريد آخرها، لا أوّلها.
      */
-    public function messages(int $threadId, int $afterId = 0, int $limit = 50): array
+    /**
+     * @param bool $includeInternal هل تُدرَج الملاحظات الداخلية؟ (البند 7)
+     *
+     * ⚠ **الافتراض `false` عمداً — والافتراض هنا قرارٌ أمنيّ.**
+     *
+     * الملاحظة الداخلية يكتبها موظّف الدعم لزملائه: «يحتاج تصعيداً»،
+     * «تواصلتُ معه هاتفياً». ووصولُها إلى الوكيل ليس خطأً في العرض بل
+     * تسريبُ مداولةٍ داخلية إليه هو موضوعُها.
+     *
+     * ولذلك يُبنى المسارُ **فاشلاً مُغلَقاً**: من ينسى تمرير المعامل يحصل
+     * على السلوك الآمن، ومن يريد الملاحظات يطلبها صراحةً. والعكس — أن
+     * يكون الظهورُ افتراضياً — يعني أن موضعاً واحداً يُنسى يكفي للتسريب،
+     * ومرّةٌ واحدة تكفي.
+     */
+    public function messages(int $threadId, int $afterId = 0, int $limit = 50, bool $includeInternal = false): array
     {
         // الرسالة المُقتبَسة تأتي معها في الاستعلام نفسه — نصّاً واسماً.
         //
@@ -173,6 +187,11 @@ class ChatService
         $q = DB::table('chat_messages as m')
             ->leftJoin('chat_messages as r', 'r.id', '=', 'm.reply_to_id')
             ->where('m.thread_id', $threadId);
+
+        // ⚠ الترشيح هنا لا في المتحكّم: موضعٌ واحد يحرس كلَّ من ينادي.
+        if (!$includeInternal) {
+            $q->where('m.is_internal', 0);
+        }
 
         if ($afterId > 0) {
             // جلب تزايدي: ما بعد آخر ما عنده، بترتيبه الطبيعي.
@@ -391,7 +410,10 @@ class ChatService
         string $body,
         array $attachment = [],
         ?int $replyToId = null,
-        ?string $clientId = null
+        ?string $clientId = null,
+        // ملاحظةٌ داخلية (البند 7): تُكتب في الجدول نفسِه وتُرشَّح عند كل
+        // قراءةٍ لغير الدعم. والافتراض `false` — انظر `messages`.
+        bool $isInternal = false
     ): ?object {
         $body = trim($body);
 
@@ -449,7 +471,7 @@ class ChatService
         }
 
         return DB::transaction(function () use (
-            $threadId, $kind, $id, $name, $body, $attachment, $replyToId, $clientId
+            $threadId, $kind, $id, $name, $body, $attachment, $replyToId, $clientId, $isInternal
         ) {
             $now = now();
 
@@ -466,13 +488,21 @@ class ChatService
                 'attachment_mime' => $attachment['mime'] ?? null,
                 'attachment_size' => $attachment['size'] ?? null,
                 'attachment_kind' => $attachment['kind'] ?? null,
+                'is_internal'     => $isInternal ? 1 : 0,
                 'created_at'      => $now,
             ]);
 
-            DB::table('chat_threads')->where('id', $threadId)->update([
-                'last_message_at' => $now,
-                'updated_at'      => $now,
-            ]);
+            // ⚠ الملاحظة الداخلية لا تُحرّك `last_message_at`.
+            //
+            // ذلك العمود يرتّب قائمة محادثات **الوكيل** ويُظهر «آخر رسالة»
+            // فيها. ورفعُه بملاحظةٍ داخلية يقفز بالمحادثة إلى رأس قائمته
+            // بلا شيءٍ جديد يراه — فيفتحها ليجد نفسه أمام ما قرأه.
+            if (!$isInternal) {
+                DB::table('chat_threads')->where('id', $threadId)->update([
+                    'last_message_at' => $now,
+                    'updated_at'      => $now,
+                ]);
+            }
 
             // المرسِل قرأ رسالته بحكم كتابتها — بغير ذلك يرى عدّاداً على
             // كلامه هو.
@@ -653,9 +683,15 @@ class ChatService
     {
         $pin = $days > 0;
 
+        // ⚠ الملاحظة الداخلية لا تُثبَّت.
+        //
+        // الشريط المثبَّت يظهر **أعلى محادثة الوكيل** — وتثبيتُ ملاحظةٍ
+        // داخلية يضعها أمام عينيه في أبرز موضعٍ في الشاشة. والشرطُ هنا لا
+        // في الواجهة: زرٌّ مخفيّ ليس منعاً.
         return DB::table('chat_messages')
             ->where('id', $messageId)
             ->where('thread_id', $threadId)
+            ->where('is_internal', 0)
             ->whereNull('deleted_at')
             ->update([
                 'pinned_at'    => $pin ? now() : null,
@@ -673,8 +709,11 @@ class ChatService
      */
     public function pinnedIn(int $threadId): ?object
     {
+        // حزامٌ ثانٍ فوق `pinMessage`: صفٌّ قديم قد يكون ثُبِّت قبل وجود
+        // العمود، وهذا يمنع ظهورَه للوكيل على أي حال.
         return DB::table('chat_messages')
             ->where('thread_id', $threadId)
+            ->where('is_internal', 0)
             ->whereNull('deleted_at')
             ->whereNotNull('pinned_at')
             ->where(function ($q) {
@@ -701,6 +740,12 @@ class ChatService
         $src = DB::table('chat_messages')
             ->where('id', $messageId)
             ->where('thread_id', $fromThread)
+            // ⚠ الملاحظة الداخلية لا تُعاد توجيهها.
+            //
+            // إعادةُ التوجيه تكتبها رسالةً عاديّة في محادثةٍ أخرى، فتصل
+            // وكيلاً بنصّها الكامل. والمنعُ هنا لا في المتحكّم: هذا هو
+            // الموضعُ الذي يمرّ به كلُّ توجيه.
+            ->where('is_internal', 0)
             ->whereNull('deleted_at')
             ->first();
 
@@ -930,7 +975,7 @@ class ChatService
      * المستخدم المُوثَّق، فلا يستطيع أحدٌ توسيع بحثه بتعديل الطلب — وهو
      * نصّ البند 35 والبند 62.
      */
-    public function search(array $threadIds, string $term, int $limit = 40): array
+    public function search(array $threadIds, string $term, int $limit = 40, bool $includeInternal = false): array
     {
         $term = trim($term);
         if ($threadIds === [] || mb_strlen($term) < 2) {
@@ -940,13 +985,21 @@ class ChatService
         // تهريب محارف LIKE: `%` من المستخدم كان يجعل البحث يمسح كل شيء.
         $safe = str_replace(['[', '%', '_'], ['[[]', '[%]', '[_]'], $term);
 
-        return DB::table('chat_messages')
+        $q = DB::table('chat_messages')
             ->whereIn('thread_id', $threadIds)
             ->whereNull('deleted_at')
-            ->where('body', 'like', "%{$safe}%")
-            ->orderByDesc('id')
+            ->where('body', 'like', "%{$safe}%");
+
+        // ⚠ فاشلٌ مُغلَق كـ `messages`: بحثٌ يُظهر ملاحظةً داخلية للوكيل
+        // يسرّبها بنصّها الكامل — وهو أسوأ من إظهارها في المحادثة، لأن
+        // الباحث يقصد ما يجده.
+        if (!$includeInternal) {
+            $q->where('is_internal', 0);
+        }
+
+        return $q->orderByDesc('id')
             ->limit($limit)
-            ->get(['id', 'thread_id', 'sender_kind', 'sender_name', 'body', 'created_at'])
+            ->get(['id', 'thread_id', 'sender_kind', 'sender_name', 'body', 'created_at', 'is_internal'])
             ->all();
     }
 
@@ -1016,8 +1069,13 @@ class ChatService
         }
 
         $rows = DB::select(
+            // ⚠ `is_internal = 0` دائماً هنا بلا معامل: ملاحظةٌ داخلية
+            // ترفع شارةَ الوكيل تجعله يفتح المحادثة ليجد أنه لا جديد —
+            // وهو أسوأ من ألّا تُعدّ. ولا حاجةَ لعدّها لموظّف الدعم: الشرط
+            // `sender_kind <> ?` يستثني رسائلَ الإدارة عن الإدارة أصلاً.
             'SELECT thread_id, COUNT(*) AS cnt FROM chat_messages
-              WHERE sender_kind <> ? AND (' . implode(' OR ', $clauses) . ')
+              WHERE sender_kind <> ? AND is_internal = 0
+                AND (' . implode(' OR ', $clauses) . ')
               GROUP BY thread_id',
             array_merge([$kind], $bind)
         );

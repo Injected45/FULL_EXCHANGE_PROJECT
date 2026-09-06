@@ -158,6 +158,9 @@ class SupportThreadService
             ->leftJoin('users as u', 'u.id', '=', 't.agent_id')
             ->leftJoin('support_thread_state as s', 's.thread_id', '=', 't.id')
             ->leftJoin('support_staff as a', 'a.id', '=', 's.assigned_to')
+            // التصنيف يأتي مع الصفّ لا في نداءٍ ثانٍ: وصلةٌ على مفتاحٍ
+            // أساسيّ في جدولٍ من عشرة صفوف، وثمنُها صفر.
+            ->leftJoin('support_categories as cat', 'cat.id', '=', 's.category_id')
             ->where('t.kind', ChatService::ADMIN);
 
         self::joinAgentIdentity($q);
@@ -201,7 +204,17 @@ class SupportThreadService
                                    ->orWhere('u.phone', 'like', $like));
         }
 
-        $rows = $q->orderByRaw('CASE WHEN t.last_message_at IS NULL THEN 1 ELSE 0 END')
+        // ── الترتيب: الأولوية أوّلاً ثم الأحدث ─────────────────────────
+        //
+        // الأولوية بلا فرزٍ زينةٌ: موظّفٌ يرى «حرجة» في الصفّ الأربعين لن
+        // يصل إليها. و`CASE` صريحةٌ لا وصلةٌ بجدول رتب — أربعُ قيمٍ ثابتة
+        // بطبيعتها، ووصلةٌ لها ثمنُ رحلةٍ بلا مقابل.
+        //
+        // والأحدثُ ثانياً داخل كل درجة: بين حرجتين، الأقدمُ انتظاراً أولى.
+        $rows = $q->orderByRaw(
+                "CASE s.priority WHEN 'CRITICAL' THEN 0 WHEN 'URGENT' THEN 1
+                                 WHEN 'HIGH' THEN 2 ELSE 3 END")
+            ->orderByRaw('CASE WHEN t.last_message_at IS NULL THEN 1 ELSE 0 END')
             ->orderByDesc('t.last_message_at')
             ->limit(300)
             ->get([
@@ -209,7 +222,9 @@ class SupportThreadService
                 'u.name as user_name', 'u.phone as agent_phone',
                 'acc.AccName as acc_name',
                 's.status', 's.assigned_to', 's.assigned_at',
+                's.priority', 's.reference', 's.category_id',
                 'a.name as assignee_name',
+                'cat.name as category_name', 'cat.color as category_color',
             ]);
 
         $ids = $rows->pluck('id')->map(fn ($v) => (int) $v)->all();
@@ -217,13 +232,16 @@ class SupportThreadService
             return [];
         }
 
-        // غيرُ المقروء وآخرُ رسالة: استعلامان للصفحة كلّها، لا لكلّ صفّ.
+        // غيرُ المقروء وآخرُ رسالةٍ والوسوم: ثلاثةُ استعلاماتٍ للصفحة كلّها،
+        // لا ثلاثةٌ لكلّ صفّ — النمط المقرَّر في هذا المشروع.
         $unread = $this->chat->unreadByThread($ids, ChatService::ADMIN, 0);
         $last   = $this->lastMessages($ids);
+        $tags   = app(SupportOps::class)->tagsForThreads($ids);
 
-        return $rows->map(function ($r) use ($unread, $last) {
+        return $rows->map(function ($r) use ($unread, $last, $tags) {
             $tid = (int) $r->id;
             $lm  = $last[$tid] ?? null;
+            $pri = $r->priority ?: SupportOps::NORMAL;
 
             return [
                 'id'            => $tid,
@@ -240,6 +258,17 @@ class SupportThreadService
                 'assigned_to'   => $r->assigned_to ? (int) $r->assigned_to : null,
                 'assignee_name' => $r->assignee_name,
                 'assigned_at'   => $r->assigned_at ? (string) $r->assigned_at : null,
+
+                // ── التشغيل (بنود 3 · 4 · 12) ──────────────────────
+                'priority'       => $pri,
+                'priority_label' => SupportOps::PRIORITIES[$pri]['label'],
+                'priority_color' => SupportOps::PRIORITIES[$pri]['color'],
+                'priority_rank'  => SupportOps::PRIORITIES[$pri]['rank'],
+                'reference'      => $r->reference,
+                'category_id'    => $r->category_id ? (int) $r->category_id : null,
+                'category_name'  => $r->category_name,
+                'category_color' => $r->category_color,
+                'tags'           => $tags[$tid] ?? [],
             ];
         })->all();
     }
@@ -306,6 +335,7 @@ class SupportThreadService
             ->leftJoin('users as u', 'u.id', '=', 't.agent_id')
             ->leftJoin('support_thread_state as s', 's.thread_id', '=', 't.id')
             ->leftJoin('support_staff as a', 'a.id', '=', 's.assigned_to')
+            ->leftJoin('support_categories as cat', 'cat.id', '=', 's.category_id')
             // «يكتب الآن» يُقرأ هنا أيضاً: صفٌّ واحد على الأكثر، ووصلةٌ
             // على `thread_id` أرخص من رحلةٍ خامسة.
             ->leftJoin('chat_typing as ty', function ($j) {
@@ -323,7 +353,9 @@ class SupportThreadService
             'u.name as user_name', 'u.phone as agent_phone',
             'acc.AccName as acc_name',
             's.status', 's.assigned_to', 's.close_note',
+            's.priority', 's.reference', 's.category_id',
             'a.name as assignee_name',
+            'cat.name as category_name', 'cat.color as category_color',
             'ty.actor_name as typing_name', 'ty.state as typing_state',
             // رقمُ آخر رسالة — يُغني عن استعلامٍ ثانٍ، وعن استعلام الرسائل
             // نفسِه حين لا يكون ثمّة جديد (وهي حال أغلب النبضات).
