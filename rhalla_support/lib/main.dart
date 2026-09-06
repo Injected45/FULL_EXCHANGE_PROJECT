@@ -34,8 +34,25 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 /// الأرصدة شيئاً، وكلُّ حمايةٍ تبقى حيث هي — في الخادم.
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setPreferredOrientations(
-      [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
+
+  // ── التدوير يتبع النظام (أمر المالك، 6 سبتمبر 2026) ──────────────────
+  //
+  // كان مقفولاً على الوضع الرأسي. والقفلُ يتجاوز إعدادَ الجهاز نفسَه: من
+  // فعّل «تدوير الشاشة» في نظامه ثم أدار هاتفه لا يحدث شيء، فيظنّ أن
+  // إعداده معطّل — والتطبيقُ هو من يمنعه.
+  //
+  // والوضع الأفقي مفيدٌ هنا فعلاً: موظّف الدعم يقرأ جداول الحسابات وسجلّ
+  // النشاط، وهي أعمدةٌ تتّسع بالعرض.
+  //
+  // والأربع صريحةً لا قائمةٌ فارغة: الفارغة تعني «لا تفضيل» وتتبع النظام
+  // أيضاً، لكنّ الصريحة تقول ما يُقصد لمن يقرأ.
+  SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+
   runApp(const SupportApp());
 }
 

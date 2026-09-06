@@ -1182,3 +1182,98 @@ html, body { overflow-x: hidden; max-width: 100%; }
   }
   .conv-head select { max-width: none; width: 100%; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   الوضع الأفقي على الهاتف — الارتفاع هو النادر لا العرض
+   ════════════════════════════════════════════════════════════════════════
+
+   حين يُدار الهاتف يصير العرضُ ~800 بكسل والارتفاعُ ~360. والقواعدُ
+   المكتوبة للوضع الرأسي تصير ضارّة: شريطٌ علويّ من سطرين، وصندوقُ إحصاءٍ
+   بارتفاع كامل، وحقلُ بحثٍ، وشريطُ فلاتر — قبل أن تظهر محادثةٌ واحدة.
+
+   فالقاعدة هنا معكوسة: **كلُّ بكسلٍ رأسيّ يُوفَّر**، والعرضُ متاح.
+   ──────────────────────────────────────────────────────────────────── */
+
+@media (max-height: 460px) and (orientation: landscape) {
+
+  /* الشريط العلوي يعود سطراً واحداً: العرض يتّسع له الآن. */
+  .topbar {
+    flex-wrap: nowrap;
+    min-height: 46px;
+    padding: 4px 12px;
+  }
+  .topbar nav {
+    order: 0;
+    flex: 0 1 auto;
+    margin-inline-start: 10px;
+  }
+  .topbar nav button { min-height: 32px; padding: 6px 12px; }
+  .topbar .who { max-width: 22vw; }
+  .topbar .brand { flex: 0 1 auto; }
+
+  /* الإحصاءُ أفقيّ ومضغوط: الرقمُ والاسمُ في سطرٍ واحد بدل سطرين. */
+  .stats div {
+    padding: 5px 4px;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 5px;
+  }
+  .stats b { font-size: 15px; }
+  .stats span { font-size: 10.5px; }
+
+  .filters { padding: 6px 9px; gap: 5px; }
+  .filters input { padding: 7px 10px; font-size: 13.5px; }
+  .chip { min-height: 30px; padding: 5px 11px; font-size: 12px; }
+
+  .thread-row { padding: 8px 11px; }
+  .thread-row .av { width: 36px; height: 36px; font-size: 13px; }
+
+  /*
+   * ⚠ العمودان يعودان في الوضع الأفقي.
+   *
+   * العرضُ ~800 بكسل يكفي لقائمةٍ ومحادثةٍ معاً، وهو **أفضل** من عمودٍ
+   * واحد هنا: الارتفاع الضيّق يجعل التنقّل بين القائمة والمحادثة ذهاباً
+   * وإياباً مرهقاً، ورؤيتُهما معاً تُلغيه.
+   */
+  .inbox { grid-template-columns: 300px 1fr; }
+  .inbox.has-open .thread-list { display: grid; }
+  .inbox:not(.has-open) > .empty { display: grid; }
+  .inbox:not(.has-open) { grid-template-rows: 1fr; }
+  .back-btn { display: none; }
+
+  /* ترويسة المحادثة تعود سطراً واحداً — العرض يتّسع. */
+  .conv-head {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 6px 12px;
+    gap: 7px;
+  }
+  .conv-head .t b { font-size: 14px; }
+  .conv-head .t span { font-size: 11.5px; }
+  .conv-head .acts { display: flex; width: auto; gap: 6px; }
+  .conv-head select { width: auto; max-width: 26vw; min-height: 32px; }
+
+  .msgs { padding: 8px 12px 4px; }
+  .day-chip { margin: 6px 0 3px; }
+
+  .composer { padding: 7px 12px; }
+  .composer textarea { min-height: 40px; padding: 8px 14px; }
+  .icon-btn { width: 40px; height: 40px; }
+
+  /* النافذة تملأ الارتفاع المتاح ولا تُقصّ. */
+  .modal-back { align-items: center; padding: 8px; }
+  .modal { max-height: 94vh; padding: 14px; border-radius: 14px; }
+
+  .page { padding: 10px; }
+  .card { padding: 12px; margin-bottom: 10px; }
+}
+
+@media (max-height: 460px) and (orientation: landscape) {
+  /* الدور يُخفى هنا أيضاً: العرض 800 بكسل يتجاوز نقطة 620 فلا تسري
+     قاعدتُها، فيظهر الدور في سطرٍ ثانٍ داخل شريطٍ ارتفاعه 46 — فيفيض
+     ويتداخل مع الأزرار. */
+  .topbar .who span { display: none; }
+  .topbar .who b { font-size: 12.5px; }
+  .topbar { gap: 10px; }
+}
