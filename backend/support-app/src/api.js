@@ -85,7 +85,44 @@ async function request(method, path, { body, form, signal } = {}) {
     throw new ApiError(json?.message || `خطأ ${res.status}`, res.status)
   }
 
-  return json?.data ?? {}
+  return normalize(json?.data ?? {})
+}
+
+/**
+ * ⚠ **تسوية أنواع المُعرّفات — ليست تجميلاً.**
+ *
+ * مُشغّل SQL Server في PHP يُرجع `BIGINT` **نصّاً**، فـ `chat_messages.id`
+ * يصل `"36"` لا `36`. بينما `starred` مصفوفةُ أرقامٍ حقيقية و`receipts`
+ * أرقام — لأنها مرّت بـ `(int)` في الخادم.
+ *
+ * وهذا الخلط يكسر أشياءَ صامتةً في JavaScript، لا يرمي خطأً واحداً:
+ *
+ * | التعبير | يعطي | فيختفي |
+ * |---|---|---|
+ * | `[36].includes("36")` | `false` | النجمة على الفقاعة |
+ * | `36 === "36"` | `false` | إبرازُ الرسالة عند القفز إليها |
+ *
+ * فتظهر الواجهة سليمةً وتفقد ميزتين بلا رسالةِ خطأ. والعلاج عند الحدّ
+ * لا في كل موضعِ استعمال: موضعٌ واحد يُنسى يُعيد العيب، وتغييرُ الخادم
+ * كان سيمسّ ما يقرؤه تطبيق الوكيل أيضاً.
+ */
+const ID_KEYS = new Set([
+  'id', 'thread_id', 'reply_to_id', 'agent_id', 'sender_id',
+  'support_staff_id', 'assigned_to', 'staff_id', 'attachment_size',
+])
+
+function normalize(v) {
+  if (Array.isArray(v)) return v.map(normalize)
+  if (v && typeof v === 'object') {
+    const out = {}
+    for (const [k, val] of Object.entries(v)) {
+      out[k] = ID_KEYS.has(k) && typeof val === 'string' && /^-?\d+$/.test(val)
+        ? Number(val)
+        : normalize(val)
+    }
+    return out
+  }
+  return v
 }
 
 export const api = {

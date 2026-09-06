@@ -134,6 +134,7 @@ class SupportStaffService
         }
 
         $update = [];
+        $revoked = [];
 
         if (isset($changes['name'])) {
             $name = trim((string) $changes['name']);
@@ -159,6 +160,10 @@ class SupportStaffService
                     if (!SupportPermissions::allowedForRole($role, $p)) {
                         DB::table('support_permissions')
                             ->where('staff_id', $id)->where('permission', $p)->delete();
+                        // ⚠ يُسجَّل كسحبٍ صريح: سحبٌ صامتٌ يجعل الموظّف يفقد
+                        // صلاحيةً ولا يجد في السجلّ من سحبها ولا متى، فيُتّهم
+                        // النظام بالعطل بدل أن يُقرأ الجواب.
+                        $revoked[] = $p;
                     }
                 }
             }
@@ -179,7 +184,7 @@ class SupportStaffService
             DB::table('support_staff')->where('id', $id)->update($update);
         }
 
-        return ['ok' => true];
+        return ['ok' => true, 'revoked' => $revoked];
     }
 
     /** حذفٌ ناعم: الصفّ يبقى ليبقى لسجلّ النشاط معنى. */

@@ -64,6 +64,23 @@ class SupportController extends BaseController
     }
 
     /**
+     * رفضٌ داخل المتحكّم — يُسجَّل كما يُسجِّل الوسيط رفضَه.
+     *
+     * صلاحيتان لا يستطيع الوسيط الفصل بينهما لأن التمييز يحتاج جسم الطلب
+     * («لنفسي» أم «لغيري»؟ «إغلاق» أم «تغيير حالة»؟) — ففُحصت هنا. وكان
+     * ذلك يعني أن رفضَها **لا يظهر في السجلّ** بينما تظهر بقية أنواع
+     * الرفض: سجلٌّ يُظهر ستّ محاولاتٍ من ثمانٍ يجعل من يقرؤه يطمئنّ في
+     * غير موضعه.
+     */
+    private function deny(Request $r, string $permission, string $message, ?int $threadId = null)
+    {
+        $this->audit->log($this->me($r), 'DENIED', $threadId, $permission,
+            'محاولة وصول بلا صلاحية', $r->ip());
+
+        return $this->sendError($message, [], 403);
+    }
+
+    /**
      * المحادثة، بشرط أن تكون محادثةَ إدارة — وإلا فلا وجود لها.
      *
      * ⚠ هذا هو موضعُ منعِ الوصول إلى محادثات الوكيل مع موظّفيه. شرطٌ واحد
@@ -256,7 +273,7 @@ class SupportController extends BaseController
             // فقد يُراد لموظّفٍ أن يُرسل مستنداً ولا يُرسل تسجيلاً.
             $need = $kind === 'AUDIO' ? 'SEND_VOICE' : 'SEND_ATTACHMENT';
             if (!$this->can($r, $need)) {
-                return $this->sendError('لا تملك صلاحية إرسال هذا النوع.', [], 403);
+                return $this->deny($r, $need, 'لا تملك صلاحية إرسال هذا النوع.', $id);
             }
 
             $attachment = $this->chat->storeAttachment($file) ?? [];
@@ -475,7 +492,7 @@ class SupportController extends BaseController
         // إسنادٌ لنفسه شيء، ولغيره شيءٌ آخر — والثاني صلاحيةُ مشرف.
         $needed = ($to !== null && $to === (int) $me->id) ? 'ASSIGN_SELF' : 'ASSIGN_OTHERS';
         if (!$this->can($r, $needed)) {
-            return $this->sendError('لا تملك صلاحية هذا الإسناد.', [], 403);
+            return $this->deny($r, $needed, 'لا تملك صلاحية هذا الإسناد.', $id);
         }
 
         $out = $this->threads->assign($id, $to, $me);
@@ -514,7 +531,7 @@ class SupportController extends BaseController
         }
 
         if (!$this->can($r, $needed)) {
-            return $this->sendError('لا تملك صلاحية هذا التغيير.', [], 403);
+            return $this->deny($r, $needed, 'لا تملك صلاحية هذا التغيير.', $id);
         }
 
         $out = $this->threads->setStatus($id, $status, $me, (string) $r->input('note', ''));
@@ -604,6 +621,13 @@ class SupportController extends BaseController
             : SupportAudit::STAFF_UPDATE;
 
         $this->audit->log($me, $action, null, (string) $id, json_encode($changes, JSON_UNESCAPED_UNICODE), $r->ip());
+
+        // خفضُ الدور يسحب ما صار فوق السقف — ويُسجَّل سحباً صريحاً لكلٍّ
+        // منها، لا يُبتلع داخل «تعديل حساب».
+        foreach ($out['revoked'] ?? [] as $p) {
+            $this->audit->log($me, SupportAudit::PERM_REVOKE, null, (string) $id,
+                $p . ' — بخفض الدور', $r->ip());
+        }
 
         return $this->sendResponse(['ok' => true], 'تم التحديث.');
     }
