@@ -145,7 +145,7 @@ export const api = {
   messages: (id, afterId = 0, signal) =>
     request('GET', `/threads/${id}?after_id=${afterId}`, { signal }),
 
-  send: (id, { body, clientId, replyToId, file }) => {
+  send: (id, { body, clientId, replyToId, file, internal }) => {
     // مرفقٌ ⇐ `FormData`، وإلا JSON. والاثنان يحملان `client_id` نفسه:
     // منعُ الازدواج عند إعادة المحاولة لا يخصّ النصّ وحده.
     if (file) {
@@ -154,12 +154,34 @@ export const api = {
       if (body) fd.append('body', body)
       if (clientId) fd.append('client_id', clientId)
       if (replyToId) fd.append('reply_to_id', String(replyToId))
+      // ⚠ نصّاً `'1'` لا `true`: `FormData` تُحوّل كل قيمة إلى نصّ، و
+      // `'false'` نصّاً تُقرأ في PHP **صحيحةً** — فتصير كلُّ رسالةٍ ملاحظةً
+      // داخلية. فلا تُرسل الراية إلا حين تكون مقصودة.
+      if (internal) fd.append('internal', '1')
       return request('POST', `/threads/${id}/messages`, { form: fd })
     }
     return request('POST', `/threads/${id}/messages`, {
-      body: { body, client_id: clientId, reply_to_id: replyToId || 0 },
+      body: {
+        body, client_id: clientId, reply_to_id: replyToId || 0,
+        internal: Boolean(internal),
+      },
     })
   },
+
+  // ── التشغيل: الأولوية والتصنيف والوسوم والشريط (بنود 3 · 4 · 12 · 17)
+  taxonomy: () => request('GET', '/taxonomy'),
+  setPriority: (id, priority) =>
+    request('POST', `/threads/${id}/priority`, { body: { priority } }),
+  setCategory: (id, categoryId) =>
+    request('POST', `/threads/${id}/category`, { body: { category_id: categoryId } }),
+  addTag: (id, tagId) => request('POST', `/threads/${id}/tags`, { body: { tag_id: tagId } }),
+  removeTag: (id, tagId) => request('DELETE', `/threads/${id}/tags/${tagId}`),
+  timeline: (id) => request('GET', `/threads/${id}/timeline`),
+  createCategory: (name, color) =>
+    request('POST', '/taxonomy/categories', { body: { name, color } }),
+  createTag: (name, color) => request('POST', '/taxonomy/tags', { body: { name, color } }),
+  setTaxonomyActive: (kind, id, isActive) =>
+    request('PUT', `/taxonomy/${kind}/${id}`, { body: { is_active: isActive } }),
 
   typing: (id, state) => request('POST', `/threads/${id}/typing`, { body: { state } }),
   react: (id, mid, emoji) =>

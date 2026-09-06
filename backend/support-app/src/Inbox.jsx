@@ -101,7 +101,18 @@ export default function Inbox({ can, me, onUnreadChange }) {
                     onClick={() => setOpen(t.id)}>
               <div className="av">{initials(t.agent_name)}</div>
               <div className="mid">
-                <div className="nm">{t.agent_name}</div>
+                <div className="nm">
+                  {/*
+                    ⚠ نقطةُ الأولوية قبل الاسم لا بعده: العينُ تمسح القائمة
+                    من أوّل كل صفّ، ومؤشّرٌ في آخره لا يُرى في مسحةٍ سريعة.
+                    و«عادية» بلا نقطة — لأن نقطةً على كل صفٍّ لا تميّز شيئاً.
+                  */}
+                  {t.priority !== 'NORMAL' && (
+                    <span className="prio-dot" title={t.priority_label}
+                          style={{ background: t.priority_color }} />
+                  )}
+                  {t.agent_name}
+                </div>
                 {/* الهاتف تحت الاسم مباشرةً: موظّف الدعم يحتاجه ليتأكّد
                     ممّن يكلّمه وليتّصل به، وإخفاؤه خلف فتح المحادثة يجعله
                     يفتح محادثاتٍ ليقرأ رقماً. و`num` تفرض الاتجاه اللاتيني
@@ -118,6 +129,32 @@ export default function Inbox({ can, me, onUnreadChange }) {
                 {t.assignee_name && (
                   <div className="pv" style={{ marginTop: 2, fontSize: 11, opacity: .8 }}>
                     👤 {t.assignee_name}
+                  </div>
+                )}
+
+                {/* التصنيف والوسوم — سطرٌ واحد يُقصّ ولا يُكسّر الصفّ. */}
+                {(t.category_name || t.tags?.length > 0) && (
+                  <div className="row-tags">
+                    {t.category_name && (
+                      <span className="tag cat"
+                            style={t.category_color ? {
+                              background: t.category_color + '1A',
+                              borderColor: t.category_color + '55',
+                              color: t.category_color,
+                            } : undefined}>
+                        {t.category_name}
+                      </span>
+                    )}
+                    {(t.tags || []).map((g) => (
+                      <span key={g.id} className="tag"
+                            style={g.color ? {
+                              background: g.color + '14',
+                              borderColor: g.color + '44',
+                              color: g.color,
+                            } : undefined}>
+                        {g.name}
+                      </span>
+                    ))}
                   </div>
                 )}
               </div>

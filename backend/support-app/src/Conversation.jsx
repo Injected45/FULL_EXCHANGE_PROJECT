@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import Bubble from './Bubble'
-import { dayLabel, mmss, newClientId, sameDay } from './util'
+import { dayLabel, hhmm, mmss, newClientId, sameDay } from './util'
 
 const EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🤲']
 
@@ -65,6 +65,13 @@ export default function Conversation({
   const [viewer, setViewer] = useState(null)
   const [busy, setBusy] = useState(false)
 
+  // ── التشغيل (بنود 3 · 4 · 7 · 12 · 17) ─────────────────────────────
+  const [tax, setTax] = useState(null)        // التصنيفات والوسوم والأولويات
+  const [canInternal, setCanInternal] = useState(false)
+  const [isNote, setIsNote] = useState(false) // الوضع الحالي للملحن
+  const [panel, setPanel] = useState('')      // '' | 'tags' | 'timeline'
+  const [timeline, setTimeline] = useState([])
+
   const lastServerId = useRef(0)
   // إلى متى يبقى النبض سريعاً — تُرفع مع كل رسالةٍ أو «يكتب الآن».
   const hotUntil = useRef(0)
@@ -125,6 +132,7 @@ export default function Conversation({
     if (d.pinned_known) setPinned(d.pinned || null)
     if (d.agent) setAgent(d.agent)
     if (d.state) setState(d.state)
+    if (typeof d.can_internal === 'boolean') setCanInternal(d.can_internal)
 
     // التفاعلات والنجوم تعودان للصفحة المطلوبة وحدها، فتُدمجان لا تُستبدلان
     // — وإلا اختفت نجومُ ما فوق الشاشة مع كل نبضة.
@@ -159,8 +167,24 @@ export default function Conversation({
 
     api.assignees().then((d) => alive && setAssignees(d.items || [])).catch(() => {})
 
+    // التصنيفات تُجلب مرّةً لكل محادثةٍ تُفتح — قوائمُ صغيرة ثابتة، ونداءٌ
+    // واحد يحمل الثلاثة (انظر `taxonomy` في الخادم).
+    api.taxonomy().then((d) => alive && setTax(d)).catch(() => {})
+
+    setPanel('')
+    setIsNote(false)
+
     return () => { alive = false; ac.abort() }
   }, [threadId, load, jumpToMessageId])
+
+  // الشريط الزمني يُجلب عند فتح لوحته لا مع كل نبضة: يتغيّر عند فعلٍ لا
+  // مع الوقت، وجلبُه كل ثانيتين رحلةٌ إلى قاعدةٍ بعيدة بلا جديد.
+  const loadTimeline = useCallback(async () => {
+    try {
+      const d = await api.timeline(threadId)
+      setTimeline(d.items || [])
+    } catch { /* لوحةٌ فارغة خيرٌ من شاشةٍ تتعطّل */ }
+  }, [threadId])
 
   // ── الاستطلاع المتكيّف ─────────────────────────────────────────────
   //
@@ -207,7 +231,9 @@ export default function Conversation({
   // ضغطة مفتاح كان سيعني عشرين طلباً في جملةٍ واحدة.
   const onType = (v) => {
     setText(v)
-    if (!can('REPLY')) return
+    // ⚠ لا «يكتب الآن» أثناء كتابة ملاحظة: الوكيل يرى المؤشّر فينتظر
+    // ردّاً لن يأتي — والانتظارُ على وعدٍ كاذب أسوأ من الصمت.
+    if (isNote || !can('REPLY')) return
 
     const now = Date.now()
     if (v && now - typingSentAt.current > 3000) {
@@ -230,6 +256,15 @@ export default function Conversation({
     if (busy) return
 
     const clientId = newClientId()
+
+    /*
+     * ⚠ الوضعُ يُلتقط **الآن** لا وقتَ وصول الردّ.
+     *
+     * `send` غير متزامنة، والموظّف قد يبدّل الوضع أثناء الإرسال. وقراءةُ
+     * `isNote` بعد `await` تعني أن ملاحظةً قد تُرسَل ردّاً — أو العكس.
+     */
+    const noteNow = isNote
+
     const optimistic = {
       id: -Date.now(),
       thread_id: threadId,
@@ -243,6 +278,9 @@ export default function Conversation({
       reply_body: replyTo?.body || null,
       reply_sender_kind: replyTo?.sender_kind || null,
       reply_sender_name: replyTo?.sender_name || null,
+      // الفقاعة المتفائلة تحمل الوضع نفسه — وإلا ظهرت الملاحظةُ رسالةً
+      // عاديّة لثانيةٍ ثم تغيّر شكلُها، وتلك الثانيةُ تكفي لسوء الفهم.
+      is_internal: noteNow,
       attachment_kind: file
         ? (file.type.startsWith('image/') ? 'IMAGE'
           : file.type.startsWith('audio/') ? 'AUDIO' : 'FILE')
@@ -262,6 +300,7 @@ export default function Conversation({
     try {
       const d = await api.send(threadId, {
         body, clientId, replyToId: keepReply?.id || 0, file,
+        internal: noteNow,
       })
       if (d.message) {
         merge([d.message])
@@ -386,6 +425,16 @@ export default function Conversation({
     } catch (e) { setError(e.message) }
   }
 
+  /** فعلٌ تشغيليّ ثم إعادةُ قراءة — الحالةُ والشريط يتغيّران معاً. */
+  const opsAct = async (fn) => {
+    try {
+      await fn()
+      await load(0)
+      if (panel === 'timeline') await loadTimeline()
+      onChanged?.()
+    } catch (e) { setError(e.message) }
+  }
+
   const changeAssignee = async (v) => {
     try {
       await api.assign(threadId, v === '' ? null : Number(v))
@@ -414,10 +463,44 @@ export default function Conversation({
 
         <div className="t">
           <b>{agent?.name || `محادثة #${threadId}`}</b>
-          <span className="num">{agent?.phone || ''}</span>
+          <span className="num">
+            {agent?.phone || ''}
+            {/* الرقم المرجعي بجوار الهاتف: كلاهما يُملى في مكالمة. */}
+            {state?.reference && (
+              <>{' · '}<span className="ref" title="الرقم المرجعي للحالة">{state.reference}</span></>
+            )}
+          </span>
         </div>
         <div className="acts">
           <span className={`pill pill-${state?.status || 'NEW'}`}>{state?.status_label}</span>
+
+          {/* الأولوية — قائمةٌ مصغّرة بلونها. */}
+          {tax?.priorities && (
+            <select
+              className="prio-select"
+              value={state?.priority || 'NORMAL'}
+              style={{ color: state?.priority_color, borderColor: (state?.priority_color || '') + '66' }}
+              onChange={(e) => opsAct(() => api.setPriority(threadId, e.target.value))}
+            >
+              {Object.entries(tax.priorities).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+          )}
+
+          {/* التصنيف */}
+          {tax?.categories && (
+            <select
+              value={state?.category_id ?? ''}
+              onChange={(e) => opsAct(() =>
+                api.setCategory(threadId, e.target.value === '' ? null : Number(e.target.value)))}
+            >
+              <option value="">— بلا تصنيف —</option>
+              {tax.categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          )}
 
           <select value={state?.assigned_to ?? ''} onChange={(e) => changeAssignee(e.target.value)}>
             <option value="">— بلا مالك —</option>
@@ -431,8 +514,84 @@ export default function Conversation({
               <option key={k} value={k}>{v}</option>
             ))}
           </select>
+
+          <button className={`btn btn-ghost btn-sm${panel === 'tags' ? ' on' : ''}`}
+                  onClick={() => setPanel(panel === 'tags' ? '' : 'tags')}>
+            🏷 الوسوم{state?.tags?.length ? ` (${state.tags.length})` : ''}
+          </button>
+          <button className={`btn btn-ghost btn-sm${panel === 'timeline' ? ' on' : ''}`}
+                  onClick={() => {
+                    const next = panel === 'timeline' ? '' : 'timeline'
+                    setPanel(next)
+                    if (next) loadTimeline()
+                  }}>
+            🕘 السجلّ
+          </button>
         </div>
       </div>
+
+      {/* ── لوحة الوسوم ── */}
+      {panel === 'tags' && (
+        <div className="ops-panel">
+          <div className="ops-title">الوسوم المرفقة بهذه الحالة</div>
+          <div className="tag-cloud">
+            {(tax?.tags || []).map((g) => {
+              const on = (state?.tags || []).some((x) => x.id === g.id)
+              return (
+                <button
+                  key={g.id}
+                  className={`tag pick${on ? ' on' : ''}`}
+                  style={g.color && on ? {
+                    background: g.color + '22', borderColor: g.color, color: g.color,
+                  } : undefined}
+                  onClick={() => opsAct(() =>
+                    on ? api.removeTag(threadId, g.id) : api.addTag(threadId, g.id))}
+                >
+                  {on ? '✓ ' : '+ '}{g.name}
+                </button>
+              )
+            })}
+            {(tax?.tags || []).length === 0 && (
+              <span className="ops-empty">لا وسوم بعد — تُضاف من شاشة الإدارة.</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── الشريط الزمني (البند 17) ── */}
+      {panel === 'timeline' && (
+        <div className="ops-panel">
+          <div className="ops-title">
+            سجلّ الحالة
+            <span className="ops-hint">
+              أحداثٌ تشغيلية فقط — لا يحتوي نصَّ الرسائل
+            </span>
+          </div>
+          <div className="timeline">
+            {timeline.map((e) => (
+              <div className="tl-row" key={e.id}>
+                <span className="tl-time num">{hhmm(e.created_at)}</span>
+                <span className="tl-dot" />
+                <span className="tl-body">
+                  <b>{e.label}</b>
+                  {e.from && e.to && (
+                    <span className="tl-change">
+                      {' '}{e.from} <span className="tl-arrow">←</span> {e.to}
+                    </span>
+                  )}
+                  {!e.from && e.to && <span className="tl-change"> {e.to}</span>}
+                  {e.actor_name && <span className="tl-actor"> — {e.actor_name}</span>}
+                  {e.note && <div className="tl-note">{e.note}</div>}
+                </span>
+                <span className="tl-day">{dayLabel(e.created_at)}</span>
+              </div>
+            ))}
+            {timeline.length === 0 && (
+              <span className="ops-empty">لا أحداث بعد على هذه الحالة.</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── المثبَّتة ── */}
       {pinned && (
@@ -474,7 +633,30 @@ export default function Conversation({
       </div>
 
       {/* ── الملحن ── */}
-      <div className="composer">
+      <div className={`composer${isNote ? ' note-mode' : ''}`}>
+        {/*
+          ⚠ وضعُ الملاحظة يُعلَن بشريطٍ كامل لا بزرٍّ مضاء.
+          نصُّ البند 7: «حتى لا يتم إرسالها للوكيل بالخطأ» — والعكسُ أخطر:
+          أن يظنّ الموظّف أنه يكتب ملاحظةً فيرسلها ردّاً. فالشريطُ يشغل
+          عرض الملحن كلَّه ويتغيّر لونُه ونصُّ الحقل معه.
+        */}
+        {canInternal && (
+          <div className="mode-bar">
+            <button className={`mode${!isNote ? ' on' : ''}`} onClick={() => setIsNote(false)}>
+              ↩ ردٌّ على الوكيل
+            </button>
+            <button className={`mode note${isNote ? ' on' : ''}`} onClick={() => setIsNote(true)}>
+              🔒 ملاحظة داخلية
+            </button>
+          </div>
+        )}
+
+        {isNote && (
+          <div className="note-hint">
+            ما تكتبه هنا <b>لا يصل الوكيل</b> — يراه موظّفو الدعم وحدهم.
+          </div>
+        )}
+
         {typing && (
           <div className="typing-bar">
             {typing.state === 'RECORDING' ? '🎤 الوكيل يسجّل رسالة صوتية…' : '✍ الوكيل يكتب الآن…'}
@@ -525,8 +707,12 @@ export default function Conversation({
             <textarea
               ref={textarea}
               value={text}
-              placeholder={can('REPLY') ? 'اكتب رسالتك…' : 'لا تملك صلاحية الردّ'}
-              disabled={!can('REPLY')}
+              placeholder={
+                isNote ? 'اكتب ملاحظةً لزملائك…'
+                : can('REPLY') ? 'اكتب رسالتك…'
+                : 'لا تملك صلاحية الردّ'
+              }
+              disabled={!isNote && !can('REPLY')}
               rows={1}
               onChange={(e) => {
                 onType(e.target.value)

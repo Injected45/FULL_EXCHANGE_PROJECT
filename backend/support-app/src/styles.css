@@ -1407,3 +1407,231 @@ html, body { overflow-x: hidden; max-width: 100%; }
     object-fit: contain;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   التشغيل — الأولوية والتصنيف والوسوم والشريط والملاحظات
+   (بنود المالك 3 · 4 · 7 · 12 · 17)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── نقطة الأولوية في القائمة ─────────────────────────────────────────
+   قبل الاسم لا بعده: العين تمسح القائمة من أوّل كل صفّ. و«عادية» بلا
+   نقطة — نقطةٌ على كل صفٍّ لا تميّز شيئاً. */
+.prio-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-inline-end: 7px;
+  vertical-align: middle;
+  flex: none;
+}
+
+/* ── الوسوم والتصنيف ─────────────────────────────────────────────────── */
+.row-tags {
+  display: flex;
+  gap: 4px;
+  margin-top: 5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border-strong);
+  background: rgba(20, 32, 29, .04);
+  color: var(--muted);
+  white-space: nowrap;
+  flex: none;
+}
+.tag.cat { font-weight: 700; }
+
+/* ── الرقم المرجعي ───────────────────────────────────────────────────── */
+.ref {
+  font-family: var(--font-num);
+  letter-spacing: .3px;
+  color: var(--primary-dark);
+  background: var(--primary-light);
+  padding: 1px 6px;
+  border-radius: 5px;
+  /* يُنسخ بضغطةٍ واحدة: يُملى في مكالمة، ونسخُه أدقُّ من قراءته. */
+  user-select: all;
+  cursor: text;
+}
+
+/* ── قائمة الأولوية في الترويسة ──────────────────────────────────────── */
+.prio-select { font-weight: 700; }
+
+/* ── لوحات التشغيل (وسوم / سجلّ) ─────────────────────────────────────── */
+.ops-panel {
+  background: #fbfcfc;
+  border-bottom: 1px solid var(--border);
+  padding: 11px 14px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.ops-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin-bottom: 9px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ops-hint { font-weight: 400; font-size: 11px; color: var(--muted); }
+.ops-empty { font-size: 12.5px; color: var(--muted); }
+
+.tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag.pick {
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 12px;
+  min-height: 32px;
+  background: #fff;
+}
+.tag.pick:hover { background: var(--primary-light); }
+.tag.pick.on { font-weight: 700; }
+
+/* ── الشريط الزمني ───────────────────────────────────────────────────── */
+.timeline { display: flex; flex-direction: column; gap: 2px; }
+.tl-row {
+  display: grid;
+  grid-template-columns: auto 14px 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(20, 32, 29, .05);
+}
+.tl-row:last-child { border-bottom: 0; }
+.tl-time { font-size: 11px; color: var(--muted-2); }
+.tl-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: .5;
+  justify-self: center;
+  align-self: center;
+}
+.tl-body { min-width: 0; }
+.tl-body b { font-weight: 700; }
+.tl-change { color: var(--muted); }
+.tl-arrow { opacity: .5; }
+.tl-actor { color: var(--primary-dark); font-size: 12px; }
+.tl-note {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(20, 32, 29, .04);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.tl-day { font-size: 10.5px; color: var(--muted-2); white-space: nowrap; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   الملاحظة الداخلية (البند 7) — التمييز بثلاثة أشياء لا بلون
+   ══════════════════════════════════════════════════════════════════════
+
+   نصُّ البند: «تُميَّز بصرياً بوضوح عن الرسالة العادية حتى لا يتم إرسالها
+   للوكيل بالخطأ». والعكسُ أخطر: أن يظنّ الموظّف أنه يكتب ملاحظةً فيرسلها
+   ردّاً — فيقرأ الوكيلُ مداولةً لم تُكتب له.
+
+   ولذلك التمييز **ثلاثيّ**: لونٌ عنبريّ مخالف، وحدٌّ متقطّع (لا شيء آخر
+   في الشاشة متقطّع)، وكلمةٌ مكتوبة. من يعمل بسرعةٍ في آخر وردية لا يميّز
+   درجةَ لون، لكنه يقرأ كلمة.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* الملاحظة في الوسط: ليست منّي إلى الوكيل ولا منه إليّ — فلا تُحاذي
+   طرفاً. وموضعُها وحده يقول إنها ليست جزءاً من الحوار. */
+.row.note { justify-content: center; }
+
+.bubble.internal {
+  background: #fdf8ec;
+  border: 1px dashed #d9a441;
+  max-width: min(620px, 92%);
+  box-shadow: none;
+}
+.bubble.internal .txt { color: #6b5115; }
+.bubble.internal .meta { color: rgba(107, 81, 21, .5); }
+.bubble.internal .sender { color: #96701c; }
+
+.note-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #8a5510;
+  background: rgba(217, 131, 36, .14);
+  border-radius: 5px;
+  padding: 2px 7px;
+  margin-bottom: 6px;
+  display: inline-block;
+}
+
+/* ── مفتاح الوضع في الملحن ───────────────────────────────────────────── */
+.mode-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.mode {
+  flex: 1;
+  border: 1px solid var(--border-strong);
+  background: #fff;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  min-height: 36px;
+}
+.mode.on {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary-dark);
+}
+.mode.note.on {
+  background: rgba(217, 131, 36, .16);
+  border-color: #d9a441;
+  color: #8a5510;
+}
+
+/* الملحن كلُّه يتغيّر لونُه في وضع الملاحظة — لا الزرُّ وحده. */
+.composer.note-mode {
+  background: #fdfaf3;
+  border-top: 2px solid #d9a441;
+}
+.composer.note-mode textarea:focus {
+  border-color: #d9a441;
+  box-shadow: 0 0 0 3px rgba(217, 131, 36, .14);
+}
+.composer.note-mode .icon-btn.send {
+  background: #b8860b;
+  border-color: #b8860b;
+}
+
+.note-hint {
+  font-size: 11.5px;
+  color: #8a5510;
+  background: rgba(217, 131, 36, .1);
+  border-radius: 7px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+
+/* الزرّ المضاء في الترويسة */
+.btn-ghost.on {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary-dark);
+}
+
+@media (max-width: 620px) {
+  .ops-panel { max-height: 46vh; padding: 10px 12px; }
+  .tl-row { grid-template-columns: auto 12px 1fr; font-size: 13px; }
+  .tl-day { display: none; }
+  .tag { font-size: 11px; }
+  .tag.pick { min-height: 38px; font-size: 13px; padding: 8px 14px; }
+  .mode { min-height: 40px; font-size: 13px; }
+  .bubble.internal { max-width: 94%; }
+}

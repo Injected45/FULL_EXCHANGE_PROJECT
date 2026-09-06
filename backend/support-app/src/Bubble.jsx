@@ -24,6 +24,10 @@ function Ticks({ message, receipts }) {
   // الإيصالات تخصّ رسائلنا وحدها.
   if (message.sender_kind !== 'ADMIN') return null
 
+  // ⚠ ولا شرطةَ على ملاحظةٍ داخلية: الشرطتان تقولان «وصلت الوكيل»، وهي
+  // لم تُرسَل إليه أصلاً. علامةٌ كاذبة أسوأ من غياب علامة.
+  if (message.is_internal) return null
+
   // رسالةٌ ما زالت في الطريق: رقمٌ سالب = محلّية لم يردّ عليها الخادم بعد.
   if (message.id < 0) return <span className="ticks" title="جارٍ الإرسال">🕐</span>
 
@@ -219,11 +223,21 @@ export default function Bubble({
 
   const kind = message.attachment_kind
 
+  /*
+   * ⚠ الملاحظة الداخلية تُميَّز بصرياً تمييزاً لا يُخطأ (نصّ البند 7:
+   * «حتى لا يتم إرسالها للوكيل بالخطأ»).
+   *
+   * والتمييز بثلاثة أشياء معاً لا بلونٍ وحده: لونٌ عنبريّ مخالف، وشريطٌ
+   * على الحافّة، وكلمةُ «ملاحظة داخلية» مكتوبة. فمن يعمل بسرعةٍ في نهاية
+   * وردية لا يميّز درجةَ لون، لكنه يقرأ كلمة.
+   */
+  const internal = Boolean(message.is_internal)
+
   return (
-    <div className={`row ${mine ? 'mine' : 'theirs'}`}>
+    <div className={`row ${internal ? 'note' : mine ? 'mine' : 'theirs'}`}>
       <div
         ref={ref}
-        className={`bubble ${mine ? 'mine' : 'theirs'}${highlighted ? ' hl' : ''}`}
+        className={`bubble ${internal ? 'internal' : mine ? 'mine' : 'theirs'}${highlighted ? ' hl' : ''}`}
         onMouseDown={startHold}
         onMouseUp={cancelHold}
         onMouseLeave={cancelHold}
@@ -231,6 +245,13 @@ export default function Bubble({
         onTouchEnd={cancelHold}
         onContextMenu={(e) => { e.preventDefault(); onMenu(message, e.clientX, e.clientY) }}
       >
+        {/* شارةُ الملاحظة — مكتوبةٌ لا مرمَّزة بلون. */}
+        {internal && (
+          <div className="note-badge">
+            🔒 ملاحظة داخلية — لا يراها الوكيل
+          </div>
+        )}
+
         {/* اسمُ من ردّ من الدعم — الوكيل يرى «الإدارة»، ونحن نرى الشخص. */}
         {mine && (message.staff_name || message.sender_name) && (
           <div className="sender">{message.staff_name || message.sender_name}</div>
