@@ -59,6 +59,82 @@ class SupportThreadService
     }
 
     /**
+     * اسم الوكيل كما هو مسجَّل في منظومة الرحالة.
+     *
+     * ⚠ **`users.name` فارغٌ لكلّ وكيلٍ في المنظومة** (مُتحقَّقٌ منه على
+     * القاعدة الحيّة: `NULL` في كل صفّ). فالاعتماد عليه يجعل موظّف الدعم
+     * يرى «وكيل #104» بينما يعرّف الوكيل نفسه في الهاتف بـ«شركة الأمانة» —
+     * ولا يستطيع الموظّف أن يعرف بمن يتحدّث.
+     *
+     * والمصدر هو **`AccountsTb.AccName`** — اسمُ الحساب في الشجرة المحاسبية،
+     * أي «جاري شركة الامانة» كما هو مسجَّل في منظومة الرحالة.
+     *
+     * ⚠ **وليس `tenant_branding.company_name_ar`** (قرار المالك، 6 سبتمبر
+     * 2026). ذلك الحقل يكتبه **الوكيل بنفسه** في تبويب «هويّة الشركة» في
+     * تطبيقه، ويستطيع تغييره متى شاء. فلو عُرض هنا لرأى موظّفُ الدعم اسماً
+     * اختاره الوكيل لا الاسم الذي تعرفه به الشركة — وقد يختلفان، ووقتَ
+     * الخلاف تكون سجلات الرحالة هي المرجع لا ما كتبه الوكيل عن نفسه.
+     *
+     * ⚠ والقراءة من `AccountsTb` **قراءةٌ فقط**، ولا تكتب فيه شيئاً: هو
+     * جدولٌ ماليّ والأمر الدائم يمنع المساس به. والوصلةُ على مفتاحه
+     * الأساسي `AccID`، فهي رخيصة ولا تُشبه الاستعلامَ الفرعيَّ لكلّ صفّ.
+     */
+    public static function agentName(?string $accName, ?string $userName, int $agentId): string
+    {
+        foreach ([$accName, $userName] as $candidate) {
+            if ($candidate !== null && trim($candidate) !== '') {
+                return self::stripLedgerPrefix(trim($candidate));
+            }
+        }
+
+        return 'وكيل #' . $agentId;
+    }
+
+    /**
+     * إخفاء سابقة «جاري» المحاسبية عند العرض (أمر المالك، 6 سبتمبر 2026).
+     *
+     * «جاري شركة الامانة» في الشجرة المحاسبية تعني «الحساب الجاري لشركة
+     * الأمانة» — و«جاري» مصطلحٌ محاسبيّ لا جزءٌ من اسم الوكيل. وموظّف الدعم
+     * يتحدّث إلى شركة الأمانة لا إلى حسابٍ جارٍ.
+     *
+     * ⚠ **إخفاءٌ عند العرض فقط — ولا تعديل ولا حذف في قاعدة البيانات.**
+     * الاسم يبقى كما هو في `AccountsTb`، والمنظومة المكتبية تراه كاملاً كما
+     * كانت. التغيير هنا في شاشة الدعم وحدها.
+     *
+     * ⚠ **وتُحذف كلمة «جاري» بعينها، لا «أوّل كلمةٍ أياً كانت».** الفرق ليس
+     * تدقيقاً: من 363 اسماً في القاعدة، 64 يبدأ بها و**299 لا يبدأ**. ومنها
+     * «الحسن يوسف هارون محمد» و«صفوت عبدالواحد حسن» — وحذفُ أوّل كلمةٍ منها
+     * يمسخها إلى «يوسف هارون محمد» و«عبدالواحد حسن»، فيصير موظّف الدعم
+     * ينادي الناس بغير أسمائهم.
+     *
+     * وهذا هو القرار نفسه المتّخذ في `Fmt.localName` بتطبيق الوكيل: تُستبدل
+     * «داخلية» وحدها ولا تُمسّ «نقل محلي»، لأن قاعدةً عامّة تُفسد ما لم
+     * تُقصد.
+     *
+     * والإملاءان معاً — «جاري» بالياء و«جارى» بالألف المقصورة — لأن الإدخال
+     * اليدويّ في المنظومة يكتبهما كليهما.
+     */
+    public static function stripLedgerPrefix(string $name): string
+    {
+        $out = preg_replace('/^(?:جاري|جارى)\s+/u', '', $name);
+
+        // احتياطٌ: اسمٌ ليس فيه غير السابقة يبقى كما هو، فاسمٌ فارغ أسوأ
+        // من سابقةٍ ظاهرة.
+        return ($out === null || trim($out) === '') ? $name : trim($out);
+    }
+
+    /**
+     * الوصلة التي تجلب الاسم — في دالّةٍ واحدة كي لا تختلف الشاشتان.
+     *
+     * كتابتُها مرّتين هو ما جعل القائمة تعرض «وكيل #104» والترويسة تعرض
+     * فراغاً في أوّل نسخة.
+     */
+    public static function joinAgentIdentity($q, string $usersAlias = 'u')
+    {
+        return $q->leftJoin('AccountsTb as acc', 'acc.AccID', '=', "$usersAlias.AccID");
+    }
+
+    /**
      * قائمة محادثات الوكلاء مع الإدارة.
      *
      * ⚠ محادثةُ الوكيل مع موظّفه لا تظهر هنا أبداً — لا بفلتر ولا بصلاحية.
@@ -83,6 +159,8 @@ class SupportThreadService
             ->leftJoin('support_thread_state as s', 's.thread_id', '=', 't.id')
             ->leftJoin('support_staff as a', 'a.id', '=', 's.assigned_to')
             ->where('t.kind', ChatService::ADMIN);
+
+        self::joinAgentIdentity($q);
 
         // من لا يملك «عرض كل المحادثات» يرى المُسنَدة إليه وغيرَ المُسنَدة.
         //
@@ -116,7 +194,10 @@ class SupportThreadService
 
         if ($term !== '') {
             $like = '%' . str_replace(['[', '%', '_'], ['[[]', '[%]', '[_]'], $term) . '%';
-            $q->where(fn ($w) => $w->where('u.name', 'like', $like)
+            // البحث على الاسم المعروض نفسه: من يكتب «الأمانة» يبحث عمّا
+            // يراه في الشاشة، وبحثٌ لا يجد ما يعرضه أسوأ من غياب البحث.
+            $q->where(fn ($w) => $w->where('acc.AccName', 'like', $like)
+                                   ->orWhere('u.name', 'like', $like)
                                    ->orWhere('u.phone', 'like', $like));
         }
 
@@ -125,7 +206,8 @@ class SupportThreadService
             ->limit(300)
             ->get([
                 't.id', 't.agent_id', 't.last_message_at',
-                'u.name as agent_name', 'u.phone as agent_phone',
+                'u.name as user_name', 'u.phone as agent_phone',
+                'acc.AccName as acc_name',
                 's.status', 's.assigned_to', 's.assigned_at',
                 'a.name as assignee_name',
             ]);
@@ -146,7 +228,8 @@ class SupportThreadService
             return [
                 'id'            => $tid,
                 'agent_id'      => (int) $r->agent_id,
-                'agent_name'    => $r->agent_name ?: 'وكيل #' . $r->agent_id,
+                'agent_name'    => self::agentName(
+                    $r->acc_name, $r->user_name, (int) $r->agent_id),
                 'agent_phone'   => $r->agent_phone,
                 'last_message_at' => $r->last_message_at ? (string) $r->last_message_at : null,
                 'last_body'     => $lm['body'] ?? '',

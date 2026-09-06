@@ -327,6 +327,84 @@ $check('مُعرّفات الرسائل تعود نصّاً من المُشغّ�
 
 $check('المحادثة تحمل بيانات الوكيل واسمَه',
     isset($d['agent']['id']) && ($d['agent']['name'] ?? '') !== '');
+
+/* ─── اسم الوكيل: من الشجرة المحاسبية لا من «هويّة الشركة» ──────────
+ *
+ * `users.name` فارغٌ لكلّ وكيلٍ في المنظومة، فكان الدعم يرى «وكيل #104».
+ * والمصدر الصحيح `AccountsTb.AccName`.
+ *
+ * ⚠ **وليس `tenant_branding.company_name_ar`** (قرار المالك): ذلك يكتبه
+ * الوكيل بنفسه في تبويب «هويّة الشركة» ويغيّره متى شاء، ووقتَ الخلاف تكون
+ * سجلات الرحالة هي المرجع لا ما كتبه الوكيل عن نفسه. */
+$agentRow = DB::selectOne(
+    'SELECT u.name un, a.AccName, b.company_name_ar cb
+       FROM users u
+       LEFT JOIN AccountsTb a ON a.AccID = u.AccID
+       LEFT JOIN tenant_branding b ON b.company_account_id = u.AccID
+      WHERE u.id = ?', [$thread->agent_id]);
+
+if ($agentRow?->AccName) {
+    $expected = \App\Services\Support\SupportThreadService::stripLedgerPrefix(trim($agentRow->AccName));
+
+    $check('اسم الوكيل من AccountsTb.AccName',
+        ($d['agent']['name'] ?? '') === $expected,
+        'المعروض=«' . ($d['agent']['name'] ?? '') . '» المتوقَّع=«' . $expected . '»');
+
+    $check('وسابقة «جاري» المحاسبية لا تظهر',
+        !preg_match('/^(?:جاري|جارى)\s/u', (string) ($d['agent']['name'] ?? '')),
+        'المسجَّل في القاعدة=«' . $agentRow->AccName . '»');
+
+    if ($agentRow->cb && $agentRow->cb !== $agentRow->AccName) {
+        $check('ولا يُؤخذ من «هويّة الشركة» التي يكتبها الوكيل',
+            ($d['agent']['name'] ?? '') !== $agentRow->cb,
+            'هويّة الشركة=«' . $agentRow->cb . '»');
+    }
+
+    $listed = $call('GET', '/support/threads', $adminTok)['body']['data']['items'] ?? [];
+    $inList = null;
+    foreach ($listed as $it) if ((int) $it['id'] === $T) $inList = $it;
+    $check('والقائمة تعرض الاسم نفسه — لا شاشتان باسمين',
+        ($inList['agent_name'] ?? '') === ($d['agent']['name'] ?? ''),
+        'القائمة=«' . ($inList['agent_name'] ?? '') . '»');
+    $check('ورقم هاتفه المسجَّل بجواره',
+        ($inList['agent_phone'] ?? '') !== '', 'الهاتف=' . ($inList['agent_phone'] ?? '—'));
+
+    /* بحثٌ بجزءٍ من الاسم المعروض: بحثٌ لا يجد ما يعرضه أسوأ من غيابه.
+       والأقواس حول المتغيّر ضرورية — PHP يعدّ « » جزءاً من اسم المتغيّر
+       فيقرأ `$word»` ويحذّر من متغيّرٍ غير معرَّف. */
+    $word = mb_substr($expected, -6);
+    $hit = $call('GET', '/support/threads?q=' . rawurlencode($word), $adminTok)['body']['data']['items'] ?? [];
+    $check('والبحث بجزءٍ من الاسم المعروض يجده',
+        in_array($T, array_map('intval', array_column($hit, 'id')), true),
+        '«' . $word . '» ⇐ ' . count($hit) . ' نتيجة');
+} else {
+    $line('  SKIP  لا اسم في AccountsTb لهذا الوكيل');
+}
+
+/* ─── حذف السابقة يُصيب «جاري» وحدها ────────────────────────────────
+ *
+ * ⚠ أهمُّ فحصٍ هنا هو الثاني: من 363 اسماً في القاعدة، 299 **لا يبدأ**
+ * بـ«جاري». وقاعدةُ «احذف أوّل كلمة» كانت ستمسخ «الحسن يوسف هارون محمد»
+ * إلى «يوسف هارون محمد» — فينادي موظّف الدعم الناسَ بغير أسمائهم. */
+$strip = fn ($s) => \App\Services\Support\SupportThreadService::stripLedgerPrefix($s);
+foreach ([
+    'جاري شركة الامانة'            => 'شركة الامانة',
+    'جارى شركة ابناء عتيق للصرافة' => 'شركة ابناء عتيق للصرافة',
+    'جاري   مسافات متعددة'         => 'مسافات متعددة',
+] as $in => $want) {
+    $check("تُحذف السابقة: «{$in}»", $strip($in) === $want, 'صار=«' . $strip($in) . '»');
+}
+foreach ([
+    'الحسن يوسف هارون محمد',
+    'صفوت عبدالواحد حسن',
+    'شركة مقاولات - زاهي الشلوي',
+    'جاريد الاسم',        // يبدأ بحروف «جاري» ولا يساويها — لا يُمسّ
+    'حساب جاري للعميل',   // «جاري» في وسط الاسم — لا تُحذف
+    'جاري',               // السابقة وحدها بلا اسم — تبقى، فالفراغ أسوأ
+] as $untouched) {
+    $check("لا تُمسّ: «{$untouched}»", $strip($untouched) === $untouched,
+        'صار=«' . $strip($untouched) . '»');
+}
 $check('الإيصالات موجودة',
     isset($d['receipts']['delivered'], $d['receipts']['read']));
 

@@ -185,8 +185,12 @@ class SupportController extends BaseController
         // نظر الوكيل (انظر `support_center.sql`)، والهويّة في عمودٍ مستقلّ.
         $this->attachStaffNames($items);
 
-        $agent = DB::table('chat_threads as t')->leftJoin('users as u', 'u.id', '=', 't.agent_id')
-            ->where('t.id', $id)->first(['u.id', 'u.name', 'u.phone']);
+        // الاسم من شجرة الحسابات — عبر الدالّة نفسها التي تستعملها القائمة،
+        // فلا تعرض شاشتان اسمين مختلفين للوكيل نفسه.
+        $aq = DB::table('chat_threads as t')->leftJoin('users as u', 'u.id', '=', 't.agent_id');
+        SupportThreadService::joinAgentIdentity($aq);
+        $agent = $aq->where('t.id', $id)
+            ->first(['u.id', 'u.name as user_name', 'u.phone', 'acc.AccName as acc_name']);
 
         $state = DB::table('support_thread_state as s')
             ->leftJoin('support_staff as a', 'a.id', '=', 's.assigned_to')
@@ -202,10 +206,8 @@ class SupportController extends BaseController
             'pinned'    => $this->chat->pinnedIn($id),
             'agent'     => $agent ? [
                 'id'    => (int) $agent->id,
-                // نفسُ البديل المستعمل في القائمة: وكيلٌ بلا اسمٍ في
-                // `users` يُعرض برقمه لا بفراغٍ — واسمان مختلفان للصفّ
-                // نفسه بين شاشتين يُربك من يقرؤهما.
-                'name'  => $agent->name ?: 'وكيل #' . $agent->id,
+                'name'  => SupportThreadService::agentName(
+                    $agent->acc_name, $agent->user_name, (int) $agent->id),
                 'phone' => $agent->phone,
             ] : null,
             'state'     => [

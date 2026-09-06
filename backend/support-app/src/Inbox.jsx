@@ -102,6 +102,15 @@ export default function Inbox({ can, me, onUnreadChange }) {
               <div className="av">{initials(t.agent_name)}</div>
               <div className="mid">
                 <div className="nm">{t.agent_name}</div>
+                {/* الهاتف تحت الاسم مباشرةً: موظّف الدعم يحتاجه ليتأكّد
+                    ممّن يكلّمه وليتّصل به، وإخفاؤه خلف فتح المحادثة يجعله
+                    يفتح محادثاتٍ ليقرأ رقماً. و`num` تفرض الاتجاه اللاتيني
+                    وإلا قلبته الفقرةُ العربية. */}
+                {t.agent_phone && (
+                  <div className="pv num" style={{ marginTop: 2, fontSize: 11.5, opacity: .85 }}>
+                    {t.agent_phone}
+                  </div>
+                )}
                 <div className="pv">
                   {t.last_from === 'ADMIN' && <span style={{ opacity: .6 }}>أنت: </span>}
                   {t.last_body || 'لا رسائل بعد'}
