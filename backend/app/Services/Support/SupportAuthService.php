@@ -100,26 +100,53 @@ class SupportAuthService
             return null;
         }
 
-        $row = DB::table('support_sessions as s')
+        // استعلامٌ واحد للجلسة والموظّف **والصلاحيات معاً**.
+        //
+        // كان ثلاثة: الجلسة، ثم الصلاحيات، ثم **كتابةٌ** لـ `last_seen_at`.
+        // وهي تُنفَّذ في كل نداء — أي في كل نبضةٍ من كل لسانٍ مفتوح. والقاعدة
+        // بعيدة، فكلُّ رحلةٍ ~45 مللي: ثلاثُ رحلاتٍ قبل أن يبدأ المتحكّم
+        // عمله أصلاً.
+        //
+        // والوصلة تُكرّر بيانات الموظّف على عدد صلاحياته (18 صفّاً للمدير)،
+        // وهو أرخص بكثير من رحلةٍ ثانية: البيانات صغيرة والرحلة هي الثمن.
+        $rows = DB::table('support_sessions as s')
             ->join('support_staff as st', 'st.id', '=', 's.staff_id')
+            ->leftJoin('support_permissions as p', 'p.staff_id', '=', 'st.id')
             ->where('s.token_hash', hash('sha256', $token))
             ->whereNull('s.revoked_at')
             ->where('s.expires_at', '>', now())
             ->whereNull('st.deleted_at')
             ->where('st.is_active', 1)
-            ->first([
-                's.id as session_id', 'st.id', 'st.name', 'st.username',
-                'st.role', 'st.must_change',
+            ->get([
+                's.id as session_id', 's.last_seen_at',
+                'st.id', 'st.name', 'st.username', 'st.role', 'st.must_change',
+                'p.permission',
             ]);
 
-        if (!$row) {
+        if ($rows->isEmpty()) {
             return null;
         }
 
-        DB::table('support_sessions')->where('id', $row->session_id)
-            ->update(['last_seen_at' => now()]);
+        $row = (object) [
+            'session_id'  => $rows[0]->session_id,
+            'id'          => $rows[0]->id,
+            'name'        => $rows[0]->name,
+            'username'    => $rows[0]->username,
+            'role'        => $rows[0]->role,
+            'must_change' => $rows[0]->must_change,
+            'permissions' => $rows->pluck('permission')->filter()->values()->all(),
+        ];
 
-        $row->permissions = $this->permissionsOf((int) $row->id);
+        // ⚠ «آخر ظهور» تُكتب مرّةً كل دقيقة لا مع كل نداء.
+        //
+        // كانت كتابةً في كل نبضة — أي كتابةٌ كل ثانيتين لكل موظّفٍ مفتوحٍ
+        // لسانُه، وكتابةُ قاعدةٍ بعيدة أغلى من قراءتها. ودقّةُ الدقيقة تكفي
+        // تماماً لعمودٍ يقرؤه مديرٌ ليعرف من كان على النظام اليوم.
+        $last = $rows[0]->last_seen_at;
+        if ($last === null || now()->diffInSeconds($last, true) >= 60) {
+            DB::table('support_sessions')->where('id', $row->session_id)
+                ->update(['last_seen_at' => now()]);
+        }
 
         return $row;
     }

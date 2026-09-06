@@ -141,43 +141,82 @@ class SupportController extends BaseController
      */
     public function unread(Request $r)
     {
-        $ids = DB::table('chat_threads')->where('kind', ChatService::ADMIN)
-            ->pluck('id')->map(fn ($v) => (int) $v)->all();
+        // ── استعلامٌ واحد ─────────────────────────────────────────────
+        //
+        // كانت ثلاثة: أرقامُ المحادثات، ثم علاماتُ القراءة، ثم شرطٌ مركَّب
+        // يُبنى منها بطول عدد المحادثات. والقاعدة بعيدةٌ فكلُّ رحلةٍ ~45
+        // مللي، وهذه النقطة تُنادى كل ثوانٍ قليلة من كل لسانٍ مفتوح.
+        //
+        // والوصلة هنا **لا** تُشبه الاستعلام الفرعيّ لكل صفّ: العدُّ يجري
+        // في الخادم مرّةً واحدة على المحادثات كلِّها، لا مرّةً لكلّ محادثة.
+        $rows = DB::select(
+            'SELECT m.thread_id AS tid, COUNT(*) AS n
+               FROM chat_messages m
+               JOIN chat_threads t
+                 ON t.id = m.thread_id AND t.kind = ?
+               LEFT JOIN chat_reads r
+                 ON r.thread_id = m.thread_id
+                AND r.reader_kind = ? AND r.reader_id = 0
+              WHERE m.sender_kind <> ?
+                AND m.deleted_at IS NULL
+                AND m.id > ISNULL(r.last_read_message_id, 0)
+              GROUP BY m.thread_id',
+            [ChatService::ADMIN, ChatService::ADMIN, ChatService::ADMIN]
+        );
 
-        if ($ids === []) {
-            return $this->sendResponse(['total' => 0, 'threads' => []], 'Success');
-        }
-
-        $unread = $this->chat->unreadByThread($ids, ChatService::ADMIN, 0);
-        $unread = array_filter($unread, fn ($n) => $n > 0);
-
-        return $this->sendResponse([
-            'total'   => array_sum($unread),
+        $total = 0;
+        $threads = [];
+        foreach ($rows as $row) {
+            $total += (int) $row->n;
             // أرقامُ المحادثات وحدها: تكفي الواجهةَ لتعرف **أيّها** جديد،
             // بلا نقل نصوصٍ لن تُعرض في العدّاد.
-            'threads' => array_map('intval', array_keys($unread)),
-        ], 'Success');
+            $threads[] = (int) $row->tid;
+        }
+
+        return $this->sendResponse(['total' => $total, 'threads' => $threads], 'Success');
     }
 
     /** GET support/threads/{id}?after_id= */
     public function messages(Request $r, int $id)
     {
-        if (!$this->thread($id)) {
+        // ── سياقُ المحادثة كلُّه في استعلامٍ واحد ─────────────────────
+        //
+        // كانت هذه النقطة تُنفّذ نحو ستّ عشرة رحلةً إلى القاعدة في كل نبضة،
+        // والقاعدة بعيدةٌ فكلُّ رحلةٍ ~45 مللي: **710 مللي لترجع 523 بايت**
+        // (مقيسة). المحتوى نفسه بلا نقصان، والرحلات أقلّ.
+        $ctx = $this->threads->context($id);
+
+        if (!$ctx) {
             return $this->sendError('المحادثة غير موجودة.', [], 404);
         }
-        if (!$this->mayOpen($r, $id)) {
+
+        // الإسناد جاء مع السياق، فلا حاجة إلى `mayOpen` باستعلامها الخاصّ.
+        if (!$this->can($r, 'VIEW_ALL_THREADS')
+            && $ctx->assigned_to !== null
+            && (int) $ctx->assigned_to !== (int) $this->me($r)->id) {
             return $this->sendError('هذه المحادثة مُسنَدة إلى موظّف آخر.', [], 403);
         }
 
         $after = max(0, (int) $r->query('after_id', 0));
-        $items = $this->chat->messages($id, $after);
+        $first = ($after === 0);
+        $maxId = (int) ($ctx->max_msg_id ?? 0);
+
+        // ⚠ لا يُسأل عن الرسائل حين لا يكون ثمّة جديد.
+        //
+        // النبضة تسأل `after_id=<آخر ما عندي>`، و`max_msg_id` جاء مع
+        // السياق — فمقارنةُ رقمين في PHP تُغني عن رحلةٍ إلى قاعدةٍ بعيدة.
+        // وهذه حالُ أغلب النبضات: صامتةٌ لا جديد فيها.
+        //
+        // والسلوك مطابق: الاستعلام المحذوف كان شرطُه `id > after_id`، وهو
+        // لا يُرجع شيئاً حين `max <= after`.
+        $items = (!$first && $maxId <= $after)
+            ? []
+            : $this->chat->messages($id, $after);
 
         // «وصلت» مع كل نبضة، و«قُرئت» عند فتح الشاشة أو وصول جديد — الترتيب
-        // نفسه المعتمد في تطبيق الوكيل، ولسببه نفسه.
-        $this->chat->markDelivered($id, ChatService::ADMIN, 0);
-        if ($after === 0 || $items !== []) {
-            $this->chat->markRead($id, ChatService::ADMIN, 0);
-        }
+        // نفسه المعتمد في تطبيق الوكيل، ولسببه نفسه. ورحلةٌ واحدة بدل ستّ.
+        $receipts = $this->chat->syncReceipts(
+            $id, ChatService::ADMIN, 0, $first || $items !== [], $maxId);
 
         $ids = array_map(fn ($m) => (int) $m->id, $items);
 
@@ -185,37 +224,35 @@ class SupportController extends BaseController
         // نظر الوكيل (انظر `support_center.sql`)، والهويّة في عمودٍ مستقلّ.
         $this->attachStaffNames($items);
 
-        // الاسم من شجرة الحسابات — عبر الدالّة نفسها التي تستعملها القائمة،
-        // فلا تعرض شاشتان اسمين مختلفين للوكيل نفسه.
-        $aq = DB::table('chat_threads as t')->leftJoin('users as u', 'u.id', '=', 't.agent_id');
-        SupportThreadService::joinAgentIdentity($aq);
-        $agent = $aq->where('t.id', $id)
-            ->first(['u.id', 'u.name as user_name', 'u.phone', 'acc.AccName as acc_name']);
-
-        $state = DB::table('support_thread_state as s')
-            ->leftJoin('support_staff as a', 'a.id', '=', 's.assigned_to')
-            ->where('s.thread_id', $id)
-            ->first(['s.status', 's.assigned_to', 's.assigned_at', 's.close_note', 'a.name as assignee_name']);
-
         return $this->sendResponse([
             'items'     => $items,
-            'receipts'  => $this->chat->receipts($id, ChatService::ADMIN),
-            'reactions' => $this->chat->reactionsFor($ids, ChatService::ADMIN, 0),
-            'starred'   => $this->chat->starredIn($ids, ChatService::ADMIN, 0),
-            'typing'    => $this->chat->typingIn($id, ChatService::ADMIN),
-            'pinned'    => $this->chat->pinnedIn($id),
-            'agent'     => $agent ? [
-                'id'    => (int) $agent->id,
+            'receipts'  => $receipts,
+            // ⚠ تُسأل عن الرسائل الواصلة وحدها. النبضة تسأل
+            // `after_id=<آخر>` فتعود بلا رسائل في أغلب الأحيان، واستعلامان
+            // عن تفاعلاتِ لا شيء ثمنُهما 90 مللي في كل مرّة. والواجهة تدمج
+            // ولا تستبدل، فما جاء عند الفتح يبقى.
+            'reactions' => $ids !== [] ? $this->chat->reactionsFor($ids, ChatService::ADMIN, 0) : [],
+            'starred'   => $ids !== [] ? $this->chat->starredIn($ids, ChatService::ADMIN, 0) : [],
+            // «يكتب الآن» جاءت مع السياق في الوصلة نفسها.
+            'typing'    => $ctx->typing_state
+                ? ['actor_name' => $ctx->typing_name, 'state' => $ctx->typing_state]
+                : null,
+            // المثبَّتة تتغيّر نادراً: تُقرأ عند الفتح، وكلُّ تثبيتٍ أو إلغاءٍ
+            // يُعيد القراءة من الصفر — فلا شيء يفوت.
+            'pinned'       => $first ? $this->chat->pinnedIn($id) : null,
+            'pinned_known' => $first,
+            'agent'     => [
+                'id'    => (int) $ctx->agent_id,
                 'name'  => SupportThreadService::agentName(
-                    $agent->acc_name, $agent->user_name, (int) $agent->id),
-                'phone' => $agent->phone,
-            ] : null,
+                    $ctx->acc_name, $ctx->user_name, (int) $ctx->agent_id),
+                'phone' => $ctx->agent_phone,
+            ],
             'state'     => [
-                'status'        => $state->status ?? SupportThreadService::NEW,
-                'status_label'  => SupportThreadService::STATUSES[$state->status ?? SupportThreadService::NEW],
-                'assigned_to'   => isset($state->assigned_to) ? (int) $state->assigned_to : null,
-                'assignee_name' => $state->assignee_name ?? null,
-                'close_note'    => $state->close_note ?? null,
+                'status'        => $ctx->status ?? SupportThreadService::NEW,
+                'status_label'  => SupportThreadService::STATUSES[$ctx->status ?? SupportThreadService::NEW],
+                'assigned_to'   => $ctx->assigned_to !== null ? (int) $ctx->assigned_to : null,
+                'assignee_name' => $ctx->assignee_name,
+                'close_note'    => $ctx->close_note,
             ],
         ], 'Success');
     }

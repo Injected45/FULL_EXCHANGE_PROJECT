@@ -4,7 +4,23 @@ import Bubble from './Bubble'
 import { dayLabel, mmss, newClientId, sameDay } from './util'
 
 const EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🤲']
-const POLL_MS = 4000
+
+/**
+ * ── النبض المتكيّف ───────────────────────────────────────────────────────
+ *
+ * فترةٌ واحدة ثابتة تُجبرك على اختيارٍ سيّئ: أربعُ ثوانٍ بطيئةٌ أثناء حديثٍ
+ * جارٍ، وثانيةٌ واحدة إسرافٌ على محادثةٍ لم يكتب فيها أحدٌ منذ ساعة.
+ *
+ * فالفترة تتبع الحال: **1.2 ثانية** ما دام أحد الطرفين يكتب أو مرّت رسالةٌ
+ * في الدقيقة الماضية، و**3 ثوانٍ** حين تهدأ. والانتقال بينهما فوريّ — أوّل
+ * رسالةٍ تصل تُسرّع النبض من تلقائها.
+ *
+ * وصار ذلك ممكناً لأن النبضة نفسها رخصت: **ثلاث رحلاتٍ إلى القاعدة بدل
+ * ستّ عشرة** (مقيسة). بالتكلفة القديمة كانت 1.2 ثانية ستُغرق الخادم.
+ */
+const POLL_HOT_MS = 1200
+const POLL_IDLE_MS = 3000
+const HOT_WINDOW_MS = 60000
 
 /**
  * شاشة المحادثة.
@@ -50,6 +66,8 @@ export default function Conversation({
   const [busy, setBusy] = useState(false)
 
   const lastServerId = useRef(0)
+  // إلى متى يبقى النبض سريعاً — تُرفع مع كل رسالةٍ أو «يكتب الآن».
+  const hotUntil = useRef(0)
   const scroller = useRef(null)
   const nearBottom = useRef(true)
   const typingSentAt = useRef(0)
@@ -89,11 +107,22 @@ export default function Conversation({
       merge(d.items)
       const max = Math.max(...d.items.map((m) => m.id).filter((n) => n > 0))
       if (max > lastServerId.current) lastServerId.current = max
+      // رسالةٌ وصلت ⇐ الحديث جارٍ، فيُسرَّع النبض.
+      hotUntil.current = Date.now() + HOT_WINDOW_MS
     }
+
+    // والطرف الآخر يكتب أو يسجّل ⇐ ردٌّ في الطريق، فلا يُنتظر ثلاث ثوانٍ.
+    if (d.typing) hotUntil.current = Date.now() + HOT_WINDOW_MS
 
     setReceipts(d.receipts || { delivered: 0, read: 0 })
     setTyping(d.typing || null)
-    setPinned(d.pinned || null)
+
+    // ⚠ `pinned_known` تميّز «لا رسالة مثبَّتة» من «لم تُسأل هذه النبضة».
+    //
+    // الخادم يقرأ المثبَّتة عند الفتح وحده — قراءتُها كل نبضتين رحلةٌ إلى
+    // قاعدةٍ بعيدة عن شيءٍ يتغيّر مرّةً في اليوم. ولو أخذنا `null` على
+    // ظاهرها لاختفى شريط التثبيت بعد أوّل نبضة.
+    if (d.pinned_known) setPinned(d.pinned || null)
     if (d.agent) setAgent(d.agent)
     if (d.state) setState(d.state)
 
@@ -133,15 +162,29 @@ export default function Conversation({
     return () => { alive = false; ac.abort() }
   }, [threadId, load, jumpToMessageId])
 
-  // ── الاستطلاع ──────────────────────────────────────────────────────
+  // ── الاستطلاع المتكيّف ─────────────────────────────────────────────
+  //
+  // `setTimeout` متسلسل لا `setInterval`: الثاني يُطلق نبضةً جديدة ولو لم
+  // تعد السابقة، فتتكدّس الطلبات على شبكةٍ بطيئة. وهذا يبدأ العدّ **بعد**
+  // انتهاء النبضة، فلا يتجاوز الخادمَ طلبٌ معلّق أبداً.
   useEffect(() => {
     const ac = new AbortController()
-    const t = setInterval(() => {
-      load(lastServerId.current, ac.signal)
-        .then(() => onUnreadTouched?.())
-        .catch(() => {})
-    }, POLL_MS)
-    return () => { clearInterval(t); ac.abort() }
+    let timer = null
+    let alive = true
+
+    const tick = async () => {
+      try {
+        await load(lastServerId.current, ac.signal)
+        onUnreadTouched?.()
+      } catch { /* انقطاعٌ لحظي — النبضة التالية تُصلحه */ }
+
+      if (!alive) return
+      const hot = Date.now() < hotUntil.current
+      timer = setTimeout(tick, hot ? POLL_HOT_MS : POLL_IDLE_MS)
+    }
+
+    timer = setTimeout(tick, POLL_HOT_MS)
+    return () => { alive = false; clearTimeout(timer); ac.abort() }
   }, [load, onUnreadTouched])
 
   // ── التمرير إلى الأسفل ─────────────────────────────────────────────
@@ -213,6 +256,8 @@ export default function Conversation({
     setReplyTo(null)
     nearBottom.current = true
     setBusy(true)
+    // أرسلتُ ⇐ ردٌّ متوقَّع، فيُسرَّع النبض من الآن لا بعد وصوله.
+    hotUntil.current = Date.now() + HOT_WINDOW_MS
 
     try {
       const d = await api.send(threadId, {

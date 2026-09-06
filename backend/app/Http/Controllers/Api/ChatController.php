@@ -151,43 +151,78 @@ class ChatController extends BaseController
             return $this->sendError('غير مصرّح.', [], 401);
         }
 
-        $thread = DB::table('chat_threads')->where('id', $id)->first();
+        // ── المحادثة و«يكتب الآن» ورقمُ آخر رسالة: استعلامٌ واحد ────────
+        //
+        // كانت النبضة الصامتة تُنفّذ عشر رحلاتٍ إلى القاعدة لترجع «لا جديد»
+        // (مقيسة). والقاعدة بعيدة، فكلُّ رحلةٍ تُضاف إلى الزمن الذي ينتظره
+        // الوكيل قبل أن تظهر رسالة الإدارة عنده.
+        $thread = DB::table('chat_threads as t')
+            ->leftJoin('chat_typing as ty', function ($j) {
+                $j->on('ty.thread_id', '=', 't.id')
+                  ->where('ty.actor_kind', '!=', ChatService::AGENT)
+                  ->where('ty.expires_at', '>', now());
+            })
+            ->where('t.id', $id)
+            ->first([
+                't.id', 't.kind', 't.agent_id', 't.employee_id',
+                'ty.actor_name as typing_name', 'ty.state as typing_state',
+                // ⚠ استعلامٌ فرعيّ آمن: الشرط على `chat_messages.thread_id`
+                // وعليه فهرس، والمحادثة واحدة — بحثٌ في الفهرس لا مسحٌ
+                // للجدول، ولا يتكرّر لكل صفّ لأن الصفّ واحد.
+                DB::raw('(SELECT MAX(id) FROM chat_messages WHERE thread_id = t.id) AS max_msg_id'),
+            ]);
+
         if (!$thread || !$this->chat->participates($thread, ChatService::AGENT, (int) $user->id)) {
             return $this->sendError('المحادثة غير موجودة.', [], 404);
         }
 
         $after = max(0, (int) $request->query('after_id', 0));
-        $messages = $this->chat->messages($id, $after);
+        $maxId = (int) ($thread->max_msg_id ?? 0);
 
-        // «وصلت» مع كل نبضة، بلا شرط.
+        $first = ($after === 0);
+
+        // لا يُسأل عن الرسائل حين لا يكون ثمّة جديد: مقارنةُ رقمين تُغني عن
+        // رحلة. والسلوك مطابق — الاستعلام المحذوف شرطُه `id > after_id`.
+        $messages = (!$first && $maxId <= $after)
+            ? []
+            : $this->chat->messages($id, $after);
+
+        // «وصلت» مع كل نبضة بلا شرط، و«قُرئت» عند الفتح أو وصول جديد.
         //
         // النبضة نفسها دليلٌ على أن جهاز الوكيل متّصل ويسحب المحادثة — وهو
         // بالضبط معنى الشرطتين الرماديتين. وربطُها بوصول رسالةٍ جديدة كان
         // يُبقي رسالة الطرف الآخر بشرطةٍ واحدة إلى أن يردّ عليها.
-        $this->chat->markDelivered($id, ChatService::AGENT, (int) $user->id);
-
-        // «قُرئت» أضيق: الشاشة مفتوحة والرسائل بين يديه.
-        if ($after === 0 || $messages !== []) {
-            $this->chat->markRead($id, ChatService::AGENT, (int) $user->id);
-        }
+        //
+        // ورحلةٌ واحدة بدل ستّ: `syncReceipts` تدمج العلامتين والإيصالين،
+        // ولا تكتب شيئاً حين لا يتغيّر شيء — وهي حال أغلب النبضات.
+        $me = (int) $user->id;
+        $receipts = $this->chat->syncReceipts(
+            $id, ChatService::AGENT, $me, $first || $messages !== [], $maxId);
 
         // التفاعلات والمحفوظات لصفحةٍ كاملة — استعلامان لا استعلامٌ لكل رسالة.
         $ids = array_map(fn ($m) => (int) $m->id, $messages);
-        $me = (int) $user->id;
 
-        // إيصالا رسائلي عند الطرف الآخر — يُقرآن مع كل جلب، فالعلامة تتحوّل
-        // من ✓ إلى ✓✓ بلا أن يفعل الوكيل شيئاً.
         return $this->sendResponse([
             'items'     => $messages,
-            'receipts'  => $this->chat->receipts($id, ChatService::AGENT),
-            'reactions' => $this->chat->reactionsFor($ids, ChatService::AGENT, $me),
-            'starred'   => $this->chat->starredIn($ids, ChatService::AGENT, $me),
-            // حالة الطرف الآخر تُقرأ مع النبضة نفسها: طلبٌ ثانٍ كل خمس ثوانٍ
-            // من أجل «يكتب الآن» يضاعف حركة الشبكة بلا داعٍ.
-            'typing'    => $this->chat->typingIn($id, ChatService::AGENT),
+            // إيصالا رسائلي عند الطرف الآخر — يُقرآن مع كل جلب، فالعلامة
+            // تتحوّل من ✓ إلى ✓✓ بلا أن يفعل الوكيل شيئاً.
+            'receipts'  => $receipts,
+            // ⚠ يُسأل عنها للرسائل الواصلة وحدها: نبضةٌ صامتة لا تفاعلَ فيها
+            // ولا نجمة، واستعلامان عن لا شيء ثمنُهما رحلتان في كل مرّة.
+            // والتطبيق يدمج ولا يستبدل، فما جاء عند الفتح يبقى.
+            'reactions' => $ids !== [] ? $this->chat->reactionsFor($ids, ChatService::AGENT, $me) : [],
+            'starred'   => $ids !== [] ? $this->chat->starredIn($ids, ChatService::AGENT, $me) : [],
+            // حالة الطرف الآخر جاءت مع استعلام المحادثة نفسه: طلبٌ ثانٍ من
+            // أجل «يكتب الآن» يضاعف حركة الشبكة بلا داعٍ.
+            'typing'    => $thread->typing_state
+                ? ['actor_name' => $thread->typing_name, 'state' => $thread->typing_state]
+                : null,
             // المثبَّتة السارية — شريطٌ أعلى المحادثة، لا علامةٌ على الفقاعة
-            // وحدها: الغرض من التثبيت أن تُرى بلا بحث.
-            'pinned'    => $this->chat->pinnedIn($id),
+            // وحدها: الغرض من التثبيت أن تُرى بلا بحث. وتتغيّر نادراً، فتُقرأ
+            // عند الفتح؛ و`pinned_known` تقول للتطبيق متى تكون `null` جواباً
+            // حقيقياً («لا مثبَّتة») ومتى تعني «لم تُسأل».
+            'pinned'       => $first ? $this->chat->pinnedIn($id) : null,
+            'pinned_known' => $first,
         ], 'Success');
     }
 

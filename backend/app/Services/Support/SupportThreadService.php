@@ -286,6 +286,56 @@ class SupportThreadService
         return $out;
     }
 
+    /**
+     * كلُّ ما تحتاجه شاشة المحادثة عن سياقها — في **استعلامٍ واحد**.
+     *
+     * كان أربعة منفصلة في كل نبضة: المحادثة (للتأكّد من `kind = ADMIN`)،
+     * وصفُّ الحالة (لفحص الإسناد)، وبيانات الوكيل، وصفُّ الحالة **ثانيةً**
+     * مع اسم المُسنَد إليه. والقاعدة بعيدة فكلُّ رحلةٍ ~45 مللي، فذلك وحده
+     * كان يكلّف نحو 180 مللي قبل قراءة رسالةٍ واحدة.
+     *
+     * وكلُّها وصلاتٌ على مفاتيحَ أساسية، فالاستعلام المدمج لا يكلّف أكثر من
+     * أصغرها — الثمن هو عدد الرحلات لا حجمها.
+     *
+     * يُرجع `null` إن لم توجد المحادثة أو لم تكن محادثةَ إدارة — وهو
+     * الفحصُ الأمنيّ نفسه الذي كان في `thread()`، في مكانه.
+     */
+    public function context(int $threadId): ?object
+    {
+        $q = DB::table('chat_threads as t')
+            ->leftJoin('users as u', 'u.id', '=', 't.agent_id')
+            ->leftJoin('support_thread_state as s', 's.thread_id', '=', 't.id')
+            ->leftJoin('support_staff as a', 'a.id', '=', 's.assigned_to')
+            // «يكتب الآن» يُقرأ هنا أيضاً: صفٌّ واحد على الأكثر، ووصلةٌ
+            // على `thread_id` أرخص من رحلةٍ خامسة.
+            ->leftJoin('chat_typing as ty', function ($j) {
+                $j->on('ty.thread_id', '=', 't.id')
+                  ->where('ty.actor_kind', '!=', ChatService::ADMIN)
+                  ->where('ty.expires_at', '>', now());
+            })
+            ->where('t.id', $threadId)
+            ->where('t.kind', ChatService::ADMIN);
+
+        self::joinAgentIdentity($q);
+
+        return $q->first([
+            't.id', 't.kind', 't.agent_id',
+            'u.name as user_name', 'u.phone as agent_phone',
+            'acc.AccName as acc_name',
+            's.status', 's.assigned_to', 's.close_note',
+            'a.name as assignee_name',
+            'ty.actor_name as typing_name', 'ty.state as typing_state',
+            // رقمُ آخر رسالة — يُغني عن استعلامٍ ثانٍ، وعن استعلام الرسائل
+            // نفسِه حين لا يكون ثمّة جديد (وهي حال أغلب النبضات).
+            //
+            // ⚠ واستعلامٌ فرعيّ هنا **آمن** خلافاً لما في `InternalEx`:
+            // الشرط على `chat_messages.thread_id` وعليه فهرسٌ
+            // (`IX_chat_messages_thread`)، والمحادثة واحدة — فهو بحثٌ في
+            // الفهرس لا مسحٌ للجدول، ولا يتكرّر لكل صفّ لأن الصفّ واحد.
+            DB::raw('(SELECT MAX(id) FROM chat_messages WHERE thread_id = t.id) AS max_msg_id'),
+        ]);
+    }
+
     /** يضمن وجود صفّ الحالة، ويُرجعه. */
     public function ensureState(int $threadId): object
     {

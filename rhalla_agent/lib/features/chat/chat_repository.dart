@@ -288,6 +288,7 @@ class ChatPage {
     this.starred = const {},
     this.typing,
     this.pinned,
+    this.pinnedKnown = true,
   });
 
   final List<ChatMessage> items;
@@ -303,6 +304,12 @@ class ChatPage {
 
   /// الرسالة المثبَّتة السارية — شريطٌ أعلى المحادثة (البند 31).
   final ChatMessage? pinned;
+
+  /// هل حمل هذا الردُّ جواباً عن المثبَّتة؟
+  ///
+  /// الخادم يقرأها عند فتح المحادثة وحده — انظر `fromJson`. و`false` تعني
+  /// «أبقِ ما عندك»، لا «لا مثبَّتة».
+  final bool pinnedKnown;
 
   static const empty = ChatPage(items: [], receipts: ChatReceipts());
 
@@ -517,6 +524,18 @@ class ChatRepository {
             ? ChatMessage.fromJson(
                 (data['pinned'] as Map).cast<String, dynamic>())
             : null,
+        // هل سُئل الخادمُ عن المثبَّتة في هذا النداء؟
+        //
+        // يقرأها عند فتح المحادثة وحده — قراءتُها في كل نبضة رحلةٌ إلى
+        // قاعدةٍ بعيدة عن شيءٍ يتغيّر مرّةً في اليوم. وبغير هذا الحقل يكون
+        // `null` جواباً واحداً لسؤالين: «لا رسالة مثبَّتة» و«لم أسأل» —
+        // فيختفي الشريط بعد أوّل نبضة.
+        //
+        // والغياب يعني `true` عمداً: خادمٌ قديم لم يُحدَّث بعد يُرسل
+        // `pinned` دائماً، فيبقى سلوكه صحيحاً مع تطبيقٍ جديد.
+        pinnedKnown: data['pinned_known'] is bool
+            ? data['pinned_known'] as bool
+            : true,
       );
     } on ApiFailure catch (e) {
       if (e.isEmptyResult) return ChatPage.empty;

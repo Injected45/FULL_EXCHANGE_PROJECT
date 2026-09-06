@@ -238,6 +238,86 @@ class ChatService
      * منفصلٌ عن «قُرئت» لأنهما سؤالان: الأولى «بلغت جهازه؟» والثانية «نظر
      * إليها؟». وعلامةٌ واحدة لهما تجعل «قُرئت» تظهر لمن لم يفتح شيئاً.
      */
+    /**
+     * «وصلت» و«قُرئت» والإيصالان — في رحلتين إلى القاعدة بدل ستّ.
+     *
+     * ── لماذا وُجدت ──────────────────────────────────────────────────────
+     *
+     * كانت كلُّ نبضةٍ تنادي `markDelivered` ثم `markRead` ثم `receipts`،
+     * فتُنفَّذ **ستّ** استعلامات: كلٌّ من الأوليين تقرأ `MAX(id)` وتقرأ صفّ
+     * `chat_reads` الخاصّ بي، والثالثة تقرأ صفوف الطرف الآخر. أي أن
+     * `MAX(id)` تُحسب مرّتين وصفُّ `chat_reads` يُقرأ ثلاث مرّات — لنفس
+     * المحادثة وفي نفس اللحظة.
+     *
+     * ولم يكن ذلك يظهر على قاعدةٍ محلّية. لكنّ القاعدة هنا **بعيدة**، وكلُّ
+     * رحلةٍ إليها تكلّف نحو 45 مللي ثانية مهما صغُر ما تحمله — فستُّ
+     * استعلاماتٍ تعني ربعَ ثانية من التأخير في كل نبضة، عند الطرفين.
+     *
+     * الآن: قراءةٌ واحدة لـ `MAX(id)`، وقراءةٌ واحدة لصفوف `chat_reads`
+     * كلِّها (وهي صفّان: أنا والطرف الآخر)، ثم **كتابةٌ واحدة عند اللزوم
+     * فقط**. والنتيجة نفسها بالضبط.
+     *
+     * ⚠ والقراءة لا ترجع إلى الوراء أبداً — الشرط `> $upTo` محفوظٌ كما كان:
+     * علامةٌ زرقاء تتراجع تعني للمستخدم أن الطرف الآخر «ألغى قراءته»، وهو
+     * ما لا معنى له.
+     *
+     * @param  bool $markRead هل تُعلَّم «مقروءة» أيضاً؟ («وصلت» تُعلَّم دائماً)
+     * @return array{delivered:int,read:int} إيصالا **رسائلي** عند الطرف الآخر
+     */
+    public function syncReceipts(int $threadId, string $kind, int $id, bool $markRead, ?int $maxId = null): array
+    {
+        // `$maxId` يُمرَّر حين يكون النداءُ قد قرأه أصلاً في استعلامٍ آخر —
+        // فتُوفَّر رحلةٌ كاملة إلى قاعدةٍ بعيدة.
+        $maxId ??= (int) DB::table('chat_messages')->where('thread_id', $threadId)->max('id');
+
+        // صفوف المحادثة كلُّها: صفّي وصفّ الطرف الآخر. صفّان لا أكثر.
+        $rows = DB::table('chat_reads')->where('thread_id', $threadId)->get([
+            'id', 'reader_kind', 'reader_id',
+            'last_delivered_message_id', 'last_read_message_id',
+        ]);
+
+        $mine = null;
+        $d = 0;
+        $r = 0;
+        foreach ($rows as $row) {
+            if ($row->reader_kind === $kind && (int) $row->reader_id === $id) {
+                $mine = $row;
+                continue;
+            }
+            // إيصالاتي تُقرأ من صفوف **من ليس أنا**.
+            $d = max($d, (int) $row->last_delivered_message_id);
+            $r = max($r, (int) $row->last_read_message_id);
+        }
+
+        if ($maxId > 0) {
+            if ($mine === null) {
+                DB::table('chat_reads')->insert([
+                    'thread_id'                 => $threadId,
+                    'reader_kind'               => $kind,
+                    'reader_id'                 => $id,
+                    'last_delivered_message_id' => $maxId,
+                    'last_read_message_id'      => $markRead ? $maxId : 0,
+                    'updated_at'                => now(),
+                ]);
+            } else {
+                $update = [];
+                if ((int) $mine->last_delivered_message_id < $maxId) {
+                    $update['last_delivered_message_id'] = $maxId;
+                }
+                if ($markRead && (int) $mine->last_read_message_id < $maxId) {
+                    $update['last_read_message_id'] = $maxId;
+                }
+                // لا كتابةَ حين لا يتغيّر شيء — وهي حال أغلب النبضات.
+                if ($update !== []) {
+                    $update['updated_at'] = now();
+                    DB::table('chat_reads')->where('id', $mine->id)->update($update);
+                }
+            }
+        }
+
+        return ['delivered' => $d, 'read' => $r];
+    }
+
     public function markDelivered(int $threadId, string $kind, int $id): void
     {
         $upTo = (int) DB::table('chat_messages')->where('thread_id', $threadId)->max('id');

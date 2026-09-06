@@ -69,12 +69,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Timer? _timer;
 
-  /// **كل خمس ثوانٍ، ولا يُجلب إلا الجديد.**
+  /// ── النبض المتكيّف ─────────────────────────────────────────────────
   ///
   /// النبضة تحمل `after_id` فتعود فارغةً حين لا جديد — سطرٌ في السجلّ لا
-  /// تاريخُ محادثةٍ كامل. ولذلك تصحّ خمس ثوانٍ هنا حيث لا تصحّ للرصيد:
-  /// المحادثة تفقد معناها إن تأخّر الردّ نصف دقيقة.
-  static const _every = Duration(seconds: 5);
+  /// تاريخُ محادثةٍ كامل.
+  ///
+  /// وكانت خمس ثوانٍ ثابتة، وهي اختيارٌ سيّئ في الحالين: بطيئةٌ أثناء حديثٍ
+  /// جارٍ — يكتب الوكيل ثم ينتظر خمساً ليرى الردّ — ومُسرفةٌ على محادثةٍ لم
+  /// يكتب فيها أحدٌ منذ ساعة، وهي على بطارية هاتف.
+  ///
+  /// فالفترة تتبع الحال: **1.2 ثانية** ما دام أحدهم يكتب أو مرّت رسالةٌ في
+  /// الدقيقة الماضية، و**4 ثوانٍ** حين تهدأ.
+  ///
+  /// وصار ذلك ممكناً لأن النبضة رخصت: **خمسُ رحلاتٍ إلى القاعدة بدل عشر**
+  /// (مقيسة)، ورحلتان منها توثيقُ Sanctum نفسُه.
+  static const _hot = Duration(milliseconds: 1200);
+  static const _idle = Duration(seconds: 4);
+
+  /// نافذةُ «الحديث جارٍ» — تُمدَّد مع كل رسالةٍ أو «يكتب الآن».
+  static const _hotWindow = Duration(seconds: 60);
+  DateTime _hotUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// من «أنا» في هذه المحادثة — به يُعرف جانب الفقاعة.
   String get _me => widget.asEmployee ? 'EMPLOYEE' : 'AGENT';
@@ -83,7 +97,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _load();
-    _timer = Timer.periodic(_every, (_) => _poll());
+    _schedule();
     // إغلاق لوحة الإيموجي حين تُفتح لوحة المفاتيح: اللوحتان معاً تأكلان
     // الشاشة كلّها ولا تبقى للمحادثة سطراً.
     _inputFocus.addListener(() {
@@ -254,6 +268,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return 0;
   }
 
+  /// يجدول النبضة التالية بحسب الحال.
+  ///
+  /// `Timer` متسلسل لا `Timer.periodic`: الثاني يُطلق نبضةً جديدة ولو لم
+  /// تعد السابقة، فتتكدّس الطلبات على شبكةٍ ضعيفة — وشبكةُ فرعٍ في الجنوب
+  /// ليست شبكةَ مكتب. وهذا يبدأ العدّ **بعد** انتهاء النبضة.
+  void _schedule() {
+    _timer?.cancel();
+    if (!mounted) return;
+
+    final hot = DateTime.now().isBefore(_hotUntil);
+    _timer = Timer(hot ? _hot : _idle, () async {
+      await _poll();
+      _schedule();
+    });
+  }
+
+  /// يُبقي النبض سريعاً دقيقةً من الآن.
+  void _markHot() => _hotUntil = DateTime.now().add(_hotWindow);
+
   /// جلبٌ تزايدي. صامتٌ في الفشل: انقطاع لحظي لا يُفرغ محادثةً بين يدي
   /// صاحبها، والنبضة التالية تُصلحه.
   Future<void> _poll() async {
@@ -268,7 +301,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       setState(() {
         _receipts = page.receipts;
         _typing = page.typing;
-        _pinned = page.pinned;
+        // المثبَّتة تُقرأ عند فتح المحادثة وحدها — انظر `pinnedKnown`.
+        // وأخذُ `null` على ظاهرها هنا كان يُخفي الشريط بعد أوّل نبضة.
+        if (page.pinnedKnown) _pinned = page.pinned;
         // التفاعلات تصل للصفحة المطلوبة وحدها؛ في الجلب التزايدي تخصّ
         // الرسائل الجديدة، فتُدمَج ولا تُستبدل — وإلا اختفت تفاعلات ما فوقها.
         if (page.reactions.isNotEmpty) {
@@ -277,6 +312,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (page.starred.isNotEmpty) _starred = {..._starred, ...page.starred};
         if (page.items.isNotEmpty) _messages = _merge(_messages, page.items);
       });
+
+      // رسالةٌ وصلت، أو الطرف الآخر يكتب ⇐ الحديث جارٍ فيُسرَّع النبض.
+      if (page.items.isNotEmpty || page.typing != null) _markHot();
       // النزول إلى الأسفل **إن كان الوكيل هناك أصلاً**.
       //
       // بلا هذا الشرط تخطفه كل رسالةٍ واردة من موضعٍ يقرؤه — وهو ما كان
@@ -320,6 +358,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final cid = 'c${DateTime.now().millisecondsSinceEpoch}_${_clientSeq++}';
     final reply = _replyTo;
+
+    // أرسلتُ ⇐ ردٌّ متوقَّع، فيُسرَّع النبض من الآن لا بعد وصوله.
+    _markHot();
+    _schedule();
 
     // الفقاعة المحلّية. رقمها سالبٌ فلا يصطدم برقم من الخادم، ولا يدخل في
     // حساب `after_id` — انظر `_lastServerId`.
