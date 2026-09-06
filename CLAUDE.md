@@ -230,6 +230,24 @@ Note `Info.plist` has **no `NSAppTransportSecurity` key**, which is correct: iOS
 
 **The device id is now derived from hardware**, closing the reinstall lockout: `ANDROID_ID` through a method channel in `MainActivity.kt`, `identifierForVendor` on iOS, random as a last resort. **A stored id is never replaced** — accounts provisioned before this change are bound to a random id in the database, and overwriting it would lock every one of them out.
 
+### The support centre — `backend/support-app/` (React), served at `/support`
+
+Rhalla's own staff answer agents from a **React SPA built into `backend/public/support/`** and served by Laravel on the same origin — no CORS, no second host, no monthly bill. **`public/support/` is committed on purpose**: the hosting is shared and has no Node, so the built output is what gets uploaded. Change the UI ⇒ `npm run build` ⇒ commit the result with it. Node lives at `D:\tools\nodejs` (portable, on D: by standing order) with its npm cache on D: as well.
+
+**No second chat system was built.** Messages, attachments, reactions, quoting, pinning, stars, search, typing and read receipts all go through **the same `ChatService`** the agent and employee apps use. What is new is only what chat cannot answer: *who are the support staff* (`support_staff`), *who may do what* (`support_permissions`), *where does the conversation stand* (`support_thread_state`), and *who did what* (`support_audit`), plus one nullable column `chat_messages.support_staff_id`.
+
+Five decisions that are not incidental:
+
+1. **`sender_id` stays `0` for every support reply.** `chat_reads` compares `(kind, id)`, so giving each staff member their own id would split read state across them — and the agent would watch their two ticks retreat every time a different person answered. The admin is one party in the agent's eyes; who actually replied goes in `support_staff_id`.
+2. **Default Deny in two layers.** `ROLE_CEILING` says what a role *may* hold, granted rows say what it *does* hold. Hiding a button is cosmetic; the refusal is in the middleware on every call — verified live: a plain `SUPPORT_AGENT` gets 403 on staff management, permission granting, the audit log, closing, assigning to others and pinning, and each attempt is logged under their name.
+3. **`kind = ADMIN` is enforced in `SupportController::thread()`**, so an agent's conversation with *their own employee* can never be opened from here — verified: 404 on both read and send.
+4. **An agent message revives a closed conversation** (`onAgentMessage`, called from `ChatController::send`). Without it a conversation closed yesterday and written into today appears in neither «المفتوحة» nor «المُسنَدة إليّ», and the message is simply lost.
+5. **No conversation opens automatically.** The old Blade page opened the first thread on every load, marking an agent's messages read because somebody opened a browser. Blue ticks are a promise.
+
+**⚠ The old `/admin/chat` page is a back door around all of this** and is still live while `CHAT_ADMIN_KEY` has a value: a shared key, no identity, no roles, no audit. Emptying that key in `.env` closes it. The code was left in place because that is the owner's one-line call, not the code's.
+
+Nothing here touches money: zero financial tables referenced in the whole support codebase, 4 foreign keys all pointing at `support_staff`/`chat_threads`, 0 triggers, and `wallet`/`InternalEx`/`AccountsTb` last structurally modified in April 2026 — before this project started. Full detail in [docs/support-center.md](docs/support-center.md), including the three things the brief assumed exist and do not (E2EE, voice calls, WebSocket real-time).
+
 ### `design/` — no longer on disk
 
 The twenty-nine `.dc.html` artboards, `canvas.json`, `rhalla-agent-screens.html` and the four Node ESM generators that emitted them (`build.mjs` … `build4.mjs`, plus `fix.mjs`) are **gone from this tree, and were never committed** — the unification commit does not contain them, and there is no history to restore them from. Do not follow an instruction to `cd design`; it does not exist.

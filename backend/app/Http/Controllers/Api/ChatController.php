@@ -241,6 +241,16 @@ class ChatController extends BaseController
             );
         }
 
+        // رسالةُ الوكيل إلى الإدارة تُعيد محادثتَه إلى دائرة عمل الدعم.
+        //
+        // إضافةٌ **فوق** الدردشة لا داخلها: لا تغيّر رسالةً ولا إيصالاً، ولا
+        // ترمي شيئاً، وفشلُها لا يمنع وصول الرسالة (انظر `onAgentMessage`).
+        // وبغيرها تبقى محادثةٌ أُغلقت مغلقةً بعد أن كتب فيها الوكيل، فلا
+        // تظهر في «المفتوحة» ولا في «المُسنَدة إليّ» — وتُنسى رسالتُه.
+        if ($thread->kind === ChatService::ADMIN) {
+            app(\App\Services\Support\SupportThreadService::class)->onAgentMessage($id);
+        }
+
         return $this->sendResponse(['message' => $msg], 'تم الإرسال.');
     }
 

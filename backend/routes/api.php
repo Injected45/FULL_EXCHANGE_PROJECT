@@ -18,6 +18,8 @@ use App\Http\Controllers\Api\EmployeeActivationController;
 use App\Http\Controllers\Api\EmployeeAdminController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\EmployeeReportsController;
+use App\Http\Controllers\Api\SupportAuthController;
+use App\Http\Controllers\Api\SupportController;
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
@@ -409,4 +411,90 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
   Route::get('employees/{id}/statement',
       [ EmployeeReportsController::class , 'employeeStatement' ])->whereNumber('id');
 
+});
+
+/*
+|--------------------------------------------------------------------------
+| مركز «الرحالة للدعم الفني»
+|--------------------------------------------------------------------------
+|
+| واجهة الخادم لتطبيق React الذي يجلس عليه موظّفو دعم الرحالة. يحلّ محلّ
+| صفحة `/admin/chat` ومفتاحها المشترك: حسابٌ لكل موظّف، ودورٌ، وصلاحياتٌ
+| ممنوحة صفّاً صفّاً.
+|
+| ⚠ **Default Deny**: كل مسارٍ يحمل صلاحيته في وسمه (`support:KEY`). مسارٌ
+| بلا وسمٍ يعني «يكفي أن تكون داخل النظام» — ولا يُكتب هكذا إلا حين يكون
+| ذلك هو المقصود فعلاً (الخروج، تغيير كلمة المرور، بياناتُ نفسه).
+|
+| ⚠ ولا مسار هنا يمسّ المال: لا رصيد ولا حوالة ولا قيد ولا خزينة. ومحادثة
+| الوكيل مع موظّفه لا تُفتح من أيٍّ منها — الشرط `kind = ADMIN` في المتحكّم.
+|
+*/
+Route::prefix('support')->group(function () {
+
+    // خارج الحارس بطبيعتها.
+    Route::post('auth/login', [SupportAuthController::class, 'login']);
+
+    Route::middleware('support')->group(function () {
+        Route::post('auth/logout',   [SupportAuthController::class, 'logout']);
+        Route::get ('auth/me',       [SupportAuthController::class, 'me']);
+        Route::post('auth/password', [SupportAuthController::class, 'changePassword']);
+    });
+
+    // ── صندوق الوارد ───────────────────────────────────────────────
+    Route::middleware('support:VIEW_THREADS')->group(function () {
+        Route::get('threads',           [SupportController::class, 'threads']);
+        Route::get('threads/unread',    [SupportController::class, 'unread']);
+        Route::get('assignees',         [SupportController::class, 'assignees']);
+        Route::get('attachment/{name}', [SupportController::class, 'attachment'])
+            ->where('name', '[A-Za-z0-9_.-]+');
+        Route::get('threads/{id}',      [SupportController::class, 'messages'])->whereNumber('id');
+    });
+
+    Route::get('search', [SupportController::class, 'search'])
+        ->middleware('support:SEARCH_MESSAGES');
+
+    // ── الردّ ──────────────────────────────────────────────────────
+    //
+    // فحصُ المرفقات أدقّ من الوسم: `SEND_ATTACHMENT` و`SEND_VOICE` يُفحصان
+    // داخل المتحكّم بحسب نوع الملفّ، لأن المسار واحدٌ والنوعان مختلفان.
+    Route::middleware('support:REPLY')->group(function () {
+        Route::post('threads/{id}/messages', [SupportController::class, 'send'])->whereNumber('id');
+        Route::post('threads/{id}/typing',   [SupportController::class, 'typing'])->whereNumber('id');
+        Route::post('threads/{id}/messages/{mid}/react', [SupportController::class, 'react'])
+            ->whereNumber('id')->whereNumber('mid');
+        Route::post('threads/{id}/messages/{mid}/star',  [SupportController::class, 'star'])
+            ->whereNumber('id')->whereNumber('mid');
+    });
+
+    Route::put ('threads/{id}/messages/{mid}', [SupportController::class, 'edit'])
+        ->middleware('support:EDIT_OWN_MESSAGE')->whereNumber('id')->whereNumber('mid');
+    Route::post('threads/{id}/messages/{mid}/pin', [SupportController::class, 'pin'])
+        ->middleware('support:PIN_MESSAGE')->whereNumber('id')->whereNumber('mid');
+    Route::post('threads/{id}/messages/{mid}/forward', [SupportController::class, 'forward'])
+        ->middleware('support:FORWARD_MESSAGE')->whereNumber('id')->whereNumber('mid');
+
+    // ── الإسناد والحالة ────────────────────────────────────────────
+    //
+    // بلا وسمٍ هنا عمداً: «لنفسي» و«لغيري» صلاحيتان مختلفتان، والتمييز
+    // بينهما يحتاج جسم الطلب — فالفحص في المتحكّم حيث يُقرأ.
+    Route::middleware('support')->group(function () {
+        Route::post('threads/{id}/assign', [SupportController::class, 'assign'])->whereNumber('id');
+        Route::post('threads/{id}/status', [SupportController::class, 'status'])->whereNumber('id');
+    });
+
+    // ── الإدارة ────────────────────────────────────────────────────
+    Route::middleware('support:MANAGE_STAFF')->group(function () {
+        Route::get   ('staff',                   [SupportController::class, 'staff']);
+        Route::post  ('staff',                   [SupportController::class, 'createStaff']);
+        Route::put   ('staff/{id}',              [SupportController::class, 'updateStaff'])->whereNumber('id');
+        Route::delete('staff/{id}',              [SupportController::class, 'deleteStaff'])->whereNumber('id');
+        Route::post  ('staff/{id}/password',     [SupportController::class, 'resetStaffPassword'])->whereNumber('id');
+    });
+
+    Route::put('staff/{id}/permissions', [SupportController::class, 'setPermissions'])
+        ->middleware('support:MANAGE_PERMISSIONS')->whereNumber('id');
+
+    Route::get('audit', [SupportController::class, 'auditLog'])
+        ->middleware('support:VIEW_AUDIT');
 });

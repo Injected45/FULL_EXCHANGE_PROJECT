@@ -50,3 +50,10 @@ vendor/
 # anyway - and the DevExpress DLLs are licensed, not ours to redistribute.
 # The folder stays on disk; it is just not tracked.
 منظومة تطبيق الصرافة/
+# مركز الدعم — الاعتماديات وحدها.
+#
+# ⚠ و`backend/public/support/` **يُودَع عمداً** ولا يُتجاهَل: الاستضافة
+# مشتركة ولا Node عليها، فالمبنيُّ هو ما يُرفع. تجاهلُه كان سيعني أن النشر
+# يحتاج تثبيت Node على الخادم — وهو ما لا يُتاح على استضافةٍ مشتركة.
+# فإن غُيّرت واجهة React، أعد `npm run build` وأودِع الناتج معها.
+backend/support-app/node_modules/
