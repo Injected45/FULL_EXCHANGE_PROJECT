@@ -15,11 +15,29 @@ public function sendFormasggme(string $phone, string $body)
     // API Key من إعدادات Laravel
     $apiKey = config('services.whatsapp.token');
 
-    // تنظيف الرقم
-    $phone = preg_replace('/[^0-9]/', '', $phone);
+    /*
+     * ⚠ البوّابة تطلب `phone@c.us` لا رقماً مجرّداً.
+     *
+     * كان هنا تعليقٌ يقول «تحويل الرقم إلى Chat ID» وسطرٌ لا يفعل شيئاً:
+     * `$chatId = $phone`. فكانت البوّابة تردّ **500 على كلّ رسالة** — لا
+     * لرقمٍ دون رقم، بل للجميع: رمزُ الوكيل، ورمزُ الموظّف، وإشعاراتُ
+     * الحوالات. وهو ظاهرٌ في `laravel.log` منذ أيام، ولم يصل إلى أحدٍ منه
+     * شيء.
+     *
+     * واللاحقةُ تُضاف للأرقام وحدها: من مرّر معرّف مجموعة (`@g.us`) أو
+     * معرّفاً جاهزاً يُترَك كما هو.
+     */
+    $raw = trim($phone);
 
-    // تحويل الرقم إلى WhatsApp Chat ID
-    $chatId = $phone ;
+    if (str_contains($raw, '@')) {
+        $chatId = $raw;                       // معرّفٌ جاهز
+    } else {
+        $digits = preg_replace('/[^0-9]/', '', $raw);
+        $chatId = $digits === '' ? '' : $digits . '@c.us';
+    }
+
+    // والرقمُ المجرّد يبقى للسجلّات وحدها.
+    $phone = preg_replace('/[^0-9]/', '', $raw);
 
     try {
 
