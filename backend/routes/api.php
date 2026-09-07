@@ -127,6 +127,15 @@ Route::post('device/employee/transfers/{id}/deliver',
  *
  * وكلُّها قراءةٌ خالصة — لا تكتب حرفاً في أي دفتر.
  */
+/* ⚠ إنشاءُ الحوالة — الوحيدُ في تطبيق الموظف الذي **يكتب في الدفتر**.
+ *
+ * بإذن المالك الصريح (7 سبتمبر 2026)، وبشرطه: الموظف واجهةٌ للوكيل لا
+ * كيانٌ ماليّ ثانٍ. والمسارُ لا يحمل منطقاً مالياً — ينادي دالّة الوكيل
+ * نفسَها بهويّته. انظر `EmployeeActsAsAgent`.
+ */
+Route::post('device/employee/transfers/create',
+    [ EmployeeController::class , 'createTransfer' ])
+    ->middleware('employee:CREATE_TRANSFER');
 Route::get ('device/employee/transfers/search',
     [ EmployeeController::class , 'searchTransfer' ])
     ->middleware('employee:SEARCH_TRANSFER');

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\BaseController;
 use App\Services\AgentIncomingTransfersService;
 use App\Services\Employees\EmployeeAuditLogger;
+use App\Services\Employees\EmployeeActsAsAgent;
 use App\Services\Employees\EmployeeTransferViews;
 use App\Services\Employees\EmployeeCashboxService;
 use Illuminate\Http\Request;
@@ -136,6 +137,59 @@ class EmployeeController extends BaseController
         return $this->sendResponse($result, 'Success');
     }
 
+    /**
+     * POST employee/transfers/create — يتطلّب CREATE_TRANSFER
+     *
+     * ── أمرُ المالك (7 سبتمبر 2026) ────────────────────────────────────
+     *
+     * «سجلُّها الماليّ كما الوكيل، وليس أي سجلاتٍ جديدة. الموظف ينفّذ
+     * الحوالة وكأنه الوكيل — واجهةٌ من وكيل، لا مستقلٌّ استقلاليةً تامّة.»
+     *
+     * ⚠ ولذلك **لا سطرَ منطقٍ ماليٍّ واحد هنا**: يُنادى `InternalExchange`
+     * في `depositController` — الدالّةُ نفسُها التي ينفّذ بها الوكيل —
+     * بهويّة الوكيل. فالكودُ والعمولةُ وحدُّ الثلاث دقائق وحدودُ التحويل
+     * وفحصُ الرصيد كلُّها تجري بشيفرةِ الوكيل، ويخرج في `InternalEx` صفٌّ
+     * **لا يُميَّز عن صفّه** — لأنه صفُّه.
+     *
+     * ونسخةٌ ثانية من هذا المنطق كانت ستفترق عن الأصل عند أوّل تعديل، فتُكتب
+     * حوالتان بقاعدتين مختلفتين في دفترٍ واحد.
+     *
+     * ⚠ ومن نفّذ فعلاً يُسجَّل في `transfer_attributions` وحدها — بجوار
+     * الدفتر لا داخله، وهو موضعُ تسجيل التسليم منذ البداية.
+     */
+    public function createTransfer(Request $request)
+    {
+        [$employee, $session, ] = $this->ctx($request);
+
+        $actor = app(EmployeeActsAsAgent::class);
+
+        /* ⚠ الاستجابة تُعاد كما هي: رسائلُ الرفض التي يراها الوكيل هي
+           نفسُها التي يجب أن يراها الموظف — «رصيد غير كافٍ» و«يمكن
+           المحاولة بعد دقيقة» وغيرُهما. وترجمتُها هنا تعني نصّين
+           يفترقان. */
+        $response = $actor->as((int) $employee->agent_id,
+            fn () => app(depositController::class)->InternalExchange($request));
+
+        $payload = json_decode($response->getContent(), true);
+        $ok = ($payload['success'] ?? false) === true;
+
+        if ($ok) {
+            $t = $payload['data']['transfer'] ?? [];
+            $actor->attributeCreate(
+                $employee, $session,
+                (string) ($t['Code'] ?? ''),
+                (float) ($t['OverallVal'] ?? $request->input('amount', 0)),
+            );
+
+            $this->log->audit('EMPLOYEE_CREATED_TRANSFER',
+                $this->trace($request, $employee, $session) + [
+                    'entity_type' => 'transfer',
+                    'entity_id'   => (string) ($t['Code'] ?? ''),
+                ]);
+        }
+
+        return $response;
+    }
     /**
      * GET employee/transfers/search?q= — يتطلّب SEARCH_TRANSFER
      *

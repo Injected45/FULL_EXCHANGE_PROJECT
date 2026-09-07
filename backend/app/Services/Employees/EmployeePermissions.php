@@ -120,6 +120,9 @@ class EmployeePermissions
         'SEARCH_TRANSFER',
         'VIEW_OWN_TRANSFERS',
         'VIEW_POS_TRANSFERS',
+        // إنشاءُ الحوالة — بإذن المالك الصّريح (7 سبتمبر 2026)،
+        // والوحيدةُ هنا التي تكتب في الدّفتر الماليّ.
+        'CREATE_TRANSFER',
     ];
 
     /** هل للمفتاح أثرٌ فعليّ اليوم؟ */
