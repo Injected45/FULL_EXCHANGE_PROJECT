@@ -116,6 +116,10 @@ class EmployeePermissions
         'START_SHIFT',
         'CLOSE_SHIFT',
         'CHAT_WITH_AGENT',
+        // الدفعة الأولى من المفاتيح المُعطّلة: قراءةٌ خالصة.
+        'SEARCH_TRANSFER',
+        'VIEW_OWN_TRANSFERS',
+        'VIEW_POS_TRANSFERS',
     ];
 
     /** هل للمفتاح أثرٌ فعليّ اليوم؟ */

@@ -120,6 +120,24 @@ Route::post('device/employee/transfers/{id}/deliver',
     [ EmployeeController::class , 'deliver' ])
     ->middleware('employee:DELIVER_TRANSFER')->whereNumber('id');
 
+/* ── ما يراه الموظف من الحوالات ───────────────────────────────────────
+ *
+ * ⚠ ثلاثةُ مفاتيح لا مفتاح: من يبحث عن حوالةِ زبونٍ واقفٍ أمامه ليس
+ * بالضرورة من يُطلَّع على ما فعله زملاؤه على نقطة البيع.
+ *
+ * وكلُّها قراءةٌ خالصة — لا تكتب حرفاً في أي دفتر.
+ */
+Route::get ('device/employee/transfers/search',
+    [ EmployeeController::class , 'searchTransfer' ])
+    ->middleware('employee:SEARCH_TRANSFER');
+
+Route::get ('device/employee/transfers/mine',
+    [ EmployeeController::class , 'myTransfers' ])
+    ->middleware('employee:VIEW_OWN_TRANSFERS');
+
+Route::get ('device/employee/transfers/point-of-sale',
+    [ EmployeeController::class , 'posTransfers' ])
+    ->middleware('employee:VIEW_POS_TRANSFERS');
 Route::get ('device/employee/cashbox',
     [ EmployeeController::class , 'cashbox' ])
     ->middleware('employee:VIEW_OWN_CASHBOX');
@@ -571,6 +589,50 @@ Route::prefix('support')->group(function () {
         ->middleware('support:MANAGE_SLA')
         ->where('priority', 'NORMAL|HIGH|URGENT|CRITICAL');
 
+    /* ── الدفعة الثالثة: سير العمل ─────────────────────────────────────
+     *
+     * ⚠ ثلاثةُ مستويات من الحراسة هنا، وكلٌّ منها مقصود:
+     *
+     *   • القوالبُ والمسودّاتُ والمتابعاتُ بلا مفتاح — من دخل يملك أن
+     *     يكتب لنفسه اختصاراً ومسودّةً وتذكيراً. ومفتاحٌ عليها يمنع
+     *     ترتيبَ عملِ الموظّف لا يمنع قدرةً.
+     *   • إنشاءُ قالبٍ **مشترَك** يُفحص داخل الخدمة لا في المسار: المسارُ
+     *     واحدٌ للخاصّ والمشترَك، والفرقُ بينهما في جسم الطلب.
+     *   • التأجيلُ والتصعيدُ والتسليمُ بمفاتيحها — كلٌّ منها يغيّر ما
+     *     يراه الفريقُ كلُّه لا ما يراه صاحبُه.
+     */
+
+    Route::get ('saved-replies', [SupportController::class, 'savedReplies'])
+        ->middleware('support');
+    Route::post('saved-replies', [SupportController::class, 'createSavedReply'])
+        ->middleware('support');
+    Route::put ('saved-replies/{id}', [SupportController::class, 'updateSavedReply'])
+        ->middleware('support')->whereNumber('id');
+    Route::post('saved-replies/{id}/used', [SupportController::class, 'usedSavedReply'])
+        ->middleware('support')->whereNumber('id');
+
+    Route::put ('threads/{id}/draft', [SupportController::class, 'saveDraft'])
+        ->middleware('support:VIEW_THREADS')->whereNumber('id');
+
+    Route::post('threads/{id}/snooze', [SupportController::class, 'snooze'])
+        ->middleware('support:SNOOZE_THREAD')->whereNumber('id');
+    Route::post('threads/{id}/unsnooze', [SupportController::class, 'unsnooze'])
+        ->middleware('support:SNOOZE_THREAD')->whereNumber('id');
+
+    // التسليمُ إسنادٌ إلى غيرِك — فمفتاحُه مفتاحُ الإسناد نفسُه، ولا
+    // يُخترع له ثانٍ يعطي القدرةَ ذاتَها باسمٍ آخر.
+    Route::post('threads/{id}/handoff', [SupportController::class, 'handoff'])
+        ->middleware('support:ASSIGN_OTHERS')->whereNumber('id');
+
+    Route::post('threads/{id}/escalate', [SupportController::class, 'escalate'])
+        ->middleware('support:ESCALATE')->whereNumber('id');
+
+    Route::get ('followups', [SupportController::class, 'followups'])
+        ->middleware('support');
+    Route::post('threads/{id}/followup', [SupportController::class, 'addFollowup'])
+        ->middleware('support:VIEW_THREADS')->whereNumber('id');
+    Route::post('followups/{id}/done', [SupportController::class, 'doneFollowup'])
+        ->middleware('support')->whereNumber('id');
     // نبضةُ «أنا أكتب» — الحضورُ العاديّ يُسجَّل مع قراءة المحادثة.
     Route::post('threads/{id}/viewing', [SupportController::class, 'viewing'])
         ->middleware('support:VIEW_THREADS')->whereNumber('id');

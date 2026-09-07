@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\BaseController;
 use App\Services\AgentIncomingTransfersService;
 use App\Services\Employees\EmployeeAuditLogger;
+use App\Services\Employees\EmployeeTransferViews;
 use App\Services\Employees\EmployeeCashboxService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -133,6 +134,60 @@ class EmployeeController extends BaseController
         $result['counts'] = $this->transfers->counts((int) $employee->agent_id);
 
         return $this->sendResponse($result, 'Success');
+    }
+
+    /**
+     * GET employee/transfers/search?q= — يتطلّب SEARCH_TRANSFER
+     *
+     * ⚠ في دفتر وكيله وحده: الخدمة تأخذ `agent_id` فتحرس العزل بنفسها.
+     */
+    public function searchTransfer(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        $out = app(EmployeeTransferViews::class)
+            ->search((int) $employee->agent_id, (string) $request->query('q', ''));
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        return $this->sendResponse($out, 'Success');
+    }
+
+    /** GET employee/transfers/mine — يتطلّب VIEW_OWN_TRANSFERS */
+    public function myTransfers(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeTransferViews::class)->mine(
+                (int) $employee->agent_id,
+                (int) $employee->id,
+                (int) $request->query('page', 1),
+                (int) $request->query('per_page', 20),
+            ),
+            'Success');
+    }
+
+    /** GET employee/transfers/point-of-sale — يتطلّب VIEW_POS_TRANSFERS */
+    public function posTransfers(Request $request)
+    {
+        [$employee, $session, ] = $this->ctx($request);
+
+        // ⚠ نقطةُ البيع من **الجلسة** لا من صفّ الموظّف:
+        // الموظّف قد يعمل على شبّاكٍ اليوم وآخرَ غداً، والنّسبة
+        // تُكتب بالنّقطة التي كان عليها حينئذ. ولا عمودَ لها
+        // على `employees` أصلاً.
+        return $this->sendResponse(
+            app(EmployeeTransferViews::class)->pointOfSale(
+                (int) $employee->agent_id,
+                isset($session->active_pos_id) && $session->active_pos_id
+                    ? (int) $session->active_pos_id : null,
+                (int) $request->query('page', 1),
+                (int) $request->query('per_page', 20),
+            ),
+            'Success');
     }
 
     /**

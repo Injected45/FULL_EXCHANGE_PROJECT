@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/net/api_client.dart';
+import '../../core/net/api_envelope.dart';
 import '../../core/storage/secure_store.dart';
 
 /// جلسة الموظف — منفصلة تماماً عن جلسة الوكيل.
@@ -141,11 +142,32 @@ class EmployeeAuthController extends StateNotifier<EmployeeAuthState> {
       if (!mounted) return;
       state = EmployeeAuthState(
           status: EmpSessionStatus.signedIn, profile: profile);
-    } catch (_) {
+    } on ApiFailure catch (e) {
       // 401 يعني رمزاً ملغى أو موظفاً موقوفاً — يُمحى ويعود إلى الدخول.
-      await _store.clearEmployee();
+      if (e.statusCode == 401) {
+        await _store.clearEmployee();
+        if (!mounted) return;
+        state = const EmployeeAuthState(status: EmpSessionStatus.signedOut);
+        return;
+      }
+      // ⚠ وخادمٌ لا يُجاب عند الإقلاع لا يعني جلسةً منتهية: تُقرأ الجلسة
+      // المحفوظة ويبقى الموظف داخلاً. ومحوُها هنا كان يعني أن فتح
+      // التطبيق بلا شبكة يُلغي تفعيلَه.
+      final saved = await _store.readEmployee();
       if (!mounted) return;
-      state = const EmployeeAuthState(status: EmpSessionStatus.signedOut);
+      state = saved == null
+          ? const EmployeeAuthState(status: EmpSessionStatus.signedOut)
+          : EmployeeAuthState(
+              status: EmpSessionStatus.signedIn,
+              profile: EmployeeProfile.fromJson(saved));
+    } catch (_) {
+      final saved = await _store.readEmployee();
+      if (!mounted) return;
+      state = saved == null
+          ? const EmployeeAuthState(status: EmpSessionStatus.signedOut)
+          : EmployeeAuthState(
+              status: EmpSessionStatus.signedIn,
+              profile: EmployeeProfile.fromJson(saved));
     }
   }
 
@@ -155,7 +177,16 @@ class EmployeeAuthController extends StateNotifier<EmployeeAuthState> {
     await refresh();
   }
 
-  /// إعادة قراءة الملف والصلاحيات — تُستدعى عند فتح الشاشات المهمّة.
+  /// إعادة قراءة الملف والصلاحيات.
+  ///
+  /// ⚠ **لا يُخرَج الموظف إلا على 401.**
+  ///
+  /// كان `catch` يمحو الجلسة على أي خطأ — فانقطاعُ شبكةٍ لحظيّ أثناء سحبة
+  /// تحديثٍ يُخرج الموظف من التطبيق، ولا يعود إلا بكود تفعيلٍ جديد من
+  /// الوكيل. وهو أسوأ ما يقع في نظامٍ يُفترض أن الصلاحيات فيه تصل بسرعة:
+  /// من يُخرَج عند كل انقطاع يتعلّم ألّا يحدّث.
+  ///
+  /// و401 وحدها تعني رمزاً ملغى أو موظفاً موقوفاً — وتلك يجب أن تُخرجه.
   Future<void> refresh() async {
     try {
       final env = await _api.get('/device/employee/me');
@@ -164,10 +195,15 @@ class EmployeeAuthController extends StateNotifier<EmployeeAuthState> {
       if (!mounted) return;
       state = EmployeeAuthState(
           status: EmpSessionStatus.signedIn, profile: profile);
+    } on ApiFailure catch (e) {
+      if (e.statusCode == 401) {
+        await _store.clearEmployee();
+        if (!mounted) return;
+        state = const EmployeeAuthState(status: EmpSessionStatus.signedOut);
+      }
+      // وما دونها: انقطاعٌ عابر — تبقى الصلاحيات على آخر ما عُرف.
     } catch (_) {
-      await _store.clearEmployee();
-      if (!mounted) return;
-      state = const EmployeeAuthState(status: EmpSessionStatus.signedOut);
+      // انقطاعٌ عابر كذلك: لا يُمحى شيء.
     }
   }
 
