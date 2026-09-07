@@ -592,10 +592,35 @@ class EmployeeActivationService
          */
         $to = $this->waNumber($phone);
         try {
-            (new Watsaoserversfrom())->sendFormasggme($to, 'رمز التحقق الخاص بك هو: ' . $otp);
+            $res = (new Watsaoserversfrom())
+                ->sendFormasggme($to, 'رمز التحقق الخاص بك هو: ' . $otp);
+
+            /*
+             * ⚠ البوّابة **تُرجِع** الفشل ولا ترميه: `['success' => false]`.
+             *
+             * فـ`catch` وحده لا يرى شيئاً، وفشلُ الإرسال كان يظهر
+             * للموظّف رمزاً لا يصل **بلا أي أثرٍ في أي سجلّ** —
+             * فيصير تشخيصُه تخميناً: رقمٌ غير مسجّل؟ بوّابةٌ معطّلة؟
+             * واتسابٌ غير مفعّلٍ على الرقم؟
+             */
+            if (is_array($res) && ($res['success'] ?? null) === false) {
+                // ⚠ السّبب في `detail` لا في السّياق: `security_logs` لا
+                // تحمل عموداً له، فما يُمرّر في السّياق يُسقَط
+                // بصمت — وهو عينُ ما نُصلِحُه هنا.
+                $this->log->security('OTP_SEND_FAILED',
+                    'تعذّر إرسال رمز التحقّق إلى رقم الموظّف — '
+                        . mb_substr((string) ($res['message'] ?? '?'), 0, 200), [
+                        'phone' => $phone,
+                    ]);
+            }
         } catch (\Throwable $e) {
-            // الرمز محفوظ مُجزّأً؛ وفشل الإرسال يظهر للموظف كرمزٍ لا يصل،
-            // ويعالجه بإعادة الطلب. ولا يُكشف الرمز في أي سجلّ.
+            $this->log->security('OTP_SEND_FAILED',
+                'استثناء أثناء إرسال رمز التحقّق — '
+                    . mb_substr($e->getMessage(), 0, 200), [
+                    'phone' => $phone,
+                ]);
         }
+
+        // ⚠ ولا يُكتب الرمزُ نفسُه في أي سجلّ — الفشلُ يُسجّل لا محتواه.
     }
 }
