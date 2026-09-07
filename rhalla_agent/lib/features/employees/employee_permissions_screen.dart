@@ -195,6 +195,7 @@ class _GroupCard extends StatelessWidget {
           for (final item in group.items)
             _PermRow(
               label: item.label,
+              live: item.live,
               on: granted.contains(item.key),
               onTap: () => onToggle(item.key),
             ),
@@ -205,9 +206,15 @@ class _GroupCard extends StatelessWidget {
 }
 
 class _PermRow extends StatelessWidget {
-  const _PermRow({required this.label, required this.on, required this.onTap});
+  const _PermRow({
+    required this.label,
+    required this.live,
+    required this.on,
+    required this.onTap,
+  });
 
   final String label;
+  final bool live;
   final bool on;
   final VoidCallback onTap;
 
@@ -242,6 +249,22 @@ class _PermRow extends StatelessWidget {
                     style: T.plex(13, FontWeight.w500,
                         color: on ? R.ink : R.inkA(.62))),
               ),
+
+              // ⚠ وسمٌ لا تعطيل: المنحُ المسبق يبقى ممكناً — تُمنح اليوم
+              // فتعمل يوم تُوصَل الميزة، بلا أن يعود الوكيل إلى الشاشة.
+              // والمقصود ألّا يظنّ أنه أعطى قدرةً تظهر الآن.
+              if (!live)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: R.warnBg,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: R.warnBorder),
+                  ),
+                  child: Text('لم تُفعَّل بعد',
+                      style: T.plex(10.5, FontWeight.w600, color: R.warnInk)),
+                ),
             ],
           ),
         ),

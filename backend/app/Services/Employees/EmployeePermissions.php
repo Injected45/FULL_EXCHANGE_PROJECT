@@ -89,6 +89,40 @@ class EmployeePermissions
         'MANAGE_COMPANY_BRANDING',
     ];
 
+    /**
+     * ما هو **موصولٌ فعلاً** — لا ما نيّتُنا أن نصله.
+     *
+     * ── لماذا هذه القائمة موجودة ─────────────────────────────────────
+     *
+     * ⚠ الكتالوج كُتب قبل الميزات، فصار فيه مفاتيحُ تُمنح ولا تفعل شيئاً:
+     * يمنحها الوكيل، وتُحفظ، ولا يظهر عند الموظف شيء — ولا رسالةَ تقول
+     * لماذا. وهذا أسوأ من غياب الصلاحية أصلاً: الوكيل يظنّ أنه أعطى
+     * موظّفه قدرةً، والموظف يظنّ أن التطبيق معطوب.
+     *
+     * فصارت الشاشةُ تقول الحقيقة: ما ليس هنا يُعرض «لم تُفعَّل بعد».
+     *
+     * ⚠ وهي في الخادم لا في التطبيق: ميزةٌ تُوصَل غداً تُضاف هنا فتظهر
+     * مفعّلةً بلا إصدارٍ جديد من التطبيق — وهو المبدأ نفسُه الذي يجعل
+     * كتالوج الصلاحيات كلَّه في الخادم.
+     *
+     * والمصدرُ الوحيد للحقيقة: مساراتُ `device/employee/*` في
+     * `routes/api.php`. من أضاف مساراً بمفتاحٍ جديد يُضيفه هنا معه.
+     */
+    public const LIVE = [
+        'VIEW_INCOMING_TRANSFERS',
+        'DELIVER_TRANSFER',
+        'VIEW_OWN_CASHBOX',
+        'CASHBOX_ENTRY',
+        'START_SHIFT',
+        'CLOSE_SHIFT',
+        'CHAT_WITH_AGENT',
+    ];
+
+    /** هل للمفتاح أثرٌ فعليّ اليوم؟ */
+    public static function isLive(string $key): bool
+    {
+        return in_array($key, self::LIVE, true);
+    }
     public static function exists(string $key): bool
     {
         return array_key_exists($key, self::CATALOG);
@@ -109,7 +143,13 @@ class EmployeePermissions
             $items = [];
             foreach (self::CATALOG as $key => [$g, $label]) {
                 if ($g === $groupKey) {
-                    $items[] = ['key' => $key, 'label' => $label];
+                    $items[] = [
+                        'key'   => $key,
+                        'label' => $label,
+                        // ⚠ الشاشةُ تعرض هذا: مفتاحٌ غير موصولٍ يُمنح
+                        // ولا يفعل شيئاً، فيجب أن يقول ذلك بنفسه.
+                        'live'  => self::isLive($key),
+                    ];
                 }
             }
             if ($items !== []) {

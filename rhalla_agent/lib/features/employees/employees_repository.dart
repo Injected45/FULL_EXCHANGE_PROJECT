@@ -196,14 +196,33 @@ class PermissionGroup {
 }
 
 class PermissionItem {
-  const PermissionItem({required this.key, required this.label});
+  const PermissionItem({
+    required this.key,
+    required this.label,
+    required this.live,
+  });
 
   final String key;
   final String label;
 
+  /// هل للصلاحية أثرٌ فعليّ اليوم؟
+  ///
+  /// ⚠ الكتالوج كُتب قبل الميزات، ففيه مفاتيحُ تُمنح ولا تفعل شيئاً: يمنحها
+  /// الوكيل، وتُحفظ، ولا يظهر عند الموظف شيء — ولا رسالةَ تقول لماذا. وهذا
+  /// أسوأ من غياب الصلاحية: الوكيل يظنّ أنه أعطى قدرةً، والموظف يظنّ أن
+  /// التطبيق معطوب.
+  ///
+  /// والقيمةُ تأتي من الخادم لا من قائمةٍ هنا: ميزةٌ تُوصَل غداً تظهر
+  /// مفعّلةً بلا إصدارٍ جديد من التطبيق.
+  ///
+  /// والافتراضُ `true` عند غيابها: خادمٌ قديم لا يرسلها، ووسمُ كلِّ شيءٍ
+  /// «غير مفعّل» حينئذٍ أسوأ من عدم الوسم.
+  final bool live;
+
   static PermissionItem fromJson(Map<String, dynamic> j) => PermissionItem(
         key: '${j['key'] ?? ''}',
         label: '${j['label'] ?? ''}',
+        live: j['live'] == null || j['live'] == true || j['live'] == 1,
       );
 }
 
