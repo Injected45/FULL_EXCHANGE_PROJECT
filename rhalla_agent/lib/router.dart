@@ -44,6 +44,15 @@ import 'features/transfers/transfers_screen.dart';
 
 final _rootKey = GlobalKey<NavigatorState>();
 
+/// المساراتُ التي يشاركها الموظف الوكيلَ — إنشاءُ الحوالة وحده.
+///
+/// ⚠ قائمةٌ صريحةٌ لا بادئةٌ مفتوحة: `startsWith('/send')` كانت ستفتح معها
+/// الحوالة الخارجية والتحويل بين الحسابات، ولم يُؤذَن بواحدٍ منهما.
+bool _sharedWithEmployee(String loc) =>
+    loc == '/send/internal' ||
+    loc == '/send/internal/review' ||
+    loc == '/send/internal/done';
+
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authControllerProvider);
 
@@ -70,9 +79,24 @@ final routerProvider = Provider<GoRouter>((ref) {
       final loc = state.matchedLocation;
       final inEmployeeArea = loc.startsWith('/employee/');
 
-      // الموظف الداخل يبقى في مساره ولا يرى شاشة وكيل واحدة.
+      /*
+       * الموظف الداخل يبقى في مساره ولا يرى شاشة وكيل — إلّا ثلاثاً
+       * يشاركها الوكيلَ عمداً.
+       *
+       * ⚠ أمرُ المالك (7 سبتمبر 2026): «الموظف ينفّذ الحوالة وكأنه الوكيل
+       * — واجهةٌ من وكيل، لا مستقلٌّ استقلاليةً تامّة». فشاشةُ الإنشاء
+       * ومراجعتُها ونجاحُها **هي هي**؛ ونسخةٌ ثانية منها للموظف كانت
+       * ستفترق عن الأولى عند أوّل تعديل، فيرى الاثنان نموذجين مختلفين
+       * لعمليةٍ واحدة.
+       *
+       * ⚠ وهو استثناءٌ مكتوبٌ لا ثغرة: الحارسُ في الخادم
+       * (`employee:CREATE_TRANSFER`)، والمستودعُ يبدّل المسار إلى نظيره
+       * تحت `device/employee/` لأن رمز الموظف لا يفتح مسارات الوكيل. فمن
+       * بلغ هذه الشاشة بلا صلاحية يصطدم بـ403 عند أوّل نداء.
+       */
       if (employeeIn) {
-        return inEmployeeArea && loc != '/employee/activate'
+        return (inEmployeeArea && loc != '/employee/activate') ||
+                _sharedWithEmployee(loc)
             ? null
             : '/employee/home';
       }

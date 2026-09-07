@@ -67,6 +67,10 @@ class SupportOps
         self::EV_CLOSED     => 'أُغلقت',
         self::EV_SNOOZED    => 'أُجّلت',
         self::EV_UNSNOOZED  => 'عادت من التأجيل',
+        // الدفعةُ الثالثة — القيمُ نفسُها في `SupportFlow::EV_*`.
+        'HANDOFF'           => 'سُلّمت إلى موظّف',
+        'ESCALATED'         => 'صُعّدت',
+        'FOLLOWUP'          => 'متابعةٌ مجدولة',
     ];
 
     public static function priorityExists(string $p): bool
@@ -74,6 +78,27 @@ class SupportOps
         return array_key_exists($p, self::PRIORITIES);
     }
 
+    /**
+     * الدرجةُ التالية فوق الحالية — للتصعيد (البند 13).
+     *
+     * ⚠ درجةٌ واحدة لا قفزٌ إلى «حرجة»: التصعيدُ اعترافٌ بأنّ
+     * الحالة أكبرُ ممّا ظُن، لا إعلانُ طوارئ — ولو قفز كلّ
+     * تصعيدٍ إلى أعلاها لصارت «حرجة» تعني «صُعّدت» وضاع معناها.
+     *
+     * وما بلغ الأعلى يبقى: التصعيدُ لا يُرفَض لأنّ الأولوية
+     * بلغت سقفَها — فللتصعيد معنىً آخر: إسنادٌ وسببٌ مكتوب.
+     */
+    public static function nextPriorityUp(?string $p): string
+    {
+        $rank = self::priorityRank($p);
+        foreach (self::PRIORITIES as $key => $meta) {
+            if ($meta['rank'] === $rank + 1) {
+                return $key;
+            }
+        }
+
+        return $p ?: self::NORMAL;
+    }
     public static function priorityRank(?string $p): int
     {
         return self::PRIORITIES[$p ?? self::NORMAL]['rank'] ?? 0;

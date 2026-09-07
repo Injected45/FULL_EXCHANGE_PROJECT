@@ -36,6 +36,12 @@ class FakeStore implements SecureStore {
   @override
   Future<bool> readOnboarded() async => true;
 
+  /// لا رمزَ موظف ⇒ الشاشات تُبنى في وضع الوكيل، وهو ما تقيسه هذه
+  /// الاختبارات. و`noSuchMethod` لا تُغني هنا: الدالّة تُرجع `Future` تُنتظَر
+  /// فعلاً، فرجوعُ `null` منها يرمي قبل أن تُبنى الشاشة.
+  @override
+  Future<String?> readEmployeeToken() async => null;
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

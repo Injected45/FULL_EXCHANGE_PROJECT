@@ -86,6 +86,21 @@ class SupportPermissions
         'CLOSE_THREAD'      => ['workflow', 'إغلاق محادثة'],
         'REOPEN_THREAD'     => ['workflow', 'إعادة فتح محادثة مغلقة'],
 
+        // ── الدفعة الثالثة (بنود المالك 8 و13 و15) ────────
+        //
+        // ⚠ لا مفتاح لـ«استعمال القوالب»: من يملك `REPLY` يملك أن
+        // يكتب النصّ بيده، ومنعُه من لصقِه يمنع اختصاراً لا
+        // قدرةً. والمفتاحُ للمشترَكة وحدها: تلك نصٌّ يُرسل
+        // باسم الشركة إلى وكلائها، ومن يكتبُه يكتب لسانَها.
+        'MANAGE_SAVED_REPLIES' => ['workflow', 'إدارة الردود الجاهزة المشتركة'],
+
+        // ⚠ `ESCALATE` مفصولةٌ عن `SET_PRIORITY` وإن رفعت الأولوية:
+        // الثانيةُ تعطي التحكّم في ترتيب الفريق كلّه، والأولى
+        // طلبُ نجدةٍ مقيّدٌ بسببٍ مكتوب — وموظّفٌ لا يستطيع
+        // طلب النجدة يُترك وحده مع مشكلةٍ أكبر منه.
+        'ESCALATE'          => ['workflow', 'تصعيد الحالة إلى مستوى أعلى'],
+        'SNOOZE_THREAD'     => ['workflow', 'تأجيل محادثة إلى موعد'],
+
         // ── الإدارة ────────────────────────────────────────────────
         'MANAGE_STAFF'       => ['admin', 'إدارة حسابات الدعم'],
         'MANAGE_PERMISSIONS' => ['admin', 'منح الصلاحيات وسحبها'],
@@ -126,6 +141,7 @@ class SupportPermissions
             'SEARCH_MESSAGES', 'ASSIGN_SELF', 'CHANGE_STATUS',
             'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES',
             'VIEW_DASHBOARD',
+            'MANAGE_SAVED_REPLIES', 'ESCALATE', 'SNOOZE_THREAD',
         ],
         self::SUPERVISOR => [
             'VIEW_THREADS', 'VIEW_ALL_THREADS', 'REPLY', 'SEND_ATTACHMENT',
@@ -135,6 +151,7 @@ class SupportPermissions
             'REOPEN_THREAD', 'VIEW_AUDIT', 'VIEW_STATS',
             'VIEW_DASHBOARD', 'VIEW_TEAM', 'MANAGE_SLA',
             'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES',
+            'MANAGE_SAVED_REPLIES', 'ESCALATE', 'SNOOZE_THREAD',
             // المشرف يدير التصنيفات: هو من يرى تكرار المشاكل فيعرف أيَّ
             // تصنيفٍ يلزم — والمديرُ لا يقرأ المحادثات يومياً.
             'MANAGE_TAXONOMY',
@@ -162,6 +179,11 @@ class SupportPermissions
             // التصنيفُ والملاحظةُ من عملِه اليوميّ: من يقرأ المشكلة هو من
             // يعرف نوعَها، ومن يعمل عليها هو من يكتب لزميله ما وجده.
             'SET_CATEGORY', 'INTERNAL_NOTES', 'VIEW_DASHBOARD',
+            // والتصعيدُ والتأجيلُ افتراضيّان: من يواجه المشكلة هو
+            // من يعرف متى تتجاوزُه ومتى تنتظر غداً. وإدارةُ
+            // القوالب المشترَكة ليست افتراضيّةً — والخاصّةُ لا تحتاج
+            // مفتاحاً أصلاً.
+            'ESCALATE', 'SNOOZE_THREAD',
             // ⚠ `SET_PRIORITY` **ليست افتراضية** وإن كانت تحت سقفه:
             // موظّفٌ يرفع أولويةَ محادثاته كلَّها يُلغي معنى الأولوية على
             // الفريق. تُمنح لمن يُوثَق بحكمه فيها.
@@ -174,6 +196,7 @@ class SupportPermissions
             'REOPEN_THREAD', 'VIEW_STATS',
             'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES', 'MANAGE_TAXONOMY',
             'VIEW_DASHBOARD', 'VIEW_TEAM', 'MANAGE_SLA',
+            'MANAGE_SAVED_REPLIES', 'ESCALATE', 'SNOOZE_THREAD',
         ],
         self::ADMIN => [
             'VIEW_THREADS', 'VIEW_ALL_THREADS', 'REPLY', 'SEND_ATTACHMENT',
@@ -184,6 +207,7 @@ class SupportPermissions
             'VIEW_AUDIT', 'VIEW_STATS',
             'SET_PRIORITY', 'SET_CATEGORY', 'INTERNAL_NOTES', 'MANAGE_TAXONOMY',
             'VIEW_DASHBOARD', 'VIEW_TEAM', 'MANAGE_SLA',
+            'MANAGE_SAVED_REPLIES', 'ESCALATE', 'SNOOZE_THREAD',
         ],
     ];
 

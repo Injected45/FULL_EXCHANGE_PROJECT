@@ -577,15 +577,28 @@ $fk = DB::select("SELECT OBJECT_NAME(referenced_object_id) d FROM sys.foreign_ke
                    WHERE OBJECT_NAME(parent_object_id) LIKE 'support[_]%'");
 $dests = array_unique(array_column($fk, 'd'));
 sort($dests);
-$check('كل المفاتيح الأجنبية داخلية',
-    /*
-     * ⚠ الفحصُ ليس على عددٍ ثابت بل على **الوجهات**: كلُّ مفتاحٍ يشير إلى
-     * جدولِ دردشةٍ أو جدولِ دعم، وليس إلى جدولٍ ماليّ واحد. فإضافةُ مفتاحٍ
-     * جديد لجدولٍ داخليّ (كـ`support_tag_defs`) تمرّ، وإضافةُ مفتاحٍ إلى
-     * `wallet` أو `InternalEx` تسقط فوراً — وهو المقصود.
-     */
-    $dests === ['chat_threads', 'support_staff', 'support_tag_defs'],
-    implode(' · ', $dests));
+/*
+ * ⚠ الفحصُ على **طبيعة** الوجهة لا على قائمةٍ مكتوبة.
+ *
+ * كان يقارن بثلاثة أسماءٍ حرفيّاً، فكانت كلّ دفعةٍ تُضيف
+ * مفتاحاً إلى جدول دعمٍ جديد تُسقِطُه — وإسقاطٌ متكرّرٌ
+ * لسببٍ سليم يُعلّم قراءتَه تجاهُلَ هذا الفحص، وهو أخطر
+ * فحصٍ في الملفّ.
+ *
+ * والمقصودُ واحد: لا مفتاحَ من مركز الدّعم إلى جدولٍ ماليّ.
+ * فيُكتب كما يُقصَد: الوجهةُ جدولُ دعمٍ أو دردشةٍ، وليست
+ * واحداً من الجداول المالية المسمّاة.
+ */
+$financial = ['wallet', 'InternalEx', 'ExternalEx', 'EX24AccSafeActivityTb',
+              'ExchangeAccData', 'AccountsTb', 'users', 'AuthorizedUsers'];
+$outside = array_values(array_filter($dests,
+    fn ($d) => !str_starts_with($d, 'support_') && !str_starts_with($d, 'chat_')));
+$toMoney = array_values(array_intersect($dests, $financial));
+
+$check('كلُّ مفتاحٍ يشير إلى جدول دعمٍ أو دردشة',
+    $outside === [], $outside ? implode(' · ', $outside) : implode(' · ', $dests));
+$check('⚠ ولا مفتاحَ إلى جدولٍ ماليّ',
+    $toMoney === [], $toMoney ? implode(' · ', $toMoney) : '0');
 
 $tr = DB::select("SELECT name FROM sys.triggers WHERE OBJECT_NAME(parent_id) LIKE 'support[_]%'");
 $check('لا محفّزات على جداول الدعم', count($tr) === 0, 'عدد=' . count($tr));

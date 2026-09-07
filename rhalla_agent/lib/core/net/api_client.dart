@@ -12,6 +12,11 @@ const kApiBase = String.fromEnvironment(
 );
 
 class ApiClient {
+  /// المخزنُ للقراءة فقط — يحتاجه من يسأل «أي وضعٍ نحن فيه؟».
+  ///
+  /// ولا يُعرَض للكتابة: من يكتب الرموز هو مسارُ الدخول وحده.
+  SecureStore get store => _store;
+
   ApiClient(this._store) {
     _dio = Dio(BaseOptions(
       baseUrl: kApiBase,

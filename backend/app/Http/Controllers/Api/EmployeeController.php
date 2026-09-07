@@ -167,8 +167,25 @@ class EmployeeController extends BaseController
            نفسُها التي يجب أن يراها الموظف — «رصيد غير كافٍ» و«يمكن
            المحاولة بعد دقيقة» وغيرُهما. وترجمتُها هنا تعني نصّين
            يفترقان. */
-        $response = $actor->as((int) $employee->agent_id,
-            fn () => app(depositController::class)->InternalExchange($request));
+        $response = $actor->as((int) $employee->agent_id, function ($agent) use ($request) {
+            /*
+             * ⚠ `AccID` يُملأ من الوكيل لا من الطلب.
+             *
+             * المُتحقِّقُ في مسار الوكيل يشترط وجودَه، والخادمُ بعد ذلك
+             * **يُهمله** ويستعمل `Auth::user()->AccID`. فلو تُرك للتطبيق
+             * لصار حقلاً يُرسَل ولا يُقرأ — وأسوأ من ذلك: حقلاً يظنّ من
+             * يقرأ الشيفرة أنه يؤثّر، فيحاول تغييرَه يوماً.
+             *
+             * وملؤُه هنا يعني أيضاً أن الموظف **لا يستطيع** تسمية حسابٍ
+             * آخر مهما أرسل: القيمةُ تُدهَس بحساب وكيله قبل أن تُقرأ.
+             */
+            $request->merge([
+                'AccID'      => $agent->AccID,
+                'country_id' => $request->input('country_id') ?: 1,
+            ]);
+
+            return app(depositController::class)->InternalExchange($request);
+        });
 
         $payload = json_decode($response->getContent(), true);
         $ok = ($payload['success'] ?? false) === true;
@@ -190,6 +207,44 @@ class EmployeeController extends BaseController
 
         return $response;
     }
+    /**
+     * بياناتُ المراجع لشاشة الإنشاء — الدولُ والمدنُ والفروع.
+     *
+     * ⚠ تُنادى **بهويّة الوكيل** كما يُنادى الإنشاء نفسُه، لا لأنها تقرأ
+     * الهويّة بل لأن بعضَها يشترط وجودَها: `CoBranch_select` تبدأ بـ
+     * `Auth::check()` وتردّ 401 بدونها — وهو ما ظهر عملياً.
+     *
+     * وتوحيدُ المسار أسلمُ من فحصِ كلِّ دالّةٍ على حدة: دالّةٌ لا تسأل عن
+     * الهويّة اليوم قد تسألها غداً، وحينها يسقط مسارُ الموظف بلا سبب ظاهر.
+     */
+    private function refAsAgent(Request $request, string $method)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return app(EmployeeActsAsAgent::class)->as(
+            (int) $employee->agent_id,
+            fn () => app(depositController::class)->{$method}($request),
+        );
+    }
+
+    /** POST employee/ref/countries — يتطلّب CREATE_TRANSFER */
+    public function refCountries(Request $request)
+    {
+        return $this->refAsAgent($request, 'getCountries');
+    }
+
+    /** POST employee/ref/cities — يتطلّب CREATE_TRANSFER */
+    public function refCities(Request $request)
+    {
+        return $this->refAsAgent($request, 'GetCities');
+    }
+
+    /** GET employee/ref/branches — يتطلّب CREATE_TRANSFER */
+    public function refBranches(Request $request)
+    {
+        return $this->refAsAgent($request, 'CoBranch_select');
+    }
+
     /**
      * GET employee/transfers/search?q= — يتطلّب SEARCH_TRANSFER
      *

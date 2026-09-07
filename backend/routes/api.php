@@ -127,6 +127,27 @@ Route::post('device/employee/transfers/{id}/deliver',
  *
  * وكلُّها قراءةٌ خالصة — لا تكتب حرفاً في أي دفتر.
  */
+/* ── بياناتُ المراجع لشاشة الإنشاء ─────────────────────────────────────
+ *
+ * الدولُ والمدنُ والفروع. وهي **الدوالُّ نفسُها** التي يقرأ منها الوكيل —
+ * لا نسخةٌ ثانية — ولا تقرأ هويّةَ المستخدم أصلاً (مفحوصٌ: صفرُ نداءات
+ * `Auth::user()` في ثلاثتها). فالمشترَكُ بينها وبين الوكيل هو الشيفرة،
+ * والمختلفُ هو الحارس.
+ *
+ * ومفتاحُها `CREATE_TRANSFER`: من لا يملك الإنشاء لا حاجة له بقائمة
+ * الفروع، وفتحُها له توسيعٌ بلا سبب.
+ */
+Route::post('device/employee/ref/countries',
+    [ EmployeeController::class , 'refCountries' ])
+    ->middleware('employee:CREATE_TRANSFER');
+
+Route::post('device/employee/ref/cities',
+    [ EmployeeController::class , 'refCities' ])
+    ->middleware('employee:CREATE_TRANSFER');
+
+Route::get ('device/employee/ref/branches',
+    [ EmployeeController::class , 'refBranches' ])
+    ->middleware('employee:CREATE_TRANSFER');
 /* ⚠ إنشاءُ الحوالة — الوحيدُ في تطبيق الموظف الذي **يكتب في الدفتر**.
  *
  * بإذن المالك الصريح (7 سبتمبر 2026)، وبشرطه: الموظف واجهةٌ للوكيل لا

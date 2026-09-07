@@ -230,24 +230,48 @@ class SendRepository {
 
   final ApiClient _api;
 
+  /// هل التطبيق الآن في وضع الموظف؟
+  ///
+  /// ⚠ **الشاشاتُ واحدة، والمسارُ يختلف.** أمرُ المالك: «الموظف واجهةٌ من
+  /// وكيل، لا مستقلٌّ استقلاليةً تامّة». فشاشةُ الإنشاء ومراجعتُها ونجاحُها
+  /// هي هي — وشاشةٌ ثانية للموظف كانت ستفترق عن الأولى عند أوّل تعديل،
+  /// فيرى الموظف والوكيل نموذجين مختلفين لعمليةٍ واحدة.
+  ///
+  /// والمختلفُ هو الحارس وحده: رمزُ الموظف لا يفتح مسارات الوكيل
+  /// (`auth:sanctum`)، فتُنادى نظائرُها تحت `employee:CREATE_TRANSFER`.
+  ///
+  /// ⚠ والتخزينُ يحمل رمزاً واحداً لا اثنين (انظر `SecureStore.readToken`)،
+  /// فوجودُ رمز الموظف هو **تعريفُ** الوضع لا تخمينٌ له.
+  Future<bool> _asEmployee() async =>
+      (await _api.store.readEmployeeToken())?.isNotEmpty ?? false;
+
+  /// المسارُ المناسب للوضع الحالي.
+  Future<String> _path(String agentPath, String employeePath) async =>
+      await _asEmployee() ? employeePath : agentPath;
+
   /// ليبيا. `IsMain = 1` في CountiresTb.
   static const libyaId = 1;
 
   /// ⚠️ النقطة **تستبعد** المعرّف المُرسل — إنها «الدول الأخرى».
   /// نمرّر 0 لنحصل على الكل.
   Future<List<Ref2>> countries() async {
-    final env = await _api.post('/device/countries', body: {'country_id': 0});
+    final env = await _api.post(
+        await _path('/device/countries', '/device/employee/ref/countries'),
+        body: {'country_id': 0});
     return env.rows.map(Ref2.country).toList();
   }
 
   Future<List<Ref2>> cities({int countryId = libyaId}) async {
-    final env = await _api.post('/device/cities',
+    final env = await _api.post(
+        await _path('/device/cities', '/device/employee/ref/cities'),
         body: {'country_id': countryId, 'exclude_city_id': 0});
     return env.rows.map(Ref2.city).toList();
   }
 
   Future<List<Ref2>> branches() async {
-    final env = await _api.get('/device/exchange/CoBranch_select_get');
+    final env = await _api.get(await _path(
+        '/device/exchange/CoBranch_select_get',
+        '/device/employee/ref/branches'));
     return env.rows.map(Ref2.branch).toList();
   }
 
@@ -264,7 +288,10 @@ class SendRepository {
     String? senderName,
     String? senderPhone,
   }) async {
-    final env = await _api.post('/device/internal/exchange', body: {
+    final env = await _api.post(
+        await _path('/device/internal/exchange',
+            '/device/employee/transfers/create'),
+        body: {
       'country_id': libyaId,
       'AccID': accId,
       'reviced_name': d.receiverName.trim(),

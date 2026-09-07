@@ -192,10 +192,9 @@ $bodies = DB::table('chat_messages')->where('thread_id', $T)
     ->whereNotNull('body')->pluck('body')
     ->map(fn ($b) => trim((string) $b))->filter()->values()->all();
 $check('ولا يحمل نصَّ رسالة',
-    !array_filter($tl, fn ($e) =>
-        (mb_strlen((string) ($e['note'] ?? '')) > 0
-            && !in_array($e['kind'], ['NOTE', 'CLOSED'], true))
-        || in_array(trim((string) ($e['note'] ?? '')), $bodies, true)
+    $bodies !== []
+    && !array_filter($tl, fn ($e) =>
+        in_array(trim((string) ($e['note'] ?? '')), $bodies, true)
         || in_array(trim((string) ($e['to'] ?? '')), $bodies, true)));
 
 $line();

@@ -13,6 +13,7 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../employee_app/employee_session.dart';
 import '../auth/auth_repository.dart';
 import '../shell/auto_refresh.dart';
 import 'limit_dialog.dart';
@@ -134,8 +135,9 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
     // مكرَّر — أو لصقٌ، أو ضغطة على الزرّ في أثناء الإرسال — كان سينشئ
     // حوالتين لا واحدة. وهذا مالٌ لا يُسترجع.
     if (_sending || _spent) return;
+    final employee = _asEmployee;
     final user = ref.read(authControllerProvider).user;
-    if (user == null || _code.length != _otpLength) return;
+    if (!employee && (user == null || _code.length != _otpLength)) return;
 
     setState(() {
       _sending = true;
@@ -144,8 +146,11 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
     FocusScope.of(context).unfocus();
 
     // 1) التحقّق من الرمز على الخادم. لا يُقارَن هنا — العميل لا يعرفه.
+    //    ويُتخطّى في وضع الموظف: الرمزُ يذهب إلى هاتف الوكيل.
     try {
-      await ref.read(authRepositoryProvider).verifyOtp(user.phone, _code);
+      if (!employee) {
+        await ref.read(authRepositoryProvider).verifyOtp(user!.phone, _code);
+      }
     } on ApiFailure catch (e) {
       if (!mounted) return;
       setState(() {
@@ -163,9 +168,11 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
     _spent = true;
 
     try {
+      // ⚠ في وضع الموظف يُملأ `AccID` في الخادم من حساب وكيله ويُدهَس
+      // ما يُرسَل — فلا يستطيع الموظف تسمية حسابٍ آخر مهما فعل.
       final created = await ref.read(sendRepositoryProvider).createInternal(
             d: widget.draft,
-            accId: user.accId,
+            accId: user?.accId ?? 0,
           );
       if (!mounted) return;
       // الرصيد والعمليات تغيّرا على الخادم.
@@ -189,7 +196,9 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
           backgroundColor: Colors.transparent,
           builder: (_) => _InsufficientSheet(
             data: short,
-            currency: user.currencyCode,
+            // ⚠ في وضع الموظف لا مستخدمَ وكيلٍ في الجلسة — والرمزُ الافتراضيّ
+            // هو الذي تعرضه بقيّةُ الشاشة أصلاً، فلا يفترق سطرٌ عن سطر.
+            currency: user?.currencyCode ?? 'د.ل',
           ),
         );
         return;
@@ -219,7 +228,29 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
   }
 
   bool get _busy => _sending || _requesting;
-  bool get _ready => !_busy && !_spent && _code.length == _otpLength;
+
+  /// وضعُ الموظف — يغيّر خطوةَ التأكيد وحدها، لا شيئاً في الحوالة.
+  bool get _asEmployee =>
+      ref.read(employeeAuthProvider).status == EmpSessionStatus.signedIn;
+
+  /*
+   * ⚠ الموظف يؤكّد بلمسةٍ صريحة لا برمزٍ إلى هاتف الوكيل.
+   *
+   * رمزُ هذه الشاشة يُرسَل إلى **هاتف الوكيل**، وهو حاضرٌ حين يرسل
+   * الوكيلُ بنفسه وغائبٌ حين يقف الموظف خلف الشبّاك. فاشتراطُه على
+   * الموظف يعني حوالةً لا تُنفَّذ حتى يردّ الوكيل على هاتفه — وهو ما
+   * يُبطل الميزة لا يحرسها.
+   *
+   * ⚠ ولا يضيع بذلك حارسٌ من الخادم: نقطةُ الإنشاء **لا تطلب رمزاً
+   * أصلاً** (انظر وصف هذه الشاشة أعلاه). الرمزُ ههنا مراسمُ عميلٍ
+   * تحمي من عبثٍ بهاتفٍ مفتوح — وحمايةُ الموظف من ذلك هي جلستُه
+   * المربوطة بجهازه وصلاحيتُه الممنوحة، ونسبةُ العملية إليه باسمه.
+   *
+   * ولو أُريد للموظف رمزٌ بالقوّة نفسِها فمحلُّه **هاتفُ الموظف** لا
+   * هاتفُ الوكيل — وهاتفُه موثَّقٌ عند التفعيل، فالبنيةُ قائمة.
+   */
+  bool get _ready => !_busy && !_spent &&
+      (_asEmployee || _code.length == _otpLength);
 
   @override
   Widget build(BuildContext context) {
@@ -232,7 +263,9 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
         children: [
           RhallaAppBar(
             title: 'حوالة محلية',
-            subtitle: 'راجع البيانات ثم أدخل رمز التحقّق',
+            subtitle: _asEmployee
+                ? 'راجع البيانات ثم أكّد الإرسال'
+                : 'راجع البيانات ثم أدخل رمز التحقّق',
             onBack: _sending ? null : () => context.pop(),
           ),
           Expanded(
@@ -246,7 +279,12 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                     padding: kCardPad,
                     child: Column(
                       children: [
-                        KvRow('من حساب', user?.displayName ?? '—'),
+                        // ⚠ في وضع الموظف لا مستخدمَ وكيلٍ في الجلسة،
+                        // والحوالة تخرج باسم الوكيل — فيُقال ذلك صراحةً
+                        // بدل شرطةٍ لا تعني شيئاً.
+                        KvRow('من حساب',
+                            user?.displayName ??
+                                (_asEmployee ? 'حساب الوكيل' : '—')),
                         const SizedBox(height: kGapRow),
                         KvRow('إلى المستلم', d.receiverName),
                         const SizedBox(height: kGapRow),
@@ -285,7 +323,9 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                 const SizedBox(height: kGap),
                 RiseIn.small(
                   delay: const Duration(milliseconds: 200),
-                  child: _otpCard(user?.phone ?? ''),
+                  child: _asEmployee
+                      ? _employeeConfirmCard()
+                      : _otpCard(user?.phone ?? ''),
                 ),
                 const SizedBox(height: kGap),
                 const WarnBanner(
@@ -339,6 +379,35 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
     );
   }
 
+
+  /// تأكيدُ الموظف — بديلُ بطاقة الرمز في وضعه.
+  ///
+  /// ⚠ يقول ما يحدث فعلاً: الحوالة تخرج **باسم الوكيل**، وتُنسَب إلى
+  /// الموظف باسمه. وموظّفٌ لا يعرف أن العملية تُنسَب إليه يتصرّف كأنها بلا
+  /// أثر.
+  Widget _employeeConfirmCard() => GlassCard(
+        padding: kCardPad,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.verified_user_outlined,
+                    size: 18, color: R.primary),
+                const SizedBox(width: 8),
+                Text('تأكيد الإرسال', style: T.label),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'الحوالة تخرج باسم الوكيل، وتُسجَّل هذه العملية باسمك '
+              'وبنقطة بيعك. راجع المبلغ واسم المستفيد قبل التأكيد.',
+              style: T.plex(12.5, FontWeight.w400,
+                  color: R.inkA(.62), height: 1.8),
+            ),
+          ],
+        ),
+      );
   Widget _otpCard(String phone) => GlassCard(
         padding: kCardPad,
         child: Column(

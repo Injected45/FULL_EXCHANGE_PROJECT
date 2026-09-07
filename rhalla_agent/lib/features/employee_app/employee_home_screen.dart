@@ -41,14 +41,18 @@ class _EmployeeHomeScreenState extends ConsumerState<EmployeeHomeScreen> {
     }
 
     final canSeeIncoming = p.can('VIEW_INCOMING_TRANSFERS');
+    final canCreate      = p.can('CREATE_TRANSFER');
     final canCashbox     = p.can('VIEW_OWN_CASHBOX');
     final canStartShift  = p.can('START_SHIFT');
     final canCloseShift  = p.can('CLOSE_SHIFT');
     final hasShift       = p.openShift != null;
 
     // «بلا صلاحيات» حالةٌ حقيقية لا خطأ: الموظف يُنشأ فارغاً ثم يُمنح.
-    final nothingGranted =
-        !canSeeIncoming && !canCashbox && !canStartShift && !canCloseShift;
+    final nothingGranted = !canSeeIncoming &&
+        !canCreate &&
+        !canCashbox &&
+        !canStartShift &&
+        !canCloseShift;
 
     return Screen(
       child: RefreshIndicator(
@@ -82,6 +86,24 @@ class _EmployeeHomeScreenState extends ConsumerState<EmployeeHomeScreen> {
                   ],
 
                   if (nothingGranted) const _NoPermissions(),
+
+                  /*
+                   * إنشاءُ حوالة — أوّلاً لأنه العملُ الذي يقف له الزبون.
+                   *
+                   * ⚠ ويفتح **شاشة الوكيل نفسَها** (`/send/internal`): أمرُ
+                   * المالك أن الموظف واجهةٌ من وكيل لا كيانٌ ثانٍ، فنموذجُ
+                   * الحوالة واحدٌ للاثنين. والمستودعُ وحده يبدّل المسار إلى
+                   * نظيره تحت `device/employee/`.
+                   */
+                  if (canCreate) ...[
+                    _Tile(
+                      icon: Icons.north_east_rounded,
+                      title: 'إنشاء حوالة',
+                      subtitle: 'حوالة محلية باسم الوكيل',
+                      onTap: () => context.push('/send/internal'),
+                    ),
+                    if (canSeeIncoming) const SizedBox(height: R.gapRow),
+                  ],
 
                   if (canSeeIncoming)
                     _Tile(

@@ -178,8 +178,25 @@ class SupportThreadService
         match ($scope) {
             'mine'       => $q->where('s.assigned_to', $staff->id),
             'unassigned' => $q->whereNull('s.assigned_to'),
+            // نطاقٌ للمؤجّلة وحدها: ما يُخفى يجب أن يُرى
+            // بطلب، وإلّا صار التأجيلُ حذفاً لا يُراجَع.
+            'snoozed'    => $q->whereNotNull('s.snoozed_until')
+                              ->where('s.snoozed_until', '>', now()),
             default      => null,
         };
+
+        /*
+         * ⚠ والمؤجّلةُ تغيب عن بقيّة النّطاقات حتّى موعدِها.
+         *
+         * والمقارنةُ بـ`now()` عند القراءة، لا بمهمّةٍ دوريّةٍ تمسح
+         * التّأجيل: مهمّةٌ كلّ خمس دقائق تُبقي المحادثةَ مخفيّةً
+         * خمساً بعد موعدِها، وتفشل صامتةً إن توقّفت فتُخفيها
+         * إلى الأبد. والحالةُ دالّةٌ في الوقت الحاضر — كالمهلة تماماً.
+         */
+        if ($scope !== 'snoozed') {
+            $q->where(fn ($w) => $w->whereNull('s.snoozed_until')
+                                   ->orWhere('s.snoozed_until', '<=', now()));
+        }
 
         if ($status !== '' && self::statusExists($status)) {
             // `NEW` هي أيضاً حالُ محادثةٍ بلا صفٍّ أصلاً.
@@ -558,6 +575,15 @@ class SupportThreadService
                 $this->ensureState($threadId);
             }
             app(SupportSla::class)->onAgentMessage($threadId);
+
+            /*
+             * ⚠ ومن كتب لك لا يُؤجّل: رسالةٌ جديدةٌ تُلغي التأجيل.
+             *
+             * وقبل الخروج أدناه لا بعدَه: محادثةٌ مؤجّلةٌ حالُها
+             * `OPEN` تخرج من الشّرط التّالي، فيبقى تأجيلُها ويكتب
+             * الوكيلُ في محادثةٍ لا يراها أحد.
+             */
+            app(SupportFlow::class)->onAgentMessage($threadId);
 
             // لا صفَّ = محادثةٌ لم يلمسها الدعم بعد، وهي `NEW` أصلاً.
             if (!$row || !in_array($row->status, [self::PENDING, self::CLOSED], true)) {

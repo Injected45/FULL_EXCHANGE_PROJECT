@@ -7,6 +7,7 @@ use App\Services\ChatService;
 use App\Services\Support\SupportAudit;
 use App\Services\Support\SupportPermissions;
 use App\Services\Support\SupportDashboard;
+use App\Services\Support\SupportFlow;
 use App\Services\Support\SupportOps;
 use App\Services\Support\SupportPresence;
 use App\Services\Support\SupportSla;
@@ -282,6 +283,17 @@ class SupportController extends BaseController
             // بناءً عليه — والرفضُ الحقيقي في الخادم على أي حال.
             'can_internal' => $seeNotes,
 
+            /*
+             * ⚠ المسودّةُ مع **أوّل** قراءةٍ وحدها (`$first`).
+             *
+             * لا لأنّها غالية، بل لأنّ إعادتَها في كلّ نبضةٍ تعني
+             * أنّ ما يكتبُه الموظّف الآن يُدهَس كلّ ثلاث ثوانٍ بما
+             * حُفظ قبلَه — وهو أسوأ من ألّا تكون هناك مسودّةٌ أصلاً.
+             */
+            'draft' => $first
+                ? app(SupportFlow::class)->draft($id, (int) $this->me($r)->id)
+                : null,
+
             // ── الدفعة الثانية ──────────────────────────────────────
             //
             // حالةُ SLA تُحسب من الصفّ المقروء أصلاً — بلا رحلةٍ إضافية.
@@ -407,6 +419,10 @@ class SupportController extends BaseController
                 [], 422
             );
         }
+
+        // وما أُرسِل لم يعد مسودّةً: إبقاؤها يجعل الموظّف يعود
+        // إلى المحادثة فيجد ردَّه في الحقل فيرسلُه مرّتين.
+        app(SupportFlow::class)->clearDraft($id, (int) $me->id);
 
         // من ردّ فعلاً — في عمودٍ مستقلّ، بلا مساسٍ بمنطق الدردشة.
         DB::table('chat_messages')->where('id', $msg->id)
@@ -917,6 +933,247 @@ class SupportController extends BaseController
         return $this->sendResponse(['ok' => true], 'Success');
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    //  الدفعة الثالثة — سير العمل
+    // ══════════════════════════════════════════════════════════════════
+
+    /** GET support/saved-replies */
+    public function savedReplies(Request $r)
+    {
+        return $this->sendResponse([
+            'items' => app(SupportFlow::class)->savedReplies((int) $this->me($r)->id),
+        ], 'Success');
+    }
+
+    /** POST support/saved-replies */
+    public function createSavedReply(Request $r)
+    {
+        $me  = $this->me($r);
+        $out = app(SupportFlow::class)->createReply(
+            (string) $r->input('title', ''),
+            (string) $r->input('body', ''),
+            (bool) $r->boolean('is_shared'),
+            $r->input('category_id') !== null ? (int) $r->input('category_id') : null,
+            $me,
+        );
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        $this->audit->log($me, 'REPLY_CREATE', null, null,
+            (string) $r->input('title'), $r->ip());
+
+        return $this->sendResponse($out, 'تمّ الحفظ.');
+    }
+
+    /** PUT support/saved-replies/{id} */
+    public function updateSavedReply(Request $r, int $id)
+    {
+        $me = $this->me($r);
+
+        $changes = [];
+        foreach (['title', 'body'] as $k) {
+            if ($r->has($k)) {
+                $changes[$k] = $r->input($k);
+            }
+        }
+        if ($r->has('is_active')) {
+            $changes['is_active'] = $r->boolean('is_active');
+        }
+
+        $out = app(SupportFlow::class)->updateReply($id, $changes, $me);
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        $this->audit->log($me, 'REPLY_UPDATE', null, null, (string) $id, $r->ip());
+
+        return $this->sendResponse($out, 'تمّ الحفظ.');
+    }
+
+    /** POST support/saved-replies/{id}/used — عدّادُ ترتيبٍ لا أكثر. */
+    public function usedSavedReply(Request $r, int $id)
+    {
+        app(SupportFlow::class)->markReplyUsed($id, (int) $this->me($r)->id);
+
+        return $this->sendResponse(['ok' => true], 'Success');
+    }
+
+    /**
+     * PUT support/threads/{id}/draft
+     *
+     * ⚠ بلا سجلّ تدقيق: المسودّةُ تُحفظ كلَّ ثانيتين أثناء الكتابة، وقيدٌ
+     * لكلّ حفظةٍ يُغرق السجلَّ بما لا يُقرأ ويُخفي فيه ما يجب أن يُقرأ.
+     */
+    public function saveDraft(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        app(SupportFlow::class)->saveDraft(
+            $id, (int) $this->me($r)->id,
+            (string) $r->input('body', ''),
+            (bool) $r->boolean('is_internal'),
+        );
+
+        return $this->sendResponse(['ok' => true], 'Success');
+    }
+
+    /** POST support/threads/{id}/snooze */
+    public function snooze(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $me  = $this->me($r);
+        $out = app(SupportFlow::class)->snooze(
+            $id, $r->input('until'), (string) $r->input('reason', ''), $me);
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        $this->audit->log($me, 'SNOOZE', $id, null,
+            (string) $r->input('until'), $r->ip());
+
+        return $this->sendResponse($out, 'أُجّلت.');
+    }
+
+    /** POST support/threads/{id}/unsnooze */
+    public function unsnooze(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $me  = $this->me($r);
+        $out = app(SupportFlow::class)->unsnooze($id, $me);
+
+        if ($out['changed'] ?? false) {
+            $this->audit->log($me, 'UNSNOOZE', $id, null, null, $r->ip());
+        }
+
+        return $this->sendResponse($out, 'عادت.');
+    }
+
+    /** POST support/threads/{id}/handoff */
+    public function handoff(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $me  = $this->me($r);
+        $out = app(SupportFlow::class)->handoff(
+            $id, (int) $r->input('to_staff_id'), (string) $r->input('note', ''), $me);
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        /*
+         * ⚠ والملاحظةُ تُكتب في المحادثة نفسِها بعد نجاح النقل — لا قبله.
+         * ملاحظةٌ تقول «سلّمتُها إليك» على محادثةٍ لم تُسلَّم كذبٌ مكتوب.
+         *
+         * وتُكتب داخليةً: هي كلامُ فريقٍ لا كلامٌ للوكيل.
+         */
+        $this->noteInThread($id, $me,
+            '↪ تسليم إلى ' . $out['to'] . ' — ' . $out['note']);
+
+        $this->audit->log($me, 'HANDOFF', $id, null, $out['to'], $r->ip());
+
+        return $this->sendResponse($out, 'سُلِّمت.');
+    }
+
+    /** POST support/threads/{id}/escalate */
+    public function escalate(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $me  = $this->me($r);
+        $out = app(SupportFlow::class)->escalate(
+            $id, (string) $r->input('reason', ''),
+            $r->input('to_staff_id') !== null ? (int) $r->input('to_staff_id') : null,
+            $me);
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        $this->noteInThread($id, $me,
+            '⬆ تصعيد (' . $out['priority'] . ') — ' . trim((string) $r->input('reason')));
+
+        $this->audit->log($me, 'ESCALATE', $id, null,
+            (string) $out['priority'], $r->ip());
+
+        return $this->sendResponse($out, 'صُعِّدت.');
+    }
+
+    /** GET support/followups — متابعاتي أنا، لا متابعاتُ الفريق. */
+    public function followups(Request $r)
+    {
+        return $this->sendResponse([
+            'items' => app(SupportFlow::class)->followups((int) $this->me($r)->id),
+        ], 'Success');
+    }
+
+    /** POST support/threads/{id}/followup */
+    public function addFollowup(Request $r, int $id)
+    {
+        if (!$this->thread($id) || !$this->mayOpen($r, $id)) {
+            return $this->sendError('المحادثة غير موجودة.', [], 404);
+        }
+
+        $out = app(SupportFlow::class)->addFollowup(
+            $id, $r->input('due_at'), (string) $r->input('note', ''), $this->me($r));
+
+        if (isset($out['error'])) {
+            return $this->sendError($out['error'], [], 422);
+        }
+
+        return $this->sendResponse($out, 'سنذكّرك.');
+    }
+
+    /** POST support/followups/{id}/done */
+    public function doneFollowup(Request $r, int $id)
+    {
+        return $this->sendResponse(
+            app(SupportFlow::class)->doneFollowup($id, (int) $this->me($r)->id),
+            'Success');
+    }
+    /**
+     * ملاحظةٌ داخلية يكتبها النظامُ باسم الموظّف — للتسليم والتصعيد.
+     *
+     * ⚠ في المحادثة نفسِها لا في جدولٍ جانبيّ: من يفتحها غداً يقرأ سببَ
+     * وصولها إليه حيث يقرأ كلَّ شيءٍ آخر، لا في شاشةٍ ثانية يجب أن يعرف
+     * أنها موجودة أصلاً.
+     *
+     * وداخليةٌ لا ظاهرة: هي كلامُ فريقٍ لا كلامٌ للوكيل — والوكيلُ لا
+     * يعنيه من سلّم حالتَه إلى من.
+     *
+     * ولا تُخطئ إن فشلت: النقلُ نفسُه تمّ، وسقوطُ سطرِ توضيحٍ لا يجوز أن
+     * يُرجع خطأً على عمليةٍ نجحت.
+     */
+    private function noteInThread(int $threadId, object $me, string $body): void
+    {
+        try {
+            $msg = $this->chat->send(
+                $threadId, ChatService::ADMIN, 0, $me->name, $body,
+                [], null, null, true,
+            );
+
+            if ($msg) {
+                DB::table('chat_messages')->where('id', $msg->id)
+                    ->update(['support_staff_id' => $me->id]);
+            }
+        } catch (\Throwable) {
+        }
+    }
     // ══════════════════════════════════════════════════════════════════
     //  الإدارة
     // ══════════════════════════════════════════════════════════════════
