@@ -59,6 +59,11 @@ class _EmployeeActivationScreenState
 
   /// إدخال رقم من لوحة الأرقام أو من كيبورد الكمبيوتر.
   void _push(String d) {
+    // ⚠ ولا شيء قبل خطوةِ الرمز: حارسٌ ثانٍ مستقلٌّ عن الذي
+    // في `HardwareDigits`، لأنّ أحدَهما يكفي واجتماعَهما لا يكلّف
+    // شيئاً: ضغطةٌ في الخطوة الأولى كانت تبني رمزاً لا يراه
+    // أحد، ثمّ يُرسَل من تلقائِه عند بلوغِه أربعةً.
+    if (_maskedPhone == null) return;
     if (_busy || _otpCode.length >= 4) return;
     setState(() {
       _otpCode += d;

@@ -382,8 +382,29 @@ mixin HardwareDigits<T extends StatefulWidget> on State<T> {
     super.dispose();
   }
 
+  /// هل التركيزُ الآن داخل حقلِ نصّ؟
+  static bool get _typingInField {
+    final f = FocusManager.instance.primaryFocus;
+    final ctx = f?.context;
+    if (ctx == null) return false;
+    return ctx.widget is EditableText ||
+        ctx.findAncestorWidgetOfExactType<EditableText>() != null;
+  }
+
   bool _handleKey(KeyEvent event) {
     if (!mounted) return false;
+
+    // ⚠ حقلُ النصّ أولى بمفاتيحِه من هذا الملتقِط العام.
+    //
+    // الملتقِط مُسجّلٌ على `HardwareKeyboard` طوال حياة الشّاشة،
+    // ويُرجِع `true` للأرقام والمسح وEnter — أي يبتلعُها.
+    // فشاشةٌ تجمع حقلَ نصٍّ ولوحةَ أرقام — كشاشة تفعيل
+    // الموظّف: هاتفٌ وكودٌ ثمّ رمزٌ — كان حقلُ الهاتف فيها
+    // **لا يقبل رقماً واحداً** على كلّ جهازٍ له كيبورد —
+    // والمحاكي منها — وبلا رسالةِ خطأ: الحقلُ يبقى فارغاً
+    // وكأنّ الكيبورد معطّل. ومن يكتب في حقلٍ يقصد الحقل،
+    // لا لوحةً في خطوةٍ أخرى من الشّاشة نفسِها.
+    if (_typingInField) return false;
 
     // المستمع عام، والشاشة قد تكون تحت شاشة أخرى — شاشة الهاتف تبقى حيّة
     // تحت شاشة الرمز. بلا هذا الشرط تلتقط الشاشتان الضغطة نفسها.
