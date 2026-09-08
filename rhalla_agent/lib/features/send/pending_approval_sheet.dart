@@ -19,10 +19,21 @@ class PendingApprovalSheet extends StatelessWidget {
   final TransferPendingApproval pending;
 
   @override
-  Widget build(BuildContext context) => PopScope(
-        // ⚠ ولا يُغلَق بزرّ الرجوع: الرسالةُ يجب أن تُقرأ لا أن تُمرَّر.
-        canPop: false,
-        child: Container(
+  Widget build(BuildContext context) => Builder(
+        /*
+         * ⚠ **لا `PopScope(canPop: false)` هنا** — وقد كانت، فجمّدت التطبيق.
+         *
+         * `canPop: false` لا يمنع زرَّ الرجوع وحدَه: هو يعترض **كلّ** إغلاق
+         * على هذه الصفحة، بما فيه `Navigator.pop()` الذي يستدعيه زرُّ
+         * «حسناً» نفسُه. فبقيت الورقةُ مفتوحةً لا تُغلق بأي وسيلة، والموظفُ
+         * أمام شاشةٍ لا تستجيب — وهو ما بدا «تجمّداً».
+         *
+         * ومنعُ التمرير بلا قراءة يكفيه ما مُرّر عند الفتح:
+         * `isDismissible: false` و`enableDrag: false` — فلا تُغلق بنقرةٍ
+         * خارجها ولا بسحبها. ويبقى زرُّ الرجوع مخرجاً، وهو الصواب: شاشةٌ
+         * لا مخرجَ منها إلّا زرٌّ واحد تتحوّل إلى سجنٍ عند أوّل عطب فيه.
+         */
+        builder: (context) => Container(
           padding: const EdgeInsets.fromLTRB(22, 22, 22, 26),
           decoration: BoxDecoration(
             color: R.whiteA(.97),

@@ -252,6 +252,200 @@ class EmployeeAdminController extends BaseController
         return $this->sendResponse([], 'حُدّثت الحالة.');
     }
 
+    /**
+     * أثرُ الموظف الماليّ — هل باشر عملاً له قيمة؟
+     *
+     * ⚠ **هذا هو الفاصلُ الذي يقرّر: يُحذف أم يُوقَف؟** (أمر المالك، 8 سبتمبر
+     * 2026): «طالما لم يسجّل أي بيان أو عملية مالية يستطيع الوكيل حذفه، فإذا
+     * نفّذ إجراءً مالياً واحداً مُنع من الحذف لارتباطه بعملية أو عمليات».
+     *
+     * وما يُعدّ أثراً ماليّاً أربعة، وكلُّها تُثبت أن مالاً تحرّك بيده:
+     *
+     *   • حوالةٌ أنشأها أو سلّمها  (`transfer_attributions`)
+     *   • حركةُ خزينة              (`employee_cashbox_entries`)
+     *   • وردية                    (`employee_shifts` — لها أرصدةُ فتحٍ وإقفال)
+     *   • طلبُ موافقةٍ نُفِّذ فعلاً   (صار له رقمُ حوالة)
+     *
+     * ⚠ وما **لا** يُعدّ أثراً: الجلساتُ والأجهزةُ والأكوادُ والصلاحياتُ
+     * والمحادثات. كلُّها تسجيلٌ وتهيئة، لا مالٌ تحرّك. فموظفٌ فُعِّل جهازُه
+     * ومُنحت صلاحياته ثمّ تبيّن أن رقمَه خطأ — يُحذف بلا تردّد، وهي الحالةُ
+     * التي أظهرت هذا كلَّه.
+     *
+     * ⚠ وطلبٌ معلّقٌ لم يُنفَّذ ليس أثراً ماليّاً: لا صفَّ له في الدفتر ولا
+     * رصيدَ خُصم. فيُلغى مع الحذف ولا يمنعه.
+     *
+     * @return array<string,int> الأثرُ مفصَّلاً — فارغٌ يعني أن الحذف مباح.
+     */
+    private function financialFootprint(int $employeeId): array
+    {
+        $out = [];
+
+        $probe = function (string $table, callable $q) use ($employeeId, &$out) {
+            try {
+                $n = $q(DB::table($table)->where('employee_id', $employeeId));
+                if ($n > 0) $out[$table] = $n;
+            } catch (\Throwable) {
+                /*
+                 * ⚠ جدولٌ غير منشور لا يعني «لا أثر».
+                 *
+                 * لكنّ الفشلَ هنا لا يُسكت: لو كان الجدول موجوداً وفشل
+                 * الاستعلامُ لسببٍ آخر، لَظهر موظفٌ ذو أثرٍ ماليّ كأنه نظيف
+                 * فحُذف. ولذلك يُسجَّل الأثرُ الأهمّ (`transfer_attributions`)
+                 * خارج هذا الحارس أدناه.
+                 */
+            }
+        };
+
+        $probe('employee_cashbox_entries', fn ($q) => $q->count());
+        $probe('employee_shifts', fn ($q) => $q->count());
+        $probe('employee_approval_requests',
+            fn ($q) => $q->whereNotNull('transfer_number')->count());
+
+        /*
+         * ⚠ والحوالاتُ تُسأل بلا حارس: هذا الجدولُ قائمٌ منذ أوّل يوم، وفشلُ
+         * الاستعلام عنه خللٌ يجب أن يوقف الحذف لا أن يمرّ بصمت.
+         */
+        $transfers = DB::table('transfer_attributions')
+            ->where('employee_id', $employeeId)->count();
+        if ($transfers > 0) $out['transfer_attributions'] = $transfers;
+
+        return $out;
+    }
+
+    /**
+     * DELETE employees/{id} — حذفُ الموظف، بشرطٍ واحد.
+     *
+     * ══════════════════════════════════════════════════════════════════════
+     *  الشرط: لا أثرَ ماليّ
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * ⚠ **من لم يُنفّذ عمليةً مالية واحدة يُحذف حذفاً كاملاً. ومن نفّذ لا
+     * يُحذف أبداً — يُوقَف.** (أمر المالك، 8 سبتمبر 2026.)
+     *
+     * وهذا يحسم سؤالاً كان معلّقاً: الحذفُ كان ناعماً دائماً حفظاً لسجلّ «من
+     * حرّك يده» في الحوالات. لكنّ من لا حوالةَ له لا سجلَّ يُحفظ، فالنعومةُ
+     * تحفظ **لا شيء** وتُبقي رقمَ هاتفٍ محجوزاً وصفّاً ميتاً في الجدول.
+     *
+     * فصار الحذفُ **صلباً** — لأنه لا يُسمح به إلّا حين لا يكون هناك ما
+     * يُتلَف. والحمايةُ انتقلت من «نُخفي ولا نمحو» إلى «لا نمحو إلّا ما لا
+     * أثر له» — وهي أقوى: الأولى تسمح بحذف كلّ شيء ثمّ تُخفيه، والثانية
+     * **تمنع** المساس بمن له تاريخ.
+     *
+     * ⚠ والمنعُ يُرَدّ 422 بتفصيل الأثر، لا 403 غامضاً: الوكيل يحتاج أن يعرف
+     * **لماذا** لا يُحذف، وأنّ أمامه الإيقافَ بديلاً يؤدّي غرضَه.
+     */
+    public function destroy(Request $request, int $id)
+    {
+        [$user, $err] = $this->admin();
+        if ($err) return $err;
+
+        $employee = $this->ownedEmployee($user->id, $id);
+        if (!$employee) return $this->sendError('الموظف غير موجود.', [], 404);
+
+        /* ── الشرطُ الأساسيّ ─────────────────────────────────────────── */
+        $footprint = $this->financialFootprint($id);
+
+        if ($footprint !== []) {
+            $labels = [
+                'transfer_attributions'      => 'حوالات',
+                'employee_cashbox_entries'   => 'حركات خزينة',
+                'employee_shifts'            => 'ورديات',
+                'employee_approval_requests' => 'حوالات بموافقتك',
+            ];
+
+            $parts = [];
+            foreach ($footprint as $t => $n) {
+                $parts[] = ($labels[$t] ?? $t) . ': ' . $n;
+            }
+
+            return $this->sendError(
+                'لا يمكن حذف هذا الموظف لارتباطه بعمليات مالية (' .
+                    implode('، ', $parts) . '). يمكنك إيقافه بدلاً من ذلك.',
+                ['footprint' => $footprint],
+                422,
+            );
+        }
+
+        /* ── لا أثر: يُحذف هو وكلُّ ما هيّأه ─────────────────────────── */
+        $counts = DB::transaction(function () use ($employee, $user, $request) {
+            $id = (int) $employee->id;
+            $now = now();
+
+            /*
+             * ⚠ طلباتٌ معلّقة تُلغى لا تُحذف صمتاً — ولو كانت ستُمحى بعدها.
+             *
+             * فالإلغاءُ يمرّ على السجلّ، والحذفُ المباشر لا يترك أثراً لأنها
+             * كانت موجودةً أصلاً.
+             */
+            $approvals = 0;
+            try {
+                $approvals = DB::table('employee_approval_requests')
+                    ->where('employee_id', $id)->where('status', 'PENDING')
+                    ->update(['status' => 'CANCELLED', 'updated_at' => $now,
+                              'failure_reason' => 'حُذف الموظف قبل البتّ في الطلب']);
+            } catch (\Throwable) {
+            }
+
+            /*
+             * ⚠ الترتيبُ من الابن إلى الأب — والمفاتيحُ الأجنبيّة تفرضه.
+             * ومحادثةُ الوكيل مع موظفٍ محذوف لا طرفَ لها.
+             */
+            $threads = DB::table('chat_threads')->where('employee_id', $id)->pluck('id')->all();
+            if ($threads) {
+                $msgs = DB::table('chat_messages')->whereIn('thread_id', $threads)->pluck('id')->all();
+                foreach (['chat_attachments', 'chat_reactions', 'chat_stars', 'chat_pins'] as $t) {
+                    try { DB::table($t)->whereIn('message_id', $msgs)->delete(); } catch (\Throwable) {}
+                }
+                foreach (['support_thread_state', 'support_thread_tags', 'support_events',
+                          'support_viewers', 'support_drafts', 'support_followups',
+                          'chat_reads', 'chat_settings', 'chat_typing'] as $t) {
+                    try { DB::table($t)->whereIn('thread_id', $threads)->delete(); } catch (\Throwable) {}
+                }
+                try { DB::table('chat_messages')->whereIn('thread_id', $threads)->delete(); } catch (\Throwable) {}
+                try { DB::table('chat_threads')->whereIn('id', $threads)->delete(); } catch (\Throwable) {}
+            }
+
+            $sessions = DB::table('employee_sessions')->where('employee_id', $id)->count();
+            $devices  = DB::table('employee_devices')->where('employee_id', $id)->count();
+            $codes    = DB::table('employee_activation_codes')->where('employee_id', $id)->count();
+
+            foreach (['employee_sessions', 'employee_devices', 'employee_otps',
+                      'employee_activation_codes', 'employee_permissions',
+                      'employee_transfer_policies', 'employee_point_of_sales',
+                      'employee_transfer_claims', 'employee_approval_requests',
+                      'employee_cashboxes'] as $t) {
+                try { DB::table($t)->where('employee_id', $id)->delete(); } catch (\Throwable) {}
+            }
+
+            /*
+             * ⚠ سجلُّ التدقيق يبقى، وحدثُ الحذف يُكتب فيه.
+             *
+             * فالسؤالُ «من حذف هذا الموظف ومتى؟» يجب أن يبقى له جواب، وإلّا
+             * صار الحذفُ فعلاً بلا أثر — وهو أسوأُ ما يكون في نظامٍ ماليّ.
+             * ويُكتب **قبل** حذف الصفّ ليحمل اسمَه.
+             */
+            $this->log->audit('EMPLOYEE_DELETED', [
+                'agent_id' => $user->id, 'employee_id' => $id,
+                'entity_type' => 'employee', 'entity_id' => (string) $id,
+                'old_value' => $employee->full_name . ' · ' . $employee->phone,
+                'new_value' => 'DELETED',
+            ] + $this->trace($request, $user));
+
+            /* ⚠ ويُفَكّ ربطُ السجلّ بالصفّ المحذوف حتى لا يمنعه مفتاحٌ أجنبيّ. */
+            foreach (['audit_logs', 'security_logs'] as $t) {
+                try {
+                    DB::table($t)->where('employee_id', $id)->update(['employee_id' => null]);
+                } catch (\Throwable) {}
+            }
+
+            DB::table('employees')->where('id', $id)->delete();
+
+            return compact('sessions', 'devices', 'codes', 'approvals');
+        });
+
+        return $this->sendResponse($counts, 'حُذف الموظف.');
+    }
+
     /* ================= كود التفعيل والأجهزة ================= */
 
     /** POST employees/{id}/activation-code — يُعرض الكود مرّة واحدة. */

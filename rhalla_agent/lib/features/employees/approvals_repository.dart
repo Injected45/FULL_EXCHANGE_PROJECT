@@ -70,7 +70,10 @@ class ApprovalRequest {
   /// نصُّ الحالة كما يُعرض.
   String get statusLabel => switch (status) {
         'PENDING'   => 'بانتظار موافقتك',
-        'APPROVED'  => transferNumber != null ? 'تمت الموافقة ونُفِّذت' : 'تمت الموافقة',
+        // ⚠ الموافقةُ إذنٌ لا تنفيذ: الموظف ينفّذها حين يقبض النقد.
+        'APPROVED'  => transferNumber != null
+            ? 'وُوفق عليها ونفّذها الموظف'
+            : 'وُوفق عليها — بانتظار تنفيذ الموظف',
         'REJECTED'  => 'مرفوضة',
         'EXPIRED'   => 'انتهت صلاحية الطلب',
         'CANCELLED' => 'ألغاها الموظف',

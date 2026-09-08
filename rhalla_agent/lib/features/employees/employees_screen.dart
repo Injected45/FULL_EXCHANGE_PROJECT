@@ -275,6 +275,21 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
               ),
             ],
           ),
+
+          /*
+           * ⚠ الحذفُ وحدَه في سطره، وأحمر.
+           *
+           * وهو الفعلُ الوحيد هنا الذي لا يُتراجَع عنه من التطبيق،
+           * فلا يجاور فعلاً عادياً كالمراسلة — ضغطةٌ في غير موضعها
+           * تُخرج موظفاً من العمل.
+           */
+          const SizedBox(height: 8),
+          _Action(
+            label: 'حذف الموظف',
+            icon: Icons.person_remove_outlined,
+            danger: true,
+            onTap: _busy ? null : _deleteEmployee,
+          ),
         ],
       ),
     );
@@ -350,6 +365,41 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
     }
   }
 
+  /// حذفُ الموظف — بتأكيدٍ يقول ما يبقى وما يزول.
+  ///
+  /// ⚠ ونصُّ التأكيد يذكر **بقاءَ حوالاته في السجلّ**: وكيلٌ يظنّ أن الحذف
+  /// يمحو تاريخَ موظفه قد يمتنع عنه خوفاً، أو يفعله ظانّاً أنه يُخفي شيئاً.
+  /// وكلاهما سوءُ فهمٍ يُصلحه سطرٌ واحد.
+  Future<void> _deleteEmployee() async {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      useRootNavigator: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ConfirmSheet(
+        title: 'حذف ${widget.e.fullName}',
+        body: 'الحذف متاح ما دام الموظف لم ينفّذ أي عملية مالية.\n\n'
+            'ستُغلق جلساته وأجهزته وأكواده فوراً، ويتحرّر رقم هاتفه '
+            'فتستطيع إضافته من جديد برقم صحيح.\n\n'
+            'وإن كان قد أنشأ حوالة أو سجّل حركة خزينة فلن يُحذف — '
+            'أوقفه بدلاً من ذلك.',
+        confirm: 'حذف',
+        danger: true,
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(employeesRepositoryProvider).remove(widget.e.id);
+      if (mounted) ref.invalidate(employeesProvider);
+    } on ApiFailure catch (e) {
+      _say(e.message);
+    } catch (_) {
+      _say('تعذّر الحذف — تحقّق من الاتصال.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
   /// ورقةُ سقف التحويل — سياسةُ هذا الموظف وحدَه.
   Future<void> _openLimits() async {
     await showModalBottomSheet<bool>(

@@ -8,6 +8,8 @@ use App\Services\Employees\EmployeeAuditLogger;
 use App\Services\Employees\EmployeeActsAsAgent;
 use App\Services\Employees\EmployeeApprovals;
 use App\Services\Employees\EmployeeLimitPolicy;
+use App\Services\Employees\EmployeeReports;
+use App\Services\Employees\EmployeeApprovalExecutor;
 use App\Services\Employees\EmployeeTransferViews;
 use App\Services\Employees\EmployeeCashboxService;
 use Illuminate\Http\Request;
@@ -66,6 +68,111 @@ class EmployeeController extends BaseController
             'requests' => $rows->map(
                 fn ($r) => \App\Services\Employees\EmployeeApprovals::present($r))->all(),
         ], 'تم');
+    }
+
+    /**
+     * POST employee/approvals/{id}/execute — الموظفُ ينفّذ ما أذن به وكيلُه.
+     *
+     * ══════════════════════════════════════════════════════════════════════
+     *  لماذا التنفيذُ هنا لا عند الوكيل
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * أمرُ المالك (8 سبتمبر 2026): «لمّا يوافق الوكيل ترجع لتُنفَّذ من قِبل
+     * الموظف، لأن المال مع الموظف وتدخل ضمن عهدته وخزينته وباسمه».
+     *
+     * ⚠ والسببُ التشغيليّ الذي يجعل هذا صحيحاً: **النقدُ لم يُقبض بعد**.
+     * الوكيل يوافق من مكتبه، والزبونُ واقفٌ عند الموظف بالمال في يده. فحوالةٌ
+     * تُنفَّذ لحظةَ الموافقة تدخل خزينةَ الموظف في عجزٍ عن مبلغٍ لم يستلمه —
+     * وقد لا يستلمه أصلاً إن انصرف الزبون.
+     *
+     * فالإذنُ من الوكيل، والفعلُ من الموظف، والعهدةُ عليه.
+     *
+     * ⚠ **وحركةُ الخزينة تُسجَّل هنا `IN`** — نقدٌ دخل عهدتَه مقابل الحوالة،
+     * كما يُسجَّل التسليمُ `OUT` عند صرفها. وهي حركةٌ تشغيليّة في دفتر
+     * الموظف وحدَه، لا تمسّ دفترَ المنظومة ولا حسابَ الوكيل مع الرحالة.
+     */
+    public function executeApproval(Request $request, int $id)
+    {
+        [$employee, $session, ] = $this->ctx($request);
+
+        $req = DB::table('employee_approval_requests')->where('id', $id)->first();
+
+        /*
+         * ⚠ صاحبُ الطلب وحده — لا زميلٌ تحت الوكيل نفسِه. و404 لا 403: طلبُ
+         * غيره لا يُعلَم بوجوده أصلاً.
+         */
+        if (!$req || (int) $req->employee_id !== (int) $employee->id) {
+            return $this->sendError('الطلب غير موجود.', [], 404);
+        }
+
+        if ($req->status !== 'APPROVED') {
+            return $this->sendError(
+                match ($req->status) {
+                    'PENDING'   => 'الطلب ما زال بانتظار موافقة الوكيل.',
+                    'REJECTED'  => 'رفض الوكيل هذا الطلب.',
+                    'EXPIRED'   => 'انتهت مدّة الطلب. أنشئ الحوالة من جديد.',
+                    'CANCELLED' => 'أُلغي هذا الطلب.',
+                    default     => 'لا يمكن تنفيذ هذا الطلب الآن.',
+                }, [], 422);
+        }
+
+        /*
+         * ⚠ ونُفِّذ من قبل ⇦ لا يُنفَّذ ثانية.
+         *
+         * الحارسُ رقمُ الحوالة المحفوظ لا فحصٌ في الذاكرة: ضغطتان متسارعتان
+         * تمرّان معاً على أي `if`، أمّا الرقمُ فيُكتب مرّةً واحدة — والثانية
+         * تجده فتردّ بنتيجة الأولى لا بخطأ.
+         */
+        if ($req->transfer_number !== null) {
+            return $this->sendResponse([
+                'already'         => true,
+                'transfer_number' => $req->transfer_number,
+            ], 'نُفِّذت هذه الحوالة بالفعل.');
+        }
+
+        $result = app(EmployeeApprovalExecutor::class)->execute($req);
+
+        if (!$result['ok']) {
+            return $this->sendError($result['message'], [], 422);
+        }
+
+        /*
+         * ⚠ حركةُ الخزينة بعد نجاح الحوالة لا قبله، ولا تُبطلها إن أخفقت:
+         * المالُ خرج فعلاً، ووصفُه لا يُلغيه. وهو ترتيبُ التسليم نفسُه.
+         */
+        $shift = $this->cashbox->openShift((int) $employee->id);
+        if ($shift) {
+            try {
+                $this->cashbox->addEntry([
+                    'agent_id'         => $employee->agent_id,
+                    'employee_id'      => $employee->id,
+                    'cashbox_id'       => $shift->cashbox_id,
+                    'shift_id'         => $shift->id,
+                    'point_of_sale_id' => $session->active_pos_id ?? null,
+                    'transaction_type' => 'TRANSFER_CREATED',
+                    'reference_type'   => 'INTERNAL_TRANSFER',
+                    'reference_id'     => $result['transfer_number'],
+                    'amount'           => (float) $req->amount,
+                    'direction'        => EmployeeCashboxService::IN,
+                    'notes'            => 'حوالة تجاوزت السقف — بموافقة الوكيل',
+                    'device_hash'      => $session->device_hash ?? null,
+                    'created_by'       => $employee->id,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('cashbox entry failed after approved transfer', [
+                    'transfer' => $result['transfer_number'],
+                    'error'    => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $this->sendResponse([
+            'transfer_number' => $result['transfer_number'],
+            // ⚠ البيانُ الذي طلبه المالك: تُقرأ الحوالةُ فيُعرف أنها مرّت
+            // بموافقةٍ ولم تكن ضمن سقف الموظف.
+            'note'            => 'حوالة من ضمن السقف بموافقة الوكيل',
+            'cashbox'         => $shift !== null,
+        ], 'نُفِّذت الحوالة ودخلت خزينتك.');
     }
 
     /**
@@ -404,6 +511,49 @@ class EmployeeController extends BaseController
                     'entity_type' => 'transfer',
                     'entity_id'   => (string) ($t['Code'] ?? ''),
                 ]);
+            /*
+             * ⚠ **النقدُ يدخل خزينة الموظف مع كلّ حوالةٍ ينشئها** — أمرُ
+             * المالك (8 سبتمبر 2026): «لا بدّ أن يثبت في خزينةٍ واحدة لنعرف
+             * نجرد على الموظف».
+             *
+             * وكانت الخزينةُ تسجّل التسليمَ `OUT` ولا تسجّل الإنشاءَ `IN`،
+             * فتُقرأ خزينةُ موظفٍ عمل يوماً كاملاً وكأنها لم تستقبل ديناراً
+             * — والمالُ الذي قبضه من الزبائن لا أثرَ له فيها. فالجردُ عليه
+             * كان يقارن نقداً في يده بدفترٍ لا يعرف من أين جاء.
+             *
+             * ⚠ وهي حركةٌ **تشغيليّة في دفتر الموظف وحدَه**: لا تمسّ
+             * `wallet` ولا `InternalEx` ولا حسابَ الوكيل مع الرحالة. عهدةٌ
+             * تُجرد، لا قيدٌ يُرحَّل.
+             *
+             * ⚠ وبعد نجاح الحوالة لا قبله، ولا تُبطلها إن أخفقت: المالُ
+             * تحرّك فعلاً، ووصفُه لا يُلغيه. وهو ترتيبُ التسليم نفسُه.
+             */
+            $shift = $this->cashbox->openShift((int) $employee->id);
+            if ($shift) {
+                try {
+                    $this->cashbox->addEntry([
+                        'agent_id'         => $employee->agent_id,
+                        'employee_id'      => $employee->id,
+                        'cashbox_id'       => $shift->cashbox_id,
+                        'shift_id'         => $shift->id,
+                        'point_of_sale_id' => $session->active_pos_id ?? null,
+                        'transaction_type' => 'TRANSFER_CREATED',
+                        'reference_type'   => 'INTERNAL_TRANSFER',
+                        'reference_id'     => (string) ($t['Code'] ?? ''),
+                        'amount'           => (float) ($t['OverallVal']
+                            ?? $request->input('amount', 0)),
+                        'direction'        => EmployeeCashboxService::IN,
+                        'notes'            => 'قيمة حوالة أنشأها الموظف',
+                        'device_hash'      => $session->device_hash ?? null,
+                        'created_by'       => $employee->id,
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::warning('cashbox entry failed after transfer create', [
+                        'transfer' => $t['Code'] ?? '', 'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
         }
 
         /*
@@ -431,6 +581,218 @@ class EmployeeController extends BaseController
      * وتوحيدُ المسار أسلمُ من فحصِ كلِّ دالّةٍ على حدة: دالّةٌ لا تسأل عن
      * الهويّة اليوم قد تسألها غداً، وحينها يسقط مسارُ الموظف بلا سبب ظاهر.
      */
+    /**
+     * GET employee/branding — هويّةُ شركة وكيله.
+     *
+     * ⚠ **بلا صلاحية**، وهو مقصود: الهويّةُ ليست بياناً يُمنح أو يُمنع، بل
+     * اسمُ الشركة وشعارُها على كلّ فاتورةٍ يطبعها الموظف ويسلّمها للزبون.
+     * ومنعُها يعني فاتورةً باسمِ شركةٍ أخرى في يد الزبون — لا حمايةً.
+     *
+     * ⚠ والشركةُ تُشتقّ من **وكيل الموظف** في القاعدة، لا مما يُرسله
+     * التطبيق: موظفٌ يطلب هويّةَ شركةٍ أخرى لا يجد إلى ذلك سبيلاً.
+     *
+     * ⚠ ولا تعديلَ من هنا: `can_edit` تعود false دائماً. تغييرُ الهويّة
+     * فعلُ صاحبِ الشركة وحدَه، وهو خلف جلسة الوكيل.
+     */
+    public function branding(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        $accId = DB::table('users')->where('id', $employee->agent_id)->value('AccID');
+        $svc = app(\App\Services\CompanyBrandingService::class);
+
+        if (empty($accId)) {
+            return $this->sendResponse([
+                'branding' => $svc->forCompany(0),
+                'can_edit' => false,
+                'themes'   => [],
+            ], 'Success');
+        }
+
+        $name = null;
+        try {
+            $name = DB::table('AccountsTb')->where('AccID', $accId)->value('AccName');
+        } catch (\Throwable) {
+        }
+
+        return $this->sendResponse([
+            'branding' => $svc->forCompany((int) $accId, $name),
+            'can_edit' => false,
+            'themes'   => [],
+        ], 'Success');
+    }
+
+    /* ===================================================================
+       التقارير والأرصدة والمفضّلة — قراءةٌ خالصة
+       ===================================================================
+
+       ⚠ **كلُّها للقراءة، ولا واحدةَ منها تكتب في أي جدولٍ ماليّ.** والأرصدةُ
+       تُقرأ بمسار الوكيل نفسِه (`EmployeeActsAsAgent`) لا بحسابٍ ثانٍ: رقمٌ
+       يُحسب هنا بطريقةٍ أخرى يفترق عمّا يراه الوكيل في تطبيقه، فيصير للرصيد
+       جوابان.
+
+       وكلُّ مسارٍ خلف صلاحيته وحدَه — فالوكيل يمنح ما يشاء ويمنع ما يشاء.
+       =================================================================== */
+
+    /** GET employee/reports/daily — يتطلّب REPORT_DAILY_TRANSFERS */
+    public function reportDaily(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeReports::class)->daily($employee, $request->query('date')),
+            'تم',
+        );
+    }
+
+    /** GET employee/reports/delivered — يتطلّب REPORT_DELIVERED_TRANSFERS */
+    public function reportDelivered(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeReports::class)->delivered($employee, (int) $request->query('days', 30)),
+            'تم',
+        );
+    }
+
+    /** GET employee/reports/pending — يتطلّب REPORT_PENDING_TRANSFERS */
+    public function reportPending(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeReports::class)->pending($employee),
+            'تم',
+        );
+    }
+
+    /**
+     * GET employee/statement — كشفُ حساب حوالاته للجرد.
+     *
+     * ⚠ تحت `VIEW_OWN_TRANSFERS`: من يرى حوالاته يرى كشفَها. ولا صلاحيةَ
+     * جديدة لشيءٍ هو تجميعُ ما يراه أصلاً.
+     */
+    public function transferStatement(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeReports::class)->statement(
+                $employee, (int) $request->query('days', 30)),
+            'تم');
+    }
+
+    /** GET employee/reports/cashbox — يتطلّب REPORT_EMPLOYEE_CASHBOX */
+    public function reportCashbox(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeReports::class)->cashbox($employee, (int) $request->query('days', 7)),
+            'تم',
+        );
+    }
+
+    /**
+     * GET employee/reports/point-of-sale — يتطلّب REPORT_POINT_OF_SALE
+     *
+     * ⚠ ونقطةُ البيع تُؤخذ من **الجلسة** لا من الطلب: موظفٌ يرسل معرّفَ
+     * نقطةِ بيعٍ أخرى كان سيرى عملَ من ليس معه.
+     */
+    public function reportPointOfSale(Request $request)
+    {
+        [$employee, $session, ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeReports::class)->pointOfSale(
+                $employee,
+                $session->active_pos_id ?? null,
+                (int) $request->query('days', 7),
+            ),
+            'تم',
+        );
+    }
+
+    /** GET employee/reports/audit — يتطلّب REPORT_AUDIT */
+    public function reportAudit(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeReports::class)->audit($employee, (int) $request->query('days', 14)),
+            'تم',
+        );
+    }
+
+    /**
+     * GET employee/balance — رصيدُ الوكيل الكلّي. يتطلّب VIEW_AGENT_TOTAL_BALANCE
+     *
+     * ⚠ **قراءةٌ بمسار الوكيل نفسِه.** لا استعلامَ ثانياً على `wallet` ولا
+     * جمعَ أرصدةٍ هنا: الرقمُ الذي يراه الموظف هو الرقمُ الذي يراه وكيله،
+     * حرفاً بحرف، لأنه من الدالّة نفسِها.
+     */
+    public function agentBalance(Request $request)
+    {
+        return $this->balanceAsAgent($request);
+    }
+
+    /**
+     * قراءةُ الرصيد بمسار الوكيل — والعملةُ تُملأ إن لم تُرسَل.
+     *
+     * ⚠ الدالّةُ الأصليّة تشترط `currency_id` وترفض بـ422 بدونه. وتركُ
+     * ذلك للتطبيق يعني شاشةً تُخفق برسالةٍ إنجليزية «Validation Error»
+     * لا يفهمها الموظف — فيُملأ هنا بالدينار الليبيّ، وهو عملةُ
+     * التطبيق كلِّه، ويبقى قابلاً للتجاوز إن أُرسل.
+     */
+    private function balanceAsAgent(Request $request)
+    {
+        $request->merge([
+            'currency_id' => $request->input('currency_id') ?: 1,
+        ]);
+
+        return $this->refAsAgent($request, 'getBalanceLocal');
+    }
+
+    /** GET employee/summary — يتطلّب VIEW_FINANCIAL_SUMMARY */
+    public function financialSummary(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeReports::class)->summary($employee), 'تم');
+    }
+
+    /**
+     * GET employee/reports/agent-balance — يتطلّب REPORT_AGENT_BALANCE
+     *
+     * ⚠ المصدرُ نفسُه الذي يخدم `VIEW_AGENT_TOTAL_BALANCE`، والصلاحيةُ
+     * غيرُها: الأولى تفتح رقمَ الرصيد في قسم التقارير، والثانية تعرضه في
+     * الشاشة الرئيسية. ووكيلٌ قد يريد أحدهما دون الآخر.
+     */
+    public function reportAgentBalance(Request $request)
+    {
+        return $this->balanceAsAgent($request);
+    }
+
+    /** GET employee/favorites — يتطلّب VIEW_FAVORITES */
+    public function favorites(Request $request)
+    {
+        return $this->refAsAgent($request, 'Favorites');
+    }
+
+    /** POST employee/favorites/add — يتطلّب MANAGE_FAVORITES */
+    public function favoriteAdd(Request $request)
+    {
+        return $this->refAsAgent($request, 'Favorites_Table_inser');
+    }
+
+    /** POST employee/favorites/delete — يتطلّب MANAGE_FAVORITES */
+    public function favoriteDelete(Request $request)
+    {
+        return $this->refAsAgent($request, 'Favorites_Table_delete');
+    }
+
     private function refAsAgent(Request $request, string $method)
     {
         [$employee, , ] = $this->ctx($request);
@@ -489,6 +851,8 @@ class EmployeeController extends BaseController
                 (int) $employee->id,
                 (int) $request->query('page', 1),
                 (int) $request->query('per_page', 20),
+                // ⚠ مقيَّدٌ بصاحبه: موظّفٌ لا يرى عملَ زميله على النقطة نفسِها.
+                (int) $employee->id,
             ),
             'Success');
     }
@@ -509,6 +873,8 @@ class EmployeeController extends BaseController
                     ? (int) $session->active_pos_id : null,
                 (int) $request->query('page', 1),
                 (int) $request->query('per_page', 20),
+                // ⚠ مقيَّدٌ بصاحبه: موظّفٌ لا يرى عملَ زميله على النقطة نفسِها.
+                (int) $employee->id,
             ),
             'Success');
     }

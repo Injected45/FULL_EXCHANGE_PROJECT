@@ -342,6 +342,15 @@ class EmployeesRepository {
         data: {'permissions': permissions});
   }
 
+  /// حذفُ الموظف — **بشرط ألّا يكون له أثرٌ ماليّ**.
+  ///
+  /// ⚠ الخادمُ يرفض بـ422 من أنشأ حوالةً أو سجّل حركةَ خزينة، ورسالتُه
+  /// تقول السببَ وتعرض الإيقافَ بديلاً. فلا فحصَ هنا: القرارُ عنده
+  /// وحدَه، وفحصٌ في التطبيق يعني قاعدتين تفترقان.
+  ///
+  /// ومن لا أثرَ له يُمحى تماماً ويتحرّر رقمُ هاتفه.
+  Future<void> remove(int id) => _api.delete('/employees/$id');
+
   Future<void> revokeDevice(int deviceId) =>
       _api.post('/employees/devices/$deviceId/revoke');
 }

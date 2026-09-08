@@ -209,7 +209,18 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
         backgroundColor: Colors.transparent,
         builder: (_) => PendingApprovalSheet(pending: p),
       );
-      if (mounted) context.go('/');
+      /*
+       * ⚠ ووجهةُ العودة بحسب من يستعمل الشاشة.
+       *
+       * الشاشةُ مشتركةٌ بين الوكيل والموظف عمداً (أمرُ المالك: «واجهةٌ من
+       * وكيل»)، لكنّ `/` مسارُ الوكيل وحدَه. وإرسالُ الموظف إليه يجعله
+       * يمرّ بإعادة توجيهٍ في الراوتر قبل أن يستقرّ — أو يقف حيث لا شاشة
+       * له. فالوجهةُ تُحسب من الوضع لا تُفترض.
+       */
+      if (!mounted) return;
+      final asEmployee = ref.read(employeeAuthProvider).status ==
+          EmpSessionStatus.signedIn;
+      context.go(asEmployee ? '/employee/home' : '/');
     } on ApiFailure catch (e) {
       if (!mounted) return;
       _timer?.cancel();

@@ -1,8 +1,12 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format/fmt.dart';
+import '../../core/net/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
@@ -17,6 +21,13 @@ import 'statement_pdf.dart';
 
 enum _Filter { all, credit, debit, cancelled }
 
+/// نطاقُ التاريخ المعروض.
+///
+/// ⚠ أُضيف بأمر المالك (8 سبتمبر 2026): «بعد تراكم العمليات والأشهر
+/// فنطلّ كشفاً حسب التاريخ أفضل». وكشفٌ يعرض كلَّ شيء دائماً يصير بعد
+/// سنةٍ آلافَ الصفوف تُمرَّر بحثاً عن يومٍ واحد.
+enum _Range { day, week, month, all, custom }
+
 class StatementScreen extends ConsumerStatefulWidget {
   const StatementScreen({super.key});
 
@@ -26,8 +37,42 @@ class StatementScreen extends ConsumerStatefulWidget {
 
 class _StatementScreenState extends ConsumerState<StatementScreen> {
   _Filter _filter = _Filter.all;
+
+  /// ⚠ الافتراضُ «الكل» لا «الشهر»: وكيلٌ يفتح كشفَه فلا يجد حركةً
+  /// قديمة يظنّها ضاعت. والتضييقُ فعلٌ يختاره، لا حالةٌ يجدها.
+  _Range _range = _Range.all;
+  DateTime? _from;
+  DateTime? _to;
+
   static const _pageSize = 30;
   int _shown = _pageSize;
+
+  /// هل تقع الحركةُ داخل النطاق المختار؟
+  ///
+  /// ⚠ وحركةٌ بتاريخٍ لا يُقرأ **تبقى**: حجبُها يعني كشفاً ينقص صفّاً
+  /// بسبب صيغة تاريخ، وذلك أسوأ من عرضِ صفٍّ خارج النطاق.
+  bool _inRange(Movement m) {
+    if (_range == _Range.all) return true;
+
+    final d = DateTime.tryParse(m.date.trim().replaceFirst(' ', 'T'));
+    if (d == null) return true;
+
+    final now = DateTime.now();
+    final (from, to) = switch (_range) {
+      _Range.day => (DateTime(now.year, now.month, now.day), now),
+      _Range.week => (now.subtract(const Duration(days: 7)), now),
+      _Range.month => (now.subtract(const Duration(days: 30)), now),
+      // ⚠ اليومُ المختار يُحتسب كاملاً: `_to` منتصفُ ليله، فبدون
+      // التمديد إلى آخره تختفي حركاتُ اليوم الأخير كلُّها.
+      _Range.custom => (
+          _from ?? DateTime(2000),
+          _to == null ? now : DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59),
+        ),
+      _Range.all => (DateTime(2000), now),
+    };
+
+    return !d.isBefore(from) && !d.isAfter(to);
+  }
 
   /// بناء الـ PDF عملٌ ثقيل نسبياً — والزرّ يُقفل أثناءه حتى لا يُبنى
   /// كشفان معاً على ضغطتين متتاليتين.
@@ -37,7 +82,10 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
   ///
   /// `_shown` ترقيمٌ للعرض لا للبيانات — وكشفٌ مطبوع ينتهي عند الصف الثلاثين
   /// لأن الوكيل لم يضغط «عرض المزيد» كشفٌ ناقص لا يُكتشف نقصُه.
-  Future<void> _export(List<Movement> all, String currency) async {
+  Future<void> _export(List<Movement> allRaw, String currency) async {
+    // ⚠ والنطاقُ يسبق النوع: المطبوعُ هو المعروضُ حرفاً بحرف.
+    final all = allRaw.where(_inRange).toList();
+
     final rows = switch (_filter) {
       _Filter.all => all,
       _Filter.credit => all.where((m) => m.isCredit).toList(),
@@ -72,6 +120,29 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
       final user = ref.read(authControllerProvider).user;
       final brand = ref.read(brandingControllerProvider).branding;
 
+      /*
+       * ⚠ الشعارُ يُجلب هنا لا داخل بناء PDF: البناءُ لا يعرف الشبكة،
+       * وجلبٌ داخله يجعل توليدَ ورقةٍ يفشل لأن الإنترنت انقطع.
+       *
+       * وفشلُ الجلب لا يُبطل الكشف — يخرج بلا شعار، وهو أفضلُ من ألّا
+       * يخرج. ولذلك `null` عند أي خطأ.
+       */
+      Uint8List? logo;
+      if (brand.hasLogo) {
+        try {
+          final res = await ref.read(apiClientProvider).raw.get<List<int>>(
+                brand.logoUrl!,
+                options: Options(responseType: ResponseType.bytes),
+              );
+          final data = res.data;
+          if (data != null && data.isNotEmpty) {
+            logo = Uint8List.fromList(data);
+          }
+        } catch (_) {
+          // متروك عمداً — انظر أعلاه.
+        }
+      }
+
       final bytes = await StatementPdf.build(
         rows: rows,
         scope: scope,
@@ -79,6 +150,7 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
         // هوية الشركة لا هوية الرحالة — كما في الفواتير.
         companyName: brand.displayName,
         companyNameEn: brand.companyNameEn,
+        logoBytes: logo,
         accountLabel: user == null
             ? null
             : 'حساب ${user.accId}'
@@ -135,7 +207,11 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
                 message: '$e',
                 onRetry: () => ref.invalidate(statementProvider),
               ),
-              data: (all) {
+              data: (allRaw) {
+                // ⚠ النطاقُ أوّلاً: الإجمالياتُ تتبع ما يُعرض، وإلّا قال
+                // الكشفُ «إجمالي الوارد» عن شهرٍ والصفوفُ ليومٍ واحد.
+                final all = allRaw.where(_inRange).toList();
+
                 // العمولة لا بطاقةَ لها في العرض (قرار المالك، 4 سبتمبر
                 // 2026): تظهر سطراً داخل بطاقة حوالتها كما في «آخر العمليات»،
                 // فتُقرأ الحوالة وعمولتها وحدةً واحدة بدل صفّين متباعدين.
@@ -153,7 +229,16 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
                 }
                     .where((m) => !m.isCommission)
                     .toList();
-                final visible = rows.take(_shown).toList();
+                /*
+                 * ⚠ **الأقدمُ أوّلاً** — أمرُ المالك (8 سبتمبر 2026).
+                 *
+                 * والقلبُ **بعد** حساب الرصيد والإجماليات، فلا يتغيّر
+                 * رقمٌ واحد: هو ترتيبُ عرضٍ لا ترتيبُ حساب.
+                 *
+                 * ويُقلب **قبل** `take` عمداً: «عرض المزيد» يمضي من
+                 * الأقدم إلى الأحدث، فيقرأ الوكيل كشفَه كما يقرأ ورقة.
+                 */
+                final visible = rows.reversed.take(_shown).toList();
                 final groups = _groupByDate(visible);
 
                 return ListView(
@@ -161,7 +246,10 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
                       R.padScreen, 20, R.padScreen, 40),
                   children: [
                     _BalanceCard(
-                      balance: all.isEmpty ? 0 : all.first.balance,
+                      // ⚠ الرصيدُ الحاليّ من أحدث حركةٍ **مطلقاً** لا من
+                      // المرشَّح: رصيدُ الحساب لا يتغيّر بتغيير نطاق
+                      // العرض، وقراءتُه من صفٍّ قديم تعطي رقماً مضى.
+                      balance: allRaw.isEmpty ? 0 : allRaw.first.balance,
                       credits: all.where((m) => m.isCredit).fold<double>(
                           0, (s, m) => s + m.amount),
                       debits: all.where((m) => !m.isCredit).fold<double>(
@@ -169,6 +257,18 @@ class _StatementScreenState extends ConsumerState<StatementScreen> {
                       currency: currency,
                     ),
                     const SizedBox(height: 18),
+                    _Ranges(
+                      value: _range,
+                      from: _from,
+                      to: _to,
+                      onChanged: (r, from, to) => setState(() {
+                        _range = r;
+                        _from = from;
+                        _to = to;
+                        _shown = _pageSize;
+                      }),
+                    ),
+                    const SizedBox(height: 10),
                     _Filters(
                       value: _filter,
                       onChanged: (f) => setState(() {
@@ -310,6 +410,82 @@ class _Total extends StatelessWidget {
                     color: credit ? R.credit : R.error)),
           ),
         ],
+      );
+}
+
+
+/// شريطُ نطاق التاريخ — اليوم · أسبوع · شهر · الكل · من–إلى.
+///
+/// ⚠ منفصلٌ عن شريط النوع (وارد/صادر) لأنّ السؤالين مختلفان: **متى** وقعت
+/// الحركة، و**أي اتجاهٍ** أخذ المال. ودمجُهما في شريطٍ واحد يعني أن اختيار
+/// «وارد» يمسح اختيار «هذا الشهر».
+class _Ranges extends StatelessWidget {
+  const _Ranges({
+    required this.value,
+    required this.from,
+    required this.to,
+    required this.onChanged,
+  });
+
+  final _Range value;
+  final DateTime? from;
+  final DateTime? to;
+  final void Function(_Range, DateTime?, DateTime?) onChanged;
+
+  static String _d(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}'
+      '-${d.day.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const ClampingScrollPhysics(),
+        child: Row(
+          children: [
+            for (final r in _Range.values) ...[
+              if (r != _Range.day) const SizedBox(width: 8),
+              _Chip(
+                label: switch (r) {
+                  _Range.day => 'اليوم',
+                  _Range.week => 'أسبوع',
+                  _Range.month => 'شهر',
+                  _Range.all => 'الكل',
+                  // ⚠ ويعرض المدى المختار لا كلمة «من–إلى» جامدة: وكيلٌ
+                  // يعود للشاشة بعد دقيقة يجب أن يرى ما اختاره لا أن يخمّنه.
+                  _Range.custom => (from == null && to == null)
+                      ? 'من – إلى'
+                      : '${from == null ? '…' : _d(from!)}'
+                          ' ← ${to == null ? '…' : _d(to!)}',
+                },
+                on: r == value,
+                onTap: () async {
+                  if (r != _Range.custom) {
+                    onChanged(r, null, null);
+                    return;
+                  }
+
+                  final picked = await showDateRangePicker(
+                    context: context,
+                    // ⚠ 2020 لا 1900: نافذةٌ تبدأ قبل عشرين سنة تعني تمريراً
+                    // طويلاً لا معنى له — والمنظومة نفسُها أحدثُ من ذلك.
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                    initialDateRange: (from != null && to != null)
+                        ? DateTimeRange(start: from!, end: to!)
+                        : null,
+                    locale: const Locale('ar'),
+                  );
+
+                  // ⚠ الإلغاءُ لا يغيّر شيئاً: من فتح المنتقي ثمّ تراجع
+                  // يبقى على نطاقه، ولا يُفرَّغ كشفُه بلا سبب.
+                  if (picked != null) {
+                    onChanged(_Range.custom, picked.start, picked.end);
+                  }
+                },
+              ),
+            ],
+          ],
+        ),
       );
 }
 

@@ -208,8 +208,21 @@ class BrandingRepository {
 
   final ApiClient _api;
 
+  /// وضعُ الموظف يُعرَف بوجود رمزه — لا يُخمَّن.
+  Future<bool> _asEmployee() async =>
+      (await _api.store.readEmployeeToken())?.isNotEmpty ?? false;
+
+  /// هويّةُ الشركة — للوكيل وللموظف من مسارين، وبالنتيجة نفسِها.
+  ///
+  /// ⚠ مسارُ الوكيل خلف `auth:sanctum`، والموظفُ لا يملك رمزَه أصلاً —
+  /// فكان يُخفق صامتاً فتُعرض هويّةُ «الرحالة» الافتراضية على فواتير
+  /// شركةٍ أخرى. ولذلك مسارٌ ثانٍ خلف جلسة الموظف يقرأ هويّةَ وكيله.
   Future<Branding> load() async {
-    final env = await _api.get('/company/branding');
+    final path = await _asEmployee()
+        ? '/device/employee/branding'
+        : '/company/branding';
+
+    final env = await _api.get(path);
     return Branding.fromJson(env.row ?? const {});
   }
 

@@ -149,6 +149,10 @@ That single sentence decides the architecture, and `EmployeeActsAsAgent` impleme
 
 Two orderings in `EmployeeController::createTransfer` are correctness, not taste. The **duplicate-key lookup comes before the minute rule** — reversed, a double-tap answers "wait a minute" about the transfer that had just succeeded, so the employee sends it again. And the minute-rule check is **read-only and predictive**: the server's own rule lives in a trigger, and the app-side check exists only to fail early with a sentence the employee can act on.
 
+**Deleting an employee is allowed only while they have no financial footprint** (owner's rule, 8 Sep 2026). The app had suspend-only, and suspend keeps the phone number reserved — so an agent who typed a wrong number had no way to correct it, which is exactly how this surfaced. `DELETE employees/{id}` now refuses with 422 and a breakdown when the employee has any of: a row in `transfer_attributions`, a cashbox entry, a shift, or an approval request that actually executed. Sessions, devices, codes, permissions and chats are **not** a footprint — they are setup, not money.
+
+That rule also settled a question the first version left open. The delete was soft, to preserve who created each transfer. But an employee with no transfers has nothing to preserve, so softness was protecting **nothing** while holding a phone number hostage. The delete is now hard — precisely because it is only permitted when there is nothing to destroy. The guarantee moved from "hide, never erase" to "erase only what has no trace", which is the stronger of the two: the first still permits erasing everything.
+
 ### Employee transfer limits and agent approval (8 Sep 2026)
 
 The agent sets a per-employee ceiling; anything above it becomes an approval request instead of a transfer. Owner's architecture, stated as the closing line of the spec: *employee creates the request · policy engine evaluates it · agent authorizes exceptions · **the existing transfer engine alone executes it** · Rhalla keeps accounting with the agent.*

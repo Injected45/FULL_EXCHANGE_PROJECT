@@ -8,6 +8,7 @@ import '../../core/feature_flags.dart';
 import '../../core/format/fmt.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
+import '../employees/approvals_banner.dart';
 import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/glass.dart';
 import '../alerts/incoming_alerts.dart';
@@ -52,6 +53,10 @@ class HomeScreen extends ConsumerWidget {
             // مع قيمةٍ موجودة نعرضها ونستبدلها صامتاً حين تصل الجديدة.
             loading: snap.isLoading && !snap.hasValue,
           ),
+
+          // ⚠ فوق كلِّ شيء بعد الرأس: حوالةُ زبونٍ تنتظر قرار الوكيل،
+          // ولا تظهر اللافتةُ أصلاً إن لم يكن هناك ما ينتظر.
+          const ApprovalsBanner(),
 
           Transform.translate(
             offset: const Offset(0, -28),

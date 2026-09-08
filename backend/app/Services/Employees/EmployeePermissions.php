@@ -123,6 +123,29 @@ class EmployeePermissions
         // إنشاءُ الحوالة — بإذن المالك الصّريح (7 سبتمبر 2026)،
         // والوحيدةُ هنا التي تكتب في الدّفتر الماليّ.
         'CREATE_TRANSFER',
+
+        /*
+         * التقاريرُ والأرصدةُ والمفضّلة — وُصلت في 8 سبتمبر 2026.
+         *
+         * ⚠ وسببُ وصلها أن الوكيل منحها كاملةً لموظّفه فلم يظهر له إلّا
+         * أقلُّها: كانت محفوظةً في القاعدة وبلا شاشةٍ تقرؤها. فمنحُ
+         * صلاحيةٍ لا أثرَ لها يُفقد الوكيلَ ثقتَه بشاشة الصلاحيات كلِّها.
+         *
+         * ⚠ وكلُّها **قراءةٌ خالصة** عدا `MANAGE_FAVORITES` — وهي تكتب
+         * في المفضّلة وحدها، وليست جدولاً ماليّاً.
+         */
+        'REPORTS_VIEW',
+        'REPORT_DAILY_TRANSFERS',
+        'REPORT_DELIVERED_TRANSFERS',
+        'REPORT_PENDING_TRANSFERS',
+        'REPORT_EMPLOYEE_CASHBOX',
+        'REPORT_POINT_OF_SALE',
+        'REPORT_AUDIT',
+        'VIEW_AGENT_TOTAL_BALANCE',
+        'VIEW_FAVORITES',
+        'MANAGE_FAVORITES',
+        'VIEW_FINANCIAL_SUMMARY',
+        'REPORT_AGENT_BALANCE',
     ];
 
     /** هل للمفتاح أثرٌ فعليّ اليوم؟ */

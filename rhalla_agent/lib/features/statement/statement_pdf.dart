@@ -49,6 +49,8 @@ class StatementPdf {
     required String companyName,
     String? companyNameEn,
     String? accountLabel,
+    /// شعارُ الشركة — بايتاتٍ لا رابطاً: بناءُ PDF لا يجلب من الشبكة.
+    Uint8List? logoBytes,
   }) async {
     await _loadFonts();
 
@@ -71,7 +73,8 @@ class StatementPdf {
         margin: const pw.EdgeInsets.fromLTRB(24, 26, 24, 30),
         textDirection: pw.TextDirection.rtl,
         header: (ctx) => ctx.pageNumber == 1
-            ? _head(scope, companyName, companyNameEn, accountLabel, rows.length)
+            ? _head(scope, companyName, companyNameEn, accountLabel,
+                rows.length, logoBytes)
             : pw.SizedBox(height: 0),
         footer: (ctx) => pw.Container(
           alignment: pw.Alignment.center,
@@ -97,6 +100,7 @@ class StatementPdf {
     String? companyNameEn,
     String? accountLabel,
     int count,
+    Uint8List? logoBytes,
   ) {
     final now = DateTime.now();
     final stamp = '${now.year}-${_pad2(now.month)}-${_pad2(now.day)}'
@@ -105,16 +109,48 @@ class StatementPdf {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.stretch,
       children: [
-        // هوية الشركة لا هوية الرحالة — كما في الفواتير تماماً: الورقة
-        // التي يخرجها الوكيل تحمل اسمه.
-        pw.Text(companyName,
-            style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold)),
-        if (companyNameEn != null && companyNameEn.trim().isNotEmpty)
-          pw.Directionality(
-            textDirection: pw.TextDirection.ltr,
-            child: pw.Text(companyNameEn,
-                style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
-          ),
+        /*
+         * هوية الشركة لا هوية الرحالة — كما في الفواتير تماماً: الورقة
+         * التي يخرجها الوكيل تحمل اسمه.
+         *
+         * ⚠ والشعارُ أقصى اليسار (أمرُ المالك، 8 سبتمبر 2026): الصفحة
+         * RTL، فأوّلُ عنصرٍ في الصفّ يقع يميناً — ولذلك النصُّ أوّلاً
+         * والشعارُ بعده. وعكسُهما يضعه يميناً فوق الاسم.
+         *
+         * ⚠ وبمقاسٍ محدود (44 نقطة): شعارٌ بلا سقفٍ للارتفاع يدفع
+         * الجدولَ إلى صفحةٍ ثانية إن كان الأصلُ مربّعاً كبيراً.
+         */
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Expanded(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(companyName,
+                      style: pw.TextStyle(
+                          fontSize: 15, fontWeight: pw.FontWeight.bold)),
+                  if (companyNameEn != null && companyNameEn.trim().isNotEmpty)
+                    pw.Directionality(
+                      textDirection: pw.TextDirection.ltr,
+                      child: pw.Text(companyNameEn,
+                          style: pw.TextStyle(
+                              fontSize: 9, color: PdfColors.grey700)),
+                    ),
+                ],
+              ),
+            ),
+            // ⚠ ولا يُترك فراغُه حين لا شعار: الاسمُ يتمدّد وحده.
+            if (logoBytes != null)
+              pw.Container(
+                width: 44,
+                height: 44,
+                margin: const pw.EdgeInsets.only(right: 10),
+                child: pw.Image(pw.MemoryImage(logoBytes),
+                    fit: pw.BoxFit.contain),
+              ),
+          ],
+        ),
         pw.SizedBox(height: 10),
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -219,17 +255,40 @@ class StatementPdf {
   ///
   /// ما طلبه المالك (التاريخ · المنفّذ · مدين · دائن · الرصيد) ومعه البيان
   /// ورقم الحوالة — وبدونهما لا يُعرف أيّ حركةٍ يخصّ الرقم.
+  ///
+  /// ⚠ **«صادر» و«وارد» لا «مدين» و«دائن»** — أمرُ المالك (8 سبتمبر
+  /// 2026). فالمصطلحان المحاسبيّان يقرؤهما المحاسبُ صحيحين ويقرؤهما
+  /// الوكيلُ معكوسين، والكلمتان التشغيليّتان لا تحتملان قلباً.
+  ///
+  /// ⚠ **والبيان آخرَ الأعمدة بعد الرصيد** — أمرُ المالك كذلك. فهو
+  /// أعرضُها وأكثرُها تبايناً في الطول، ووقوعُه بين التاريخ والأرقام
+  /// كان يدفع أعمدةَ المال بعيداً ويقطع تسلسلَ القراءة الرقميّة.
   static const _columns = <_Col>[
     _Col('التاريخ', 2.0),
-    _Col('البيان', 3.1),
     _Col('رقم الحوالة', 2.1),
     _Col('المنفّذ', 1.9),
-    _Col('مدين', 1.9),
-    _Col('دائن', 1.9),
+    _Col('صادر', 1.9),
+    _Col('وارد', 1.9),
     _Col('الرصيد', 2.0),
+    _Col('البيان', 3.1),
   ];
 
-  static pw.Widget _table(List<Movement> rows) {
+  /// ⚠ **الأقدمُ أوّلاً** — أمرُ المالك (8 سبتمبر 2026): «أوّل حوالة
+  /// تُسجَّل في أعلى الجدول في أوّل صفّ، وتحتها العمولة، ويليها
+  /// الحوالة الثانية».
+  ///
+  /// والخادمُ يُرجع الأحدثَ أوّلاً — وهو الصحيح لشاشةٍ تُتصفَّح، والخطأ
+  /// لكشفٍ يُقرأ: الرصيدُ التراكميّ يُقرأ من أعلى إلى أسفل، وقراءتُه
+  /// مقلوباً تجعل كلّ سطرٍ يسبق سببَه.
+  ///
+  /// ⚠ والعكسُ وحده يضع العمولةَ تحت حوالتها: هي تُسجَّل بعدها، فتقع
+  /// فوقها في الترتيب التنازليّ وتحتها في التصاعديّ.
+  ///
+  /// والقلبُ **في العرض وحده**: الإجمالياتُ والرصيدُ الختاميّ تُحسب
+  /// قبله من القائمة كما وصلت، فلا يتغيّر رقمٌ واحد.
+  static pw.Widget _table(List<Movement> input) {
+    final rows = input.reversed.toList();
+
     /* ⚠ الأعمدة تُقلب قبل الرسم — وهذا ليس زخرفة.
      *
      * `pw.Table` في حزمة `pdf` يرصف أعمدته من اليسار دائماً، ولا يتبع
@@ -278,14 +337,23 @@ class StatementPdf {
   /// خلايا صفٍّ واحد بترتيب [_columns] المنطقي.
   static List<pw.Widget> _cells(Movement m) => [
         _Td(m.date.split(' ').first, ltr: true),
-        _Td(Fmt.localName(m.title)),
         _Td(m.code.isEmpty ? '—' : m.code, ltr: true),
-        // «المنفّذ» يبقى «—» حين لا سجلّ نسبة، ولا يُملأ بالوكيل تخميناً:
-        // حركةٌ أنشأها فرعٌ في المنظومة ليست من تنفيذه.
-        _Td(m.executedBy.isEmpty ? '—' : m.executedBy),
+        /*
+         * ⚠ **«الوكيل» حين لا سجلّ نسبة** — أمرُ المالك (8 سبتمبر 2026).
+         *
+         * وكان «—» بقرارٍ سابق: سجلُّ النسبة يُكتب حين ينفّذ **موظف**،
+         * فغيابُه لا يُثبت أنّ الوكيل هو المنفّذ — قد تكون الحركةُ من
+         * فرعٍ في المنظومة.
+         *
+         * لكنّ «—» في كشفٍ يُسلَّم لا تقول شيئاً، وأغلبُ صفوف الكشف
+         * حوالاتُ الوكيل نفسِه. فالنصُّ الآن «الوكيل» بأمره.
+         */
+        _Td(m.executedBy.isEmpty ? 'الوكيل' : m.executedBy),
         _Td(m.isCredit ? '' : Fmt.money(m.amount), ltr: true),
         _Td(m.isCredit ? Fmt.money(m.amount) : '', ltr: true),
         _Td(Fmt.money(m.balance), ltr: true, bold: true),
+        // ⚠ البيان آخراً — يتبع ترتيبَ `_columns` حرفاً بحرف.
+        _Td(Fmt.localName(m.title)),
       ];
 
   static String _pad2(int n) => n.toString().padLeft(2, '0');

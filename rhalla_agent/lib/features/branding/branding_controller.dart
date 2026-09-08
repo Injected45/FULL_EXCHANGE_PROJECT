@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/tokens.dart';
 import '../auth/auth_controller.dart';
+import '../employee_app/employee_session.dart';
 import 'branding_repository.dart';
 
 /// حالة هوية الشركة في الجلسة.
@@ -183,6 +184,16 @@ final brandingControllerProvider =
     }
   });
 
+  // ⚠ وخروجُ الموظف مثلُه: هويّةُ شركةٍ تبقى بعد خروج صاحبها تظهر
+  // لمن يفتح التطبيق بعده — وقد يكون موظفَ وكيلٍ آخر على الجهاز نفسِه.
+  ref.listen<EmployeeAuthState>(employeeAuthProvider, (prev, next) {
+    if (next.status == EmpSessionStatus.signedOut &&
+        prev?.status == EmpSessionStatus.signedIn) {
+      controller.reset();
+      ref.invalidate(brandingBootstrapProvider);
+    }
+  });
+
   return controller;
 });
 
@@ -200,7 +211,19 @@ final AutoDisposeFutureProvider<void> brandingBootstrapProvider =
 
   // `watch` لا `read`: تغيّر حالة الجلسة يُعيد تشغيل هذا المزوّد، فيُجلب
   // عند الدخول ولو أُنشئ قبله.
-  if (ref.watch(authControllerProvider).status != AuthStatus.signedIn) return;
+  //
+  // ⚠ **والجلسةُ جلستان لا واحدة.**
+  //
+  // كان الشرطُ على جلسة الوكيل وحدَها، فلا تُجلب الهويّةُ في وضع
+  // الموظف إطلاقاً — وتُطبع فواتيرُ الزبائن باسم «الرحالة» وشعارها
+  // بدل اسم الشركة التي يعمل فيها الموظف وشعارها.
+  //
+  // وهي فاتورةٌ تُسلَّم لزبونٍ بيده، فالخطأ فيها لا يبقى داخل التطبيق.
+  final agentIn = ref.watch(authControllerProvider).status == AuthStatus.signedIn;
+  final employeeIn =
+      ref.watch(employeeAuthProvider).status == EmpSessionStatus.signedIn;
+
+  if (!agentIn && !employeeIn) return;
 
   // ⚠ التأجيل ضروري لا تجميل. Riverpod يمنع مزوّداً من تعديل مزوّدٍ آخر
   // أثناء تهيئته:

@@ -15,6 +15,11 @@ import 'features/employees/employees_repository.dart';
 import 'features/employees/approvals_screen.dart';
 import 'features/employees/employees_screen.dart';
 import 'features/employee_app/employee_activation_screen.dart';
+import 'features/employee_app/employee_approvals_screen.dart';
+import 'features/employee_app/employee_extras_screens.dart';
+import 'features/employee_app/employee_lookup_screens.dart';
+import 'features/employee_app/employee_reports_screen.dart';
+import 'features/employee_app/employee_statement_screen.dart';
 import 'features/employee_app/employee_home_screen.dart';
 import 'features/employee_app/employee_session.dart';
 import 'features/employee_app/employee_shift_screens.dart';
@@ -167,6 +172,44 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/employee/home',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const EmployeeHomeScreen(),
+      ),
+      GoRoute(
+        // قسمُ تقارير الموظف عن نفسِه — لا تقارير الوكيل عن موظفيه.
+        path: '/employee/reports',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeOwnReportsScreen(),
+      ),
+      GoRoute(
+        path: '/employee/balances',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeBalancesScreen(),
+      ),
+      GoRoute(
+        path: '/employee/favorites',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeFavoritesScreen(),
+      ),
+      GoRoute(
+        path: '/employee/pos-transfers',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeePosTransfersScreen(),
+      ),
+      GoRoute(
+        path: '/employee/search',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeSearchScreen(),
+      ),
+      GoRoute(
+        // كشفُ حوالاته — للجرد على نفسه.
+        path: '/employee/statement',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeStatementScreen(),
+      ),
+      GoRoute(
+        // «طلباتي» — نتيجةُ ما أرسله الموظف إلى وكيله.
+        path: '/employee/approvals',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeApprovalsScreen(),
       ),
       GoRoute(
         path: '/employee/transfers',

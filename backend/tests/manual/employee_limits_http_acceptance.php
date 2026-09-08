@@ -200,6 +200,40 @@ if ($otherToken) {
         DB::table('employee_approval_requests')->where('id', $reqId)->value('status') === 'PENDING');
 }
 
+/*
+ * ⚠ **الموافقةُ إذنٌ لا تنفيذ** — أمرُ المالك (8 سبتمبر 2026).
+ *
+ * فالمالُ بيد الموظف والزبونُ واقفٌ عنده؛ وحوالةٌ تُنفَّذ لحظةَ موافقة
+ * الوكيل تدخل خزينةَ الموظف في عجزٍ عن مبلغٍ لم يستلمه بعد.
+ */
+$permId = DB::table('employee_approval_requests')->insertGetId([
+    'agent_id' => $agentId, 'employee_id' => $employeeId,
+    'client_id' => 'http-perm-' . time(),
+    'payload' => json_encode(['amount' => 5000]),
+    'amount' => 5000, 'reasons' => 'PER_TRANSFER',
+    'status' => 'PENDING', 'expires_at' => now()->addDay(),
+    'created_at' => now(), 'updated_at' => now(),
+]);
+
+$internalBefore = DB::table('InternalEx')->count();
+$r = $call('POST', '/employees/approvals/' . $permId . '/approve', $agentToken);
+
+$check('16أ. الموافقة تنجح', $r['status'] === 200, 'HTTP ' . $r['status']);
+
+$check('16ب. ⚠ ولا تُنفِّذ الحوالة — الإذنُ للموظف لا فعلٌ عن الوكيل',
+    ($r['body']['data']['executed'] ?? true) === false
+    && DB::table('InternalEx')->count() === $internalBefore);
+
+$check('16ج. والحالةُ APPROVED بلا رقم حوالة — بانتظار تنفيذ الموظف',
+    DB::table('employee_approval_requests')->where('id',$permId)->value('status') === 'APPROVED'
+    && DB::table('employee_approval_requests')->where('id',$permId)->value('transfer_number') === null);
+
+$check('16د. ⚠ والرسالةُ تقول للوكيل إنّ الموظف ينفّذها',
+    str_contains((string)($r['body']['message'] ?? ''), 'ينفّذ الموظف'),
+    mb_substr((string)($r['body']['message'] ?? ''), 0, 50));
+
+DB::table('employee_approval_requests')->where('id',$permId)->delete();
+
 $r = $call('POST', '/employees/approvals/' . $reqId . '/reject', $agentToken);
 $check('16. وصاحبُه يرفضه', $r['status'] === 200,
     mb_substr((string) ($r['body']['message'] ?? ''), 0, 40));

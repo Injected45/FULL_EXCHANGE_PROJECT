@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -19,17 +20,45 @@ class ApprovalsBadgeController extends StateNotifier<int> {
 
   final Ref _ref;
 
+  /// ⚠ **النبضةُ الأولى لا تُرنّ.**
+  ///
+  /// هي تُثبّت خطَّ الأساس: وكيلٌ يفتح التطبيق وعنده ثلاثةُ طلباتٍ من
+  /// أمس لا يجوز أن يُفاجأ برنينٍ عنها — يراها في اللافتة صامتةً.
+  /// والرنينُ لما يصل **وهو ينظر**.
+  bool _baseline = false;
+
   /// ⚠ يبتلع الأخطاء عمداً: انقطاعُ شبكةٍ لحظيّ لا يجوز أن يُفرغ الشارة
   /// فيظنّ الوكيل أن الطلبات عولجت. تبقى على آخر عددٍ معلوم حتى يصل غيره.
   Future<void> refresh() async {
     try {
-      state = await _ref.read(approvalsRepositoryProvider).pendingCount();
+      final next = await _ref.read(approvalsRepositoryProvider).pendingCount();
+      final grew = _baseline && next > state;
+      _baseline = true;
+      state = next;
+
+      // ⚠ ويُرنّ على **الزيادة** لا على وجود عدد: طلبٌ باقٍ منذ ساعة
+      // لا يُرنّ كلَّ نبضة، وإلّا صار الرنينُ ضجيجاً يُتجاهَل.
+      if (grew) await _ring();
     } catch (_) {
       // متروك عمداً — انظر أعلاه.
     }
   }
 
-  void clearLocal() => state = 0;
+  /// نغمةُ الجهاز نفسُها التي يستعملها جرسُ الوارد — لا صوتَ مضمَّن.
+  Future<void> _ring() async {
+    HapticFeedback.mediumImpact();
+    try {
+      await const MethodChannel('com.rhalla.rhalla_agent/device')
+          .invokeMethod<void>('notificationSound');
+    } catch (_) {
+      await SystemSound.play(SystemSoundType.alert);
+    }
+  }
+
+  void clearLocal() {
+    state = 0;
+    _baseline = false;
+  }
 }
 
 final approvalsBadgeProvider =

@@ -115,6 +115,92 @@ class _EmployeeHomeScreenState extends ConsumerState<EmployeeHomeScreen> {
                       onTap: () => context.push('/employee/transfers'),
                     ),
 
+                  // ⚠ «طلباتي» تظهر لمن يُنشئ الحوالات وحدَه: من لا
+                  // يُنشئ لا طلباتِ له. ونتيجةُ الطلب تُقرأ هنا لا تُسأل
+                  // من الوكيل — والموظفُ واقفٌ أمام زبونٍ ينتظر.
+                  if (canCreate) ...[
+                    const SizedBox(height: R.gapRow),
+                    _Tile(
+                      icon: Icons.fact_check_outlined,
+                      title: 'طلباتي',
+                      subtitle: 'الحوالات التي تنتظر موافقة الوكيل',
+                      onTap: () => context.push('/employee/approvals'),
+                    ),
+                  ],
+
+                  /*
+                   * ⚠ كلُّ بلاطةٍ خلف صلاحيتها — ولا تظهر لمن لم
+                   * يُمنحها. والإخفاءُ تجميل: الخادم يردّ 403 على كلّ
+                   * نداء. لكنّ بلاطةً تُفتح فتُخفق تُعلّم الموظف أنّ
+                   * التطبيق معطوب، فلا تُعرض أصلاً.
+                   */
+                  if (p.can('VIEW_POS_TRANSFERS')) ...[
+                    const SizedBox(height: R.gapRow),
+                    _Tile(
+                      icon: Icons.storefront_outlined,
+                      title: 'حوالات نقطة بيعي',
+                      subtitle: 'عملي على نقطة البيع الحالية',
+                      onTap: () => context.push('/employee/pos-transfers'),
+                    ),
+                  ],
+
+                  if (p.can('SEARCH_TRANSFER')) ...[
+                    const SizedBox(height: R.gapRow),
+                    _Tile(
+                      icon: Icons.search_rounded,
+                      title: 'بحث برقم الحوالة',
+                      subtitle: 'ابحث عن حوالة بعينها',
+                      onTap: () => context.push('/employee/search'),
+                    ),
+                  ],
+
+                  // ⚠ «التقارير» بوّابةٌ لها مفتاحها، وكلُّ تقريرٍ
+                  // داخلها له مفتاحُه — فوكيلٌ يُري موظّفَه تقريراً
+                  // واحداً دون سائرها يستطيع ذلك.
+                  if (p.can('REPORTS_VIEW')) ...[
+                    const SizedBox(height: R.gapRow),
+                    _Tile(
+                      icon: Icons.insert_chart_outlined_rounded,
+                      title: 'التقارير',
+                      subtitle: 'حوالات اليوم والمسلَّمة والخزينة',
+                      onTap: () => context.push('/employee/reports'),
+                    ),
+                  ],
+
+                  if (p.can('VIEW_AGENT_TOTAL_BALANCE') ||
+                      p.can('VIEW_FINANCIAL_SUMMARY')) ...[
+                    const SizedBox(height: R.gapRow),
+                    _Tile(
+                      icon: Icons.account_balance_wallet_outlined,
+                      title: 'الأرصدة',
+                      subtitle: 'رصيد الوكيل والملخّص اليومي',
+                      onTap: () => context.push('/employee/balances'),
+                    ),
+                  ],
+
+                  if (p.can('VIEW_FAVORITES')) ...[
+                    const SizedBox(height: R.gapRow),
+                    _Tile(
+                      icon: Icons.people_outline_rounded,
+                      title: 'المستفيدون',
+                      subtitle: p.can('MANAGE_FAVORITES')
+                          ? 'المفضّلة — عرضٌ وإدارة'
+                          : 'المفضّلة — عرض فقط',
+                      onTap: () => context.push('/employee/favorites'),
+                    ),
+                  ],
+
+                  // كشفُ حوالاته — تحت صلاحية عرض حوالاته نفسِها.
+                  if (p.can('VIEW_OWN_TRANSFERS')) ...[
+                    const SizedBox(height: R.gapRow),
+                    _Tile(
+                      icon: Icons.receipt_long_outlined,
+                      title: 'كشف حوالاتي',
+                      subtitle: 'ما قبضتُ وما سلَّمتُ والصافي',
+                      onTap: () => context.push('/employee/statement'),
+                    ),
+                  ],
+
                   if (canCashbox) ...[
                     const SizedBox(height: R.gapRow),
                     _Tile(

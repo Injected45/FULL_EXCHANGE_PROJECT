@@ -85,16 +85,34 @@ class EmployeeTransferViews
      * وموظّفٌ بلا نقطة بيع لا يرى شيئاً — ولا يُخطئ: الجوابُ الصحيح على
      * «ما الذي جرى على نقطتي؟» حين لا نقطةَ له هو «لا شيء»، لا رسالةُ خطأ.
      */
-    public function pointOfSale(int $agentId, ?int $posId, int $page, int $perPage): array
+    public function pointOfSale(int $agentId, ?int $posId, int $page, int $perPage,
+                                ?int $employeeId = null): array
     {
         if (!$posId) {
             return ['items' => [], 'total' => 0, 'page' => 1, 'per_page' => $perPage,
                     'note' => 'لا نقطة بيع مُسنَدة إليك.'];
         }
 
+        /*
+         * ⚠ **موظّفٌ لا يرى عملَ زميله** — أمرُ المالك (8 سبتمبر 2026):
+         * «الموظفون لا يرون جلسات بعضهم، وكلُّ موظفٍ يرى جلستَه هو،
+         * والوكيلُ يرى كلَّ الموظفين».
+         *
+         * وكان هذا العرضُ يُرجع حوالاتِ النقطة كلَّها بلا تمييز، فيرى
+         * الموظفُ ما أنشأه زملاؤه عليها ومبالغَه — وهو كشفٌ لم يأذن به أحد.
+         *
+         * ويبقى للصلاحيتين معنيان مختلفان: `VIEW_OWN_TRANSFERS` حوالاتُه
+         * أينما عمل، و`VIEW_POS_TRANSFERS` حوالاتُه **على هذه النقطة**
+         * وحدَها — وهو ما يوافق ورديّته عليها.
+         */
         return $this->byAttribution(
             $agentId,
-            fn ($q) => $q->where('point_of_sale_id', $posId),
+            function ($q) use ($posId, $employeeId) {
+                $q->where('point_of_sale_id', $posId);
+                if ($employeeId !== null) {
+                    $q->where('employee_id', $employeeId);
+                }
+            },
             $page, $perPage,
         );
     }

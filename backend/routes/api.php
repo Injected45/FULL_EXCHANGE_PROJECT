@@ -175,9 +175,98 @@ Route::get ('device/employee/transfers/search',
  *
  * وتحت صلاحية إنشاء الحوالة نفسِها: من لا يُنشئ حوالةً لا طلباتِ له.
  */
+/*
+ * هويّةُ شركة الوكيل — تقرؤها فواتيرُ الموظف وطباعتُه.
+ *
+ * ⚠ بلا صلاحية: فاتورةٌ باسمِ شركةٍ أخرى في يد الزبون ليست حمايةً.
+ */
+Route::get ('device/employee/branding',
+    [ EmployeeController::class , 'branding' ])
+    ->middleware('employee');
+
+/*
+ * تقاريرُ الموظف وأرصدتُه ومفضّلتُه — كلٌّ خلف صلاحيته وحدَه.
+ *
+ * ⚠ **قراءةٌ خالصة**: لا مسارَ هنا يكتب في جدولٍ ماليّ. والأرصدةُ تُقرأ
+ * بمسار الوكيل نفسِه، فالرقمُ واحدٌ لا رقمان.
+ *
+ * ⚠ ولا بوّابةَ واحدة لكلّ التقارير: `REPORTS_VIEW` يفتح القسم، وكلُّ
+ * تقريرٍ داخله يحتاج مفتاحَه — فوكيلٌ يُري موظّفَه حوالاتِ يومه دون رصيده
+ * يستطيع ذلك، ولو كانت كتلةً واحدة لَما استطاع.
+ */
+/*
+ * كشفُ حساب حوالات الموظف — ما أنشأ وما سلّم في كشفٍ واحد، للجرد.
+ *
+ * ⚠ والنقدُ في يده واحد، فكشفُه واحد: تقريران منفصلان لا يُجرَد عليهما.
+ */
+Route::get ('device/employee/statement',
+    [ EmployeeController::class , 'transferStatement' ])
+    ->middleware('employee:VIEW_OWN_TRANSFERS');
+
+Route::get ('device/employee/reports/daily',
+    [ EmployeeController::class , 'reportDaily' ])
+    ->middleware('employee:REPORT_DAILY_TRANSFERS');
+
+Route::get ('device/employee/reports/delivered',
+    [ EmployeeController::class , 'reportDelivered' ])
+    ->middleware('employee:REPORT_DELIVERED_TRANSFERS');
+
+Route::get ('device/employee/reports/pending',
+    [ EmployeeController::class , 'reportPending' ])
+    ->middleware('employee:REPORT_PENDING_TRANSFERS');
+
+Route::get ('device/employee/reports/cashbox',
+    [ EmployeeController::class , 'reportCashbox' ])
+    ->middleware('employee:REPORT_EMPLOYEE_CASHBOX');
+
+Route::get ('device/employee/reports/point-of-sale',
+    [ EmployeeController::class , 'reportPointOfSale' ])
+    ->middleware('employee:REPORT_POINT_OF_SALE');
+
+Route::get ('device/employee/reports/audit',
+    [ EmployeeController::class , 'reportAudit' ])
+    ->middleware('employee:REPORT_AUDIT');
+
+Route::get ('device/employee/reports/agent-balance',
+    [ EmployeeController::class , 'reportAgentBalance' ])
+    ->middleware('employee:REPORT_AGENT_BALANCE');
+
+/* الملخّصُ الماليّ — تجميعُ ما تقوله التقاريرُ نفسُها، لا حسابٌ ثانٍ. */
+Route::get ('device/employee/summary',
+    [ EmployeeController::class , 'financialSummary' ])
+    ->middleware('employee:VIEW_FINANCIAL_SUMMARY');
+
+/* رصيدُ الوكيل — يقرؤه الموظف ولا يمسّه. */
+Route::get ('device/employee/balance',
+    [ EmployeeController::class , 'agentBalance' ])
+    ->middleware('employee:VIEW_AGENT_TOTAL_BALANCE');
+
+/* المستفيدون المفضّلون — العرضُ والإدارةُ صلاحيتان لا واحدة. */
+Route::post('device/employee/favorites',
+    [ EmployeeController::class , 'favorites' ])
+    ->middleware('employee:VIEW_FAVORITES');
+
+Route::post('device/employee/favorites/add',
+    [ EmployeeController::class , 'favoriteAdd' ])
+    ->middleware('employee:MANAGE_FAVORITES');
+
+Route::post('device/employee/favorites/delete',
+    [ EmployeeController::class , 'favoriteDelete' ])
+    ->middleware('employee:MANAGE_FAVORITES');
+
 Route::get ('device/employee/approvals',
     [ EmployeeController::class , 'myApprovals' ])
     ->middleware('employee:CREATE_TRANSFER');
+/*
+ * تنفيذُ ما أذن به الوكيل — بيد الموظف، وفي خزينته.
+ *
+ * ⚠ تحت `CREATE_TRANSFER` نفسِها: من سُحبت منه صلاحيةُ الإنشاء بعد
+ * الموافقة لا ينفّذ — والموافقةُ لا تمنح صلاحيةً (البند 45).
+ */
+Route::post('device/employee/approvals/{id}/execute',
+    [ EmployeeController::class , 'executeApproval' ])
+    ->middleware('employee:CREATE_TRANSFER')->whereNumber('id');
+
 Route::post('device/employee/approvals/{id}/cancel',
     [ EmployeeController::class , 'cancelApproval' ])
     ->middleware('employee:CREATE_TRANSFER')->whereNumber('id');
@@ -468,6 +557,16 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
   Route::get ('employees/devices',              [ EmployeeAdminController::class , 'devices' ]);
   Route::post('employees/devices/{id}/revoke',  [ EmployeeAdminController::class , 'revokeDevice' ])->whereNumber('id');
   Route::put ('employees/{id}',                 [ EmployeeAdminController::class , 'update' ])->whereNumber('id');
+  /*
+   * حذفُ الموظف — ناعمٌ دائماً (انظر `destroy`).
+   *
+   * ⚠ ويحرّر رقمَ الهاتف لإعادة الإضافة: من أدخل رقماً خطأً لم يكن
+   * يملك سبيلاً لتصحيحه من التطبيق قبل هذا — الإيقافُ يُبقي الرقم
+   * محجوزاً، فيصطدم بالفهرس الفريد عند إعادة الإضافة.
+   */
+  Route::delete('employees/{id}',
+      [ EmployeeAdminController::class , 'destroy' ])->whereNumber('id');
+
   Route::post('employees/{id}/status',          [ EmployeeAdminController::class , 'setStatus' ])->whereNumber('id');
   Route::post('employees/{id}/activation-code', [ EmployeeAdminController::class , 'issueCode' ])->whereNumber('id');
   Route::post('employees/{id}/activation-code/revoke', [ EmployeeAdminController::class , 'revokeCode' ])->whereNumber('id');

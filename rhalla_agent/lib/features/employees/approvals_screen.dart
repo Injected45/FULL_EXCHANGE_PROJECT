@@ -419,8 +419,11 @@ class _ConfirmApprove extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'ستُنفَّذ الحوالة الآن باسمك، وتُحتسب على حسابك مع الرحالة '
-              'كأي حوالة تنشئها بنفسك.\n\n'
+              // ⚠ موافقتُك إذنٌ لا تنفيذ — والنصُّ يقولها صراحةً، وإلّا ظنّ
+              // الوكيلُ أن المال خرج ولم يخرج، أو ظنّ أنه انتهى ولم ينتهِ.
+              'موافقتك إذنٌ للموظف بتنفيذها — لا تنفيذ الآن.\n\n'
+              'ينفّذها هو بعد استلام المبلغ من الزبون، فتدخل خزينته '
+              'وتُحتسب على حسابك مع الرحالة كأي حوالة.\n\n'
               'والموافقة لهذه الحوالة وحدها — لا ترفع سقف الموظف، '
               'ولا تتجاوز رصيدك أو شروط الحوالة.',
               textAlign: TextAlign.center,
@@ -429,7 +432,7 @@ class _ConfirmApprove extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             PrimaryButton(
-              label: 'موافقة وتنفيذ',
+              label: 'موافقة',
               onPressed: () => Navigator.of(context).pop(true),
             ),
             const SizedBox(height: 8),
