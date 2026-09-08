@@ -454,6 +454,14 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
   // تقارير تشغيلية — قراءة فقط، ولا تمسّ رصيداً ولا قيداً.
   Route::get('employees/dashboard',
       [ EmployeeReportsController::class , 'dashboard' ]);
+  /* من أنشأ كم حوالة، ومن أي نقطة بيع — قراءةٌ من جدول النسب وحده.
+     ولا يُقرأ هنا دفترٌ ماليّ ولا تُجمع منه قيمة. */
+  Route::get('employees/reports/created-transfers',
+      [ EmployeeReportsController::class , 'createdTransfers' ]);
+
+  Route::get('employees/{id}/transfers',
+      [ EmployeeReportsController::class , 'employeeTransfers' ])->whereNumber('id');
+
   Route::get('employees/reports/points-of-sale',
       [ EmployeeReportsController::class , 'pointsOfSale' ]);
   Route::get('employees/{id}/statement',

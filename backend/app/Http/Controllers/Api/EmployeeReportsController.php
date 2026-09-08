@@ -187,6 +187,102 @@ class EmployeeReportsController extends BaseController
     /**
      * GET employees/{id}/statement — كشف الموظف
      */
+    /**
+     * GET employees/reports/created-transfers — من أنشأ كم، ومن أي نقطة.
+     *
+     * ── ما يجيب عنه ──────────────────────────────────────────────────
+     *
+     * نصُّ البند: «عرض تقرير يوضح الحوالات التي أنشأها كل موظف، مع
+     * الاعتماد على الحوالات الأصلية نفسها وعدم نسخ البيانات المالية في
+     * نظام تقارير موازٍ».
+     *
+     * ⚠ ولذلك **لا يُقرأ هنا دفترٌ ماليّ ولا تُجمع منه قيمة**: المصدر
+     * `transfer_attributions` وحدها — وهي وصفُ من نفّذ، لا سجلُّ ما جرى
+     * مالياً. والمبلغُ فيها نسخةٌ تشغيلية للعرض، والحقيقةُ الماليّة تبقى
+     * في الدفتر حيث كانت.
+     *
+     * ⚠ واستعلامان لا استعلامٌ لكل موظّف: التجميعُ في القاعدة، والأسماءُ
+     * دفعةً واحدة.
+     */
+    public function createdTransfers(Request $request)
+    {
+        [$user, $err] = $this->admin();
+        if ($err) return $err;
+
+        [$from, $to] = $this->range($request);
+
+        $rows = DB::table('transfer_attributions')
+            ->where('agent_id', $user->id)
+            ->where('action', 'CREATED')
+            ->whereNotNull('employee_id')
+            ->whereBetween('occurred_at', [$from, $to])
+            ->groupBy('employee_id', 'point_of_sale_id')
+            ->selectRaw('employee_id, point_of_sale_id,
+                         COUNT(*) AS transfers,
+                         ISNULL(SUM(amount), 0) AS total')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return $this->sendResponse([
+                'items' => [], 'transfers' => 0, 'total' => 0,
+                'from' => (string) $from, 'to' => (string) $to,
+            ], 'Success');
+        }
+
+        $names = DB::table('employees')
+            ->whereIn('id', $rows->pluck('employee_id')->unique()->all())
+            ->pluck('full_name', 'id')->all();
+
+        $posIds = $rows->pluck('point_of_sale_id')->filter()->unique()->values()->all();
+        $posNames = $posIds === [] ? [] : DB::table('AuthorizedUsers')
+            ->whereIn('ID', $posIds)->pluck('Name_post', 'ID')->all();
+
+        $items = $rows->map(fn ($r) => [
+            'employee_id'   => (int) $r->employee_id,
+            'employee_name' => $names[$r->employee_id] ?? ('موظّف #' . $r->employee_id),
+            'pos_id'        => $r->point_of_sale_id ? (int) $r->point_of_sale_id : null,
+            'pos_name'      => $r->point_of_sale_id
+                ? ($posNames[$r->point_of_sale_id] ?? null) : null,
+            'transfers'     => (int) $r->transfers,
+            'total'         => (float) $r->total,
+        ])->sortByDesc('transfers')->values()->all();
+
+        return $this->sendResponse([
+            'items'     => $items,
+            'transfers' => array_sum(array_column($items, 'transfers')),
+            'total'     => array_sum(array_column($items, 'total')),
+            'from'      => (string) $from,
+            'to'        => (string) $to,
+        ], 'Success');
+    }
+
+    /**
+     * GET employees/{id}/transfers — حوالاتُ موظّفٍ بعينه، مفصَّلة.
+     *
+     * ⚠ تُعيد استعمال `EmployeeTransferViews` نفسِها التي يقرأ بها الموظف
+     * حوالاتِه — لا نسخةً ثانية من المنطق. السؤالُ واحد («ما الذي نُسب إلى
+     * هذا الموظف؟») والسائلُ مختلف، فالحارسُ وحده يختلف.
+     */
+    public function employeeTransfers(Request $request, int $id)
+    {
+        [$user, $err] = $this->admin();
+        if ($err) return $err;
+
+        $employee = DB::table('employees')
+            ->where('id', $id)->where('agent_id', $user->id)
+            ->whereNull('deleted_at')->first(['id', 'full_name']);
+
+        if (!$employee) return $this->sendError('الموظف غير موجود.', [], 404);
+
+        $out = app(\App\Services\Employees\EmployeeTransferViews::class)->mine(
+            (int) $user->id, $id,
+            (int) $request->query('page', 1),
+            (int) $request->query('per_page', 20),
+        );
+
+        return $this->sendResponse(
+            $out + ['employee_name' => $employee->full_name], 'Success');
+    }
     public function employeeStatement(Request $request, int $id)
     {
         [$user, $err] = $this->admin();

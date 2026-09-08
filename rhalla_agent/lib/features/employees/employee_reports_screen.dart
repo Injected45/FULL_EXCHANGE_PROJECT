@@ -35,6 +35,9 @@ class _EmployeeReportsScreenState extends ConsumerState<EmployeeReportsScreen> {
 
   Map<String, dynamic>? _dash;
   Map<String, dynamic>? _report;
+
+  /// «من أنشأ كم حوالة» — وصفٌ تشغيليّ لا ماليّ.
+  Map<String, dynamic>? _created;
   bool _loading = true;
   String? _error;
 
@@ -52,11 +55,15 @@ class _EmployeeReportsScreenState extends ConsumerState<EmployeeReportsScreen> {
       final results = await Future.wait([
         api.get('/employees/dashboard'),
         api.get('/employees/reports/points-of-sale', query: {'period': _period}),
+        // من أنشأ الحوالات — قراءةٌ من جدول النسب، لا من دفترٍ ماليّ.
+        api.get('/employees/reports/created-transfers',
+            query: {'period': _period}),
       ]);
       if (!mounted) return;
       setState(() {
         _dash = results[0].row ?? const {};
         _report = results[1].row ?? const {};
+        _created = results[2].row ?? const {};
         _loading = false;
       });
     } on ApiFailure catch (e) {
@@ -94,6 +101,9 @@ class _EmployeeReportsScreenState extends ConsumerState<EmployeeReportsScreen> {
                           physics: const AlwaysScrollableScrollPhysics(),
                           children: [
                             if (_dash != null) _Dashboard(d: _dash!),
+                            const SizedBox(height: 18),
+
+                            _CreatedBlock(d: _created),
                             const SizedBox(height: 18),
 
                             Text('تقرير نقاط البيع', style: T.section),
@@ -492,4 +502,92 @@ class _Failed extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// «من أنشأ الحوالات» — البند: تقريرٌ يوضّح ما أنشأه كلُّ موظّف.
+///
+/// ⚠ **وصفٌ تشغيليّ لا كشفٌ ماليّ.** المصدر `transfer_attributions` وحدها،
+/// وهي تقول من حرّك يده لا ما جرى في الدفتر. والحوالةُ نفسُها تبقى حوالةَ
+/// الوكيل من حسابه، وأرقامُها الماليّة في الكشف حيث كانت.
+///
+/// ولا يظهر القسمُ أصلاً حين لا موظّفَ أنشأ شيئاً: قسمٌ فارغٌ بعنوانٍ
+/// يسأل الوكيل عمّا لم يقع.
+class _CreatedBlock extends StatelessWidget {
+  const _CreatedBlock({required this.d});
+
+  final Map<String, dynamic>? d;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ((d?['items'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList();
+
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    final total = Fmt.num_(d?['transfers']);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text('حوالات أنشأها الموظفون', style: T.section),
+            const SizedBox(width: 8),
+            Text('(${total.toStringAsFixed(0)})',
+                style: T.plex(12, FontWeight.w500, color: R.inkA(.55))),
+          ],
+        ),
+        const SizedBox(height: 10),
+        for (final e in items) ...[
+          GlassCard(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Icon(Icons.badge_outlined, size: 16, color: R.inkA(.5)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('${e['employee_name'] ?? ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: T.plex(13, FontWeight.w600)),
+                      if ('${e['pos_name'] ?? ''}'.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text('${e['pos_name']}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.plex(11, FontWeight.w400,
+                                color: R.inkA(.55))),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // العدد هو الرقم الرئيسي — والمبلغ تحته وصفاً لا حساباً.
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text('${Fmt.num_(e['transfers']).toStringAsFixed(0)} حوالة',
+                        style: T.plex(12.5, FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Directionality(
+                      textDirection: TextDirection.ltr,
+                      child: Text(Fmt.money(Fmt.num_(e['total'])),
+                          style: T.plex(10.5, FontWeight.w400,
+                              color: R.inkA(.55))),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: R.gapRow),
+        ],
+      ],
+    );
+  }
 }
