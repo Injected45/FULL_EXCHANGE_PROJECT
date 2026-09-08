@@ -142,6 +142,65 @@ DB::table('employee_devices')->where('employee_id', $employeeId)
     ->update(['status' => 'REVOKED', 'revoked_at' => now()]);
 $check('14. التصنيف الدائم يصمد بعد إلغاء الجهاز', $reg->isEmployeeDevice($hashA));
 
+/* ---------- CODE_TTL: لا كودَ مفتوح الصلاحية (أمر المالك 8/9/2026) ------ */
+
+/*
+ * ⚠ الكودُ الذي لا يُستعمل خلال عشر دقائق **يُحرق** ولا يُرفض فحسب:
+ * كودٌ يُرفض ويبقى `ACTIVE` في الجدول هو كودٌ حيٌّ ينتظر ساعةً يُصلَح فيها
+ * الخطأ. ونصُّ الأمر: «يُمنع ترك صلاحية المفتاح مفتوحة».
+ *
+ * ⚠ والاختبارُ يُزوّر التاريخَ ولا ينتظر عشر دقائق — اختبارٌ ينتظر لا يُشغَّل.
+ */
+$ttlCode = $svc->issueCode($agentId, $employeeId, $agentId, $trace);
+$ttlRow  = DB::table('employee_activation_codes')
+    ->where('employee_id', $employeeId)->where('status', 'ACTIVE')
+    ->orderByDesc('id')->first();
+
+$check('CODE_TTL 1. الكود يُصدَر بموعد انتهاء لا بلا نهاية',
+    $ttlRow && $ttlRow->expires_at !== null,
+    'ينتهي=' . ($ttlRow->expires_at ?? 'NULL'));
+
+$check('CODE_TTL 2. والمدّة عشر دقائق',
+    isset($ttlCode['ttl_minutes']) && (int) $ttlCode['ttl_minutes'] === 10,
+    'المدّة=' . ($ttlCode['ttl_minutes'] ?? '—'));
+
+/* يُزوَّر الوقت إلى ما بعد المدّة. */
+DB::table('employee_activation_codes')->where('id', $ttlRow->id)
+    ->update(['expires_at' => now()->subMinute()]);
+
+$expired = $svc->requestOtp($phone, $ttlCode['code'], $deviceA, $trace);
+
+$check('CODE_TTL 3. الكود المنتهي يُرفض', ($expired['ok'] ?? true) === false);
+
+$check('CODE_TTL 4. ورسالةٌ تقول إنه انتهى — لا «الرقم أو الكود غير صحيح»',
+    str_contains($expired['message'] ?? '', 'انتهت'),
+    mb_substr($expired['message'] ?? '', 0, 60));
+
+$check('CODE_TTL 5. ⚠ ويُحرق في القاعدة لا يُرفض فقط',
+    DB::table('employee_activation_codes')->where('id', $ttlRow->id)->value('status') === 'EXPIRED',
+    'الحالة=' . DB::table('employee_activation_codes')->where('id', $ttlRow->id)->value('status'));
+
+$check('CODE_TTL 6. ولا رمزَ تحقّقٍ أُرسل',
+    !DB::table('employee_otps')->where('employee_id', $employeeId)
+        ->where('status', 'PENDING')->where('created_at', '>=', now()->subMinute())->exists());
+
+$check('CODE_TTL 7. وحُفظ الحادث أمنياً',
+    DB::table('security_logs')->where('event_type', 'CODE_EXPIRED')
+        ->where('employee_id', $employeeId)->exists());
+
+/* ⚠ ولا تُطبَّق المدّة على كودٍ استُعمل: إعادةُ التفعيل على الجهاز نفسِه
+   طريقٌ مشروع، وما أدّى عملَه لا معنى لانتهاء صلاحيته. */
+$usedRow = DB::table('employee_activation_codes')
+    ->where('employee_id', $employeeId)->where('status', 'USED')
+    ->orderByDesc('id')->first();
+if ($usedRow) {
+    DB::table('employee_activation_codes')->where('id', $usedRow->id)
+        ->update(['expires_at' => now()->subDay()]);
+    $still = DB::table('employee_activation_codes')->where('id', $usedRow->id)->value('status');
+    $check('CODE_TTL 8. ⚠ والمستعمَلُ لا يُحرق بمضيّ المدّة', $still === 'USED', 'الحالة=' . $still);
+} else {
+    $check('CODE_TTL 8. ⚠ والمستعمَلُ لا يُحرق بمضيّ المدّة (لا كودَ مستعمَلاً بعد)', true);
+}
 /* ---------- 9. كود جديد يُعيد التفعيل ---------- */
 $reissued = $svc->issueCode($agentId, $employeeId, $agentId, $trace);
 $check('9. كود جديد يُصدر ويعيد الموظف لبانتظار التفعيل',

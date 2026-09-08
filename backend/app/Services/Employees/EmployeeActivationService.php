@@ -30,6 +30,19 @@ use Illuminate\Support\Str;
  */
 class EmployeeActivationService
 {
+    /**
+     * مدّة صلاحية كود التفعيل — أمرُ المالك (8 سبتمبر 2026).
+     *
+     * ⚠ **لا كودَ مفتوح الصلاحية.** كان يُصدَر بلا نهاية (`expires_at`
+     * فارغة ولا تُقرأ)، فيبقى صالحاً شهوراً في ورقةٍ أو رسالة — وكودٌ
+     * منسيٌّ صالحٌ هو مفتاحُ حسابٍ متروكٌ في الطريق.
+     *
+     * وعشرُ دقائق كافيةٌ لما وُضع له: الوكيل يُصدره والموظف بين يديه أو
+     * على الهاتف. ومن تأخّر يطلب غيره — وإصدارُ كودٍ ثانٍ أرخص من كودٍ
+     * أوّلَ لا يموت.
+     */
+    private const CODE_TTL_MINUTES = 10;
+
     /** مدّة صلاحية رمز التحقّق. */
     private const OTP_TTL_MINUTES = 3;
 
@@ -97,6 +110,8 @@ class EmployeeActivationService
                 'status'      => 'ACTIVE',
                 'issued_by'   => $issuedBy,
                 'issued_at'   => now(),
+                // ⚠ لا كودَ مفتوحَ الصّلاحية — انظر `CODE_TTL_MINUTES`.
+                'expires_at'  => now()->addMinutes(self::CODE_TTL_MINUTES),
             ]);
 
             // الموظف الموقوف أمنياً يعود «بانتظار التفعيل» بكودٍ جديد —
@@ -113,7 +128,12 @@ class EmployeeActivationService
                 'entity_id'   => (string) $id,
             ] + $trace);
 
-            return ['code' => $code, 'expires_at' => null];
+            return [
+                'code'       => $code,
+                // يُعرَض للوكيل: كودٌ بلا موعدٍ يُملى على مهل.
+                'expires_at' => now()->addMinutes(self::CODE_TTL_MINUTES)->toIso8601String(),
+                'ttl_minutes' => self::CODE_TTL_MINUTES,
+            ];
         });
     }
 
@@ -163,6 +183,7 @@ class EmployeeActivationService
             ->select([
                 'c.id as code_id', 'c.code_hash', 'c.status as code_status',
                 'c.attempts', 'c.bound_device_hash', 'c.employee_id', 'c.agent_id',
+                'c.expires_at',
                 'e.status as employee_status', 'e.full_name',
             ])
             ->first();
@@ -175,6 +196,49 @@ class EmployeeActivationService
                 'phone' => $phone, 'device_hash' => $deviceHash,
             ] + $trace);
             return $generic;
+        }
+
+        /*
+         * ⚠ كودٌ مضى عليه أكثر من `CODE_TTL_MINUTES` **يُحرق** ولا يُرفض
+         * فحسب — أمرُ المالك (8 سبتمبر 2026): «يُمنع ترك صلاحية المفتاح
+         * مفتوحة».
+         *
+         * والحرقُ في القاعدة لا الرفضُ في الذاكرة: كودٌ يُرفض اليوم ويبقى
+         * `ACTIVE` في الجدول هو كودٌ حيٌّ ينتظر ساعةً يُصلَح فيها الخطأ.
+         *
+         * ⚠ ويُطبَّق على `ACTIVE` وحدها: `USED` كودٌ أدّى عمله وربط جهازاً،
+         * وإعادةُ التفعيل على الجهاز نفسِه طريقٌ مشروع — فلا معنى لانتهاء
+         * صلاحيةِ ما استُعمل.
+         *
+         * والرسالةُ صريحة هنا خلافاً لقاعدة الرسائل الموحّدة: من انتهى
+         * كودُه يحتاج أن يعرف أنه انتهى ليطلب غيره، لا أن يظنّ رقمَه خاطئاً
+         * فيعيد المحاولة عشراً. وهي لا تكشف شيئاً: من بلغ هذه النقطة قد
+         * أثبت أنه يملك كوداً صحيحاً لهذا الرقم.
+         */
+        if ($record->code_status === 'ACTIVE'
+            && $record->expires_at !== null
+            && now()->greaterThan($record->expires_at)) {
+
+            DB::table('employee_activation_codes')
+                ->where('id', $record->code_id)
+                ->where('status', 'ACTIVE')
+                ->update([
+                    'status'         => 'EXPIRED',
+                    'revoked_at'     => now(),
+                    'revoked_reason' => 'انتهت المدّة قبل الاستعمال',
+                ]);
+
+            $this->log->security('CODE_EXPIRED', 'كود تفعيل انتهت مدّته قبل استعماله', [
+                'phone'       => $phone,
+                'device_hash' => $deviceHash,
+                'employee_id' => $record->employee_id,
+                'agent_id'    => $record->agent_id,
+            ] + $trace);
+
+            return [
+                'ok' => false,
+                'message' => 'انتهت مدّة كود التفعيل. اطلب من الإدارة كوداً جديداً.',
+            ];
         }
 
         if ($record->code_status === 'COMPROMISED') {
