@@ -58,17 +58,59 @@ class EmployeeActivationController extends BaseController
         ], $result['message']);
     }
 
-    /** POST device/employee/activation/verify — الرمز ⇦ ربط الجهاز وفتح الجلسة. */
-    public function verifyOtp(Request $request)
+    /**
+     * POST device/employee/activation/qr — مسحُ رمز QR ⇦ إرسال رمز التحقّق.
+     *
+     * ⚠ الخطوةُ الأولى نفسُها بتمثيلٍ آخر: تنتهي إلى `requestOtp` عينِها،
+     * ثمّ يُكمل الموظف بـ`activation/verify` بلا فرقٍ عن الطريقة اليدوية.
+     *
+     * ولا يُرسَل هنا رقمُ هاتفٍ ولا معرّفُ موظّفٍ ولا وكيل: الرمزُ وحده،
+     * والخادمُ يشتقّ الباقي من سجلّه — البند 6.
+     */
+    public function requestByQr(Request $request)
     {
         $data = $request->validate([
-            'phone'     => 'required|string|max:20',
-            'otp'       => 'required|string|max:10',
+            'qr_token'  => 'required|string|max:200',
             'device_id' => 'required|string|max:200',
         ]);
 
+        $result = $this->service->requestOtpByQr(
+            $data['qr_token'], $data['device_id'], $this->trace($request)
+        );
+
+        if (!$result['ok']) {
+            return $this->sendError($result['message'], [], 422);
+        }
+
+        return $this->sendResponse([
+            'masked_phone'  => $result['masked_phone'],
+            'activation_id' => $result['activation_id'],
+            // اسمُ الموظف يُعرض في شاشة «جارٍ التفعيل» ليطمئنّ أنه رمزُه هو.
+            'employee_name' => $result['employee_name'] ?? null,
+        ], $result['message']);
+    }
+    /** POST device/employee/activation/verify — الرمز ⇦ ربط الجهاز وفتح الجلسة. */
+    public function verifyOtp(Request $request)
+    {
+        /*
+         * ⚠ الرقمُ **أو** معرّفُ الطلب — واحدٌ منهما يكفي ولا بدّ من أحدهما.
+         *
+         * فمن أدخل الكود يدوياً يعرف رقمَه، ومن مسح رمزاً لا يعرفه: ما
+         * عاد إليه رقمٌ مقنَّع. والخطوةُ بعدها واحدةٌ في الحالتين.
+         */
+        $data = $request->validate([
+            'phone'         => 'required_without:activation_id|nullable|string|max:20',
+            'activation_id' => 'required_without:phone|nullable|integer',
+            'otp'           => 'required|string|max:10',
+            'device_id'     => 'required|string|max:200',
+        ]);
+
         $result = $this->service->verifyOtp(
-            $data['phone'], $data['otp'], $data['device_id'], $this->trace($request)
+            (string) ($data['phone'] ?? ''),
+            $data['otp'],
+            $data['device_id'],
+            $this->trace($request),
+            isset($data['activation_id']) ? (int) $data['activation_id'] : null,
         );
 
         if (!$result['ok']) {

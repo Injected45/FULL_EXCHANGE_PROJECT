@@ -6,6 +6,8 @@ use App\Http\Controllers\BaseController;
 use App\Services\AgentIncomingTransfersService;
 use App\Services\Employees\EmployeeAuditLogger;
 use App\Services\Employees\EmployeeActsAsAgent;
+use App\Services\Employees\EmployeeApprovals;
+use App\Services\Employees\EmployeeLimitPolicy;
 use App\Services\Employees\EmployeeTransferViews;
 use App\Services\Employees\EmployeeCashboxService;
 use Illuminate\Http\Request;
@@ -44,6 +46,56 @@ class EmployeeController extends BaseController
         ];
     }
 
+    /**
+     * GET device/employee/approvals — طلباتُ هذا الموظف هو.
+     *
+     * ⚠ مقيَّدٌ بـ`employee_id` من الجلسة لا من الطلب: موظفٌ لا يرى طلبات
+     * زميله ولو كانا تحت وكيلٍ واحد.
+     */
+    public function myApprovals(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        $rows = DB::table('employee_approval_requests')
+            ->where('employee_id', $employee->id)
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get();
+
+        return $this->sendResponse([
+            'requests' => $rows->map(
+                fn ($r) => \App\Services\Employees\EmployeeApprovals::present($r))->all(),
+        ], 'تم');
+    }
+
+    /**
+     * POST device/employee/approvals/{id}/cancel — سحبُ الطلب قبل القرار.
+     *
+     * ⚠ وليس إلغاءَ حوالة: لم تُنفَّذ بعد، فلا رصيدَ يُعاد ولا قيدَ يُعكَس
+     * (البند 29). وهو مسجَّلٌ في سجلّ التدقيق كحدثٍ قائم بذاته.
+     */
+    public function cancelApproval(Request $request, int $id)
+    {
+        [$employee, $session, ] = $this->ctx($request);
+
+        $result = app(\App\Services\Employees\EmployeeApprovals::class)
+            ->cancel($id, (int) $employee->id);
+
+        $req = $result['request'];
+
+        if (!$req || (int) $req->employee_id !== (int) $employee->id) {
+            return $this->sendError('الطلب غير موجود.', [], 404);
+        }
+
+        if (!$result['changed']) {
+            return $this->sendResponse([
+                'already' => true,
+                'status'  => $req->status,
+            ], 'لم يعد الطلب قابلاً للإلغاء.');
+        }
+
+        return $this->sendResponse(['cancelled' => true], 'أُلغي الطلب.');
+    }
     private function trace(Request $r, $employee, $session): array
     {
         return [
@@ -202,6 +254,84 @@ class EmployeeController extends BaseController
         }
 
         /*
+         * ══════════════════════════════════════════════════════════════
+         *  طبقةُ سياسة الموظف — قبل المسار الماليّ لا داخلَه
+         * ══════════════════════════════════════════════════════════════
+         *
+         * ⚠ هنا يُقرَّر: **هل يصل هذا الطلبُ إلى مسار الحوالة أصلاً؟**
+         *
+         * ولا يُغيَّر في ذلك المسار حرفٌ واحد. فإن مضى الطلبُ نُفِّذ كما كان
+         * يُنفَّذ حرفياً، وإن صُعِّد توقّف **قبل** أي كتابةٍ ماليّة: لا صفَّ
+         * في `InternalEx`، ولا رصيدَ يُخصم، ولا عمولةَ تُحتسب (البند 4).
+         *
+         * ⚠ **وموضعُها قبل قاعدة الدقيقة مقصود.** قاعدةُ الدقيقة تحرس
+         * التنفيذَ الفوريّ، والطلبُ المصعَّد لن يُنفَّذ الآن بل بعد قرار
+         * الوكيل — فمنعُه بمهلةٍ تخصّ لحظةً لن يُنفَّذ فيها يعني أن يقال
+         * للموظف «انتظر دقيقة» عن طلبٍ سيبقى ساعاتٍ عند وكيله على أي حال.
+         * والمهلةُ تُفحص من جديد عند التنفيذ الحقيقيّ، وهناك موضعُها.
+         */
+        $limits = app(EmployeeLimitPolicy::class);
+
+        /* ⚠ المبلغُ والمستفيد من الطلب — وهما ما يراه الوكيل وما يُقاس. */
+        $amount = (float) $request->input('amount', 0);
+        $recipientName  = trim((string) $request->input('reviced_name', ''));
+        $recipientPhone = trim((string) $request->input('reviced_phone', ''));
+
+        $verdict = $limits->evaluate(
+            $employee,
+            $amount,
+            $recipientPhone !== '' ? $recipientPhone : null,
+            $recipientName !== '' ? $recipientName : null,
+        );
+
+        if ($verdict['reasons'] !== []) {
+            /*
+             * ⚠ مفتاحُ الطلب إلزاميّ هنا وحدَه.
+             *
+             * فبدونه لا يمكن منعُ ازدواج طلب الموافقة (البند 24): ضغطتان
+             * تُنشئان طلبين، ويوافق الوكيل عليهما فتُنفَّذ حوالتان. والتطبيقُ
+             * يرسله دائماً؛ وغيابُه يعني نداءً من خارج التطبيق فيُردّ.
+             */
+            if ($clientId === '') {
+                return $this->sendError(
+                    'تعذّر إرسال الطلب للموافقة. أعد المحاولة من التطبيق.', [], 422);
+            }
+
+            $opened = app(EmployeeApprovals::class)->open(
+                $employee,
+                $session,
+                $clientId,
+                // ⚠ يُحفظ الطلبُ **كما أرسله الموظف** ليُمرَّر كما هو عند
+                // الموافقة. وإعادةُ تجميعه من حقولٍ متفرّقة فرصةٌ لأن
+                // يُنفَّذ غيرُ ما راجعه الوكيل.
+                $request->except(['device_id', 'AccID']),
+                $amount,
+                $recipientName !== '' ? $recipientName : null,
+                $recipientPhone !== '' ? $recipientPhone : null,
+                $verdict['reasons'],
+                $verdict['policy'],
+                $verdict['consumed'],
+            );
+
+            $req = $opened['request'];
+
+            /*
+             * ⚠ ولا يُقال للموظف «تمّت بنجاح» (البند 37): النجاحُ الماليّ
+             * لم يقع، وقولُه يعني موظفاً يسلّم المستفيدَ مالاً على حوالةٍ
+             * لم تُكتب.
+             */
+            return $this->sendResponse([
+                'pending_approval' => true,
+                'request_id'       => $req ? (int) $req->id : null,
+                'status'           => 'PENDING_AGENT_APPROVAL',
+                'reasons'          => $verdict['reasons'],
+                'reason_labels'    => array_map(
+                    [EmployeeLimitPolicy::class, 'reasonLabel'], $verdict['reasons']),
+                'expires_at'       => $req->expires_at ?? null,
+            ], 'قيمة الحوالة تتجاوز سقف التحويل المسموح لك، تم إرسال طلب للوكيل للموافقة.');
+        }
+
+        /*
          * ⚠ قاعدةُ الدقيقة — قبل الحجز لا بعده، وإلّا احترق مفتاحُ الطلب
          * على محاولةٍ لم تقع فلا تُعاد به بعد دقيقة.
          *
@@ -264,6 +394,9 @@ class EmployeeController extends BaseController
                 $employee, $session,
                 (string) ($t['Code'] ?? ''),
                 (float) ($t['OverallVal'] ?? $request->input('amount', 0)),
+                // ⚠ ويُسجَّل المستفيد: هو مادّةُ فحص التكرار للحوالة التالية.
+                $recipientPhone !== '' ? $recipientPhone : null,
+                $recipientName !== '' ? $recipientName : null,
             );
 
             $this->log->audit('EMPLOYEE_CREATED_TRANSFER',

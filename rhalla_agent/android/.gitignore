@@ -12,3 +12,6 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# مخبأُ عفريت كوتلن — يُنشأ عند البناء ويختلف بين الأجهزة.
+.kotlin/

@@ -19,6 +19,7 @@ import '../auth/auth_repository.dart';
 import '../shell/auto_refresh.dart';
 import 'limit_dialog.dart';
 import 'send_layout.dart';
+import 'pending_approval_sheet.dart';
 import 'send_repository.dart';
 import 'transfer_summary.dart';
 
@@ -190,6 +191,25 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
       // الرصيد والعمليات تغيّرا على الخادم.
       refreshAfterMoneyAction(ref);
       context.pushReplacement('/send/internal/done', extra: created);
+    } on TransferPendingApproval catch (p) {
+      /*
+       * ⚠ ولا شاشةَ «تمّت» هنا: الحوالة لم تُنفَّذ.
+       *
+       * تُعرض ورقةٌ تقول ما جرى وما ينتظره الموظف، ثمّ يعود إلى
+       * شاشته — والطلبُ محفوظٌ عند وكيله لا يحتاج إعادةَ إدخال.
+       */
+      if (!mounted) return;
+      _timer?.cancel();
+      setState(() => _sending = false);
+      await showModalBottomSheet<void>(
+        context: context,
+        useRootNavigator: true,
+        isDismissible: false,
+        enableDrag: false,
+        backgroundColor: Colors.transparent,
+        builder: (_) => PendingApprovalSheet(pending: p),
+      );
+      if (mounted) context.go('/');
     } on ApiFailure catch (e) {
       if (!mounted) return;
       _timer?.cancel();

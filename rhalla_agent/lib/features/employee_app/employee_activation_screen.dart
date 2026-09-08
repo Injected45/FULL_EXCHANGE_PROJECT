@@ -10,6 +10,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import 'employee_qr_scan_screen.dart';
 import 'employee_session.dart';
 
 /// تفعيل تطبيق الموظف — الطبقات الثلاث في شاشتين.
@@ -40,6 +41,22 @@ class _EmployeeActivationScreenState
 
   /// الانتقال إلى شاشة الرمز يقع بعد ردّ الخادم لا قبله.
   String? _maskedPhone;
+
+  /// معرّفُ الطلب — يصل مع ردّ الخطوة الأولى في الطريقين.
+  ///
+  /// ⚠ وهو الطريقُ الوحيد لإكمال ما بدأ بمسح رمز: من مسح لا يعرف رقمَ
+  /// الهاتف، وما عاد إليه رقمٌ **مقنَّع** لا يصلح للإرسال — وذلك متعمَّد،
+  /// فمن صوّر رمزاً لا يخرج منه برقم موظّفٍ كامل.
+  int? _activationId;
+
+  /// اسمُ الموظف كما في القاعدة — يُعرض بعد المسح ليطمئنّ أنّه رمزُه هو.
+  String? _employeeName;
+
+  /// هل اختار الموظف الإدخال اليدويّ؟
+  ///
+  /// ⚠ ثلاثُ خطواتٍ لا اثنتان الآن: الاختيار، ثمّ الكود، ثمّ رمز التحقّق.
+  /// والأولى تُتخطّى تلقائياً في طريق المسح.
+  bool _manual = false;
 
   /// الرمز يُجمع من لوحة الأرقام المرسومة في التطبيق — نفس شاشة دخول الوكيل.
   ///
@@ -89,10 +106,15 @@ class _EmployeeActivationScreenState
       child: Column(
         children: [
           RhallaAppBar(
-            title: _maskedPhone == null ? 'الدخول كموظف' : 'أدخل رمز التحقق',
+            title: _maskedPhone != null
+                ? 'أدخل رمز التحقق'
+                : (_manual ? 'إدخال كود التفعيل' : 'الدخول كموظف'),
             onBack: () {
+              // الرجوعُ خطوةً واحدة لا خروجاً من الشاشة كلِّها.
               if (_maskedPhone != null) {
                 setState(() { _maskedPhone = null; _error = null; });
+              } else if (_manual) {
+                setState(() { _manual = false; _error = null; });
               } else {
                 context.pop();
               }
@@ -105,13 +127,130 @@ class _EmployeeActivationScreenState
               children: [
                 const Center(child: BrandLockup()),
                 const SizedBox(height: 26),
-                if (_maskedPhone == null) ..._step1() else ..._step2(),
+                if (_maskedPhone != null)
+                  ..._step2()
+                else if (_manual)
+                  ..._step1()
+                else
+                  ..._step0(),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  /* ───────────────── الخطوة 0 — اختيار الطريق ───────────────── */
+
+  /*
+   * ⚠ المسحُ أولاً، والإدخالُ اليدويّ باقٍ كاملاً تحته.
+   *
+   * كودُ التفعيل ثمانُ خانات من أبجديةٍ فيها حروفٌ وأرقام، يُملى على الهاتف
+   * ويُكتب على لوحةٍ صغيرة تحت ضغط الوقت — وكلُّ خطأٍ فيه يُنقص من خمس
+   * محاولاتٍ ثم يُحرق الكود. والمسحُ يُلغي الكتابةَ كلَّها.
+   *
+   * ولا يُلغي طبقةَ أمانٍ واحدة: بعد المسح يأتي رمزُ التحقّق إلى هاتف الموظف
+   * كما كان، ثمّ يُربط الجهاز كما كان — أمرُ المالك (8 سبتمبر 2026):
+   * «QR + تحقق الخادم + OTP الموظف + ربط الجهاز».
+   */
+  List<Widget> _step0() => [
+        Text('تفعيل تطبيق الموظف',
+            textAlign: TextAlign.center,
+            style: T.kufi(17, FontWeight.w700)),
+        const SizedBox(height: 8),
+        Text(
+          'امسح الرمز الظاهر على شاشة الوكيل، ثم أدخل رمز التحقق '
+          'الذي يصلك على واتساب.',
+          textAlign: TextAlign.center,
+          style: T.plex(12.5, FontWeight.w400,
+              color: R.inkA(.55), height: 1.8),
+        ),
+        const SizedBox(height: 26),
+
+        Center(
+          child: Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              color: R.primaryA(.08),
+              shape: BoxShape.circle,
+              border: Border.all(color: R.primaryA(.24)),
+            ),
+            child: Icon(Icons.qr_code_scanner_rounded,
+                size: 44, color: R.primaryDark),
+          ),
+        ),
+        const SizedBox(height: 26),
+
+        if (_error != null) ...[
+          _ErrorBox(message: _error!),
+          const SizedBox(height: 16),
+        ],
+
+        PrimaryButton(
+          label: 'مسح رمز التفعيل',
+          loading: _busy,
+          icon: const Icon(Icons.qr_code_scanner_rounded,
+              size: 19, color: Colors.white),
+          onPressed: _busy ? null : _scan,
+        ),
+        const SizedBox(height: 12),
+        SecondaryButton(
+          label: 'إدخال كود التفعيل يدوياً',
+          icon: Icon(Icons.keyboard_alt_outlined,
+              size: 18, color: R.primaryDark),
+          onPressed: _busy
+              ? null
+              : () => setState(() { _manual = true; _error = null; }),
+        ),
+      ];
+
+  /// يفتح الماسح، ثم يُرسل ما عاد به إلى الخادم.
+  ///
+  /// ⚠ ولا نجاحَ محلّيّ: لا شيء يُحفظ ولا شاشةٌ تتقدّم قبل أن يردّ الخادم.
+  /// فالرمزُ نفسُه لا يقول شيئاً — من يقول إنه صالحٌ ولمن هو ومن أصدره هو
+  /// الصفُّ في القاعدة. وتفعيلٌ يبدأ بلا شبكةٍ لا معنى له، لأنّ رمز التحقّق
+  /// يُرسَل من الخادم أصلاً.
+  Future<void> _scan() async {
+    final token = await Navigator.of(context, rootNavigator: true).push<String>(
+      MaterialPageRoute(builder: (_) => const EmployeeQrScanScreen()),
+    );
+    if (token == null || !mounted) return;
+
+    setState(() { _busy = true; _error = null; });
+    try {
+      final deviceId = await ref.read(secureStoreProvider).deviceId();
+      final env = await ref.read(apiClientProvider).post(
+        '/device/employee/activation/qr',
+        // ⚠ الرمزُ والجهاز فقط. لا رقمَ هاتفٍ ولا معرّفَ موظّفٍ ولا وكيل:
+        // ما يُرسله التطبيق لا يُحدّد التبعية، والخادم يشتقّها من سجلّه.
+        body: {'qr_token': token, 'device_id': deviceId},
+      );
+      if (!mounted) return;
+
+      final row = env.row;
+      setState(() {
+        _busy = false;
+        _maskedPhone = '${row?['masked_phone'] ?? ''}';
+        _activationId = int.tryParse('${row?['activation_id'] ?? ''}');
+        _employeeName = '${row?['employee_name'] ?? ''}'.trim().isEmpty
+            ? null
+            : '${row?['employee_name']}';
+        _otpCode = '';
+      });
+    } on ApiFailure catch (e) {
+      // ⚠ رسالةُ الخادم كما هي: هو وحده يعرف أانتهى الرمز أم أُلغي أم
+      // مُسح على جهازٍ آخر، وكلُّ حالةٍ تحتاج من الموظف فعلاً مختلفاً.
+      if (mounted) setState(() { _busy = false; _error = e.message; });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = 'تعذّر الاتصال بالخادم. تحقّق من الشبكة وأعد المسح.';
+        });
+      }
+    }
   }
 
   /* ───────────────── الخطوة 1 ───────────────── */
@@ -182,6 +321,8 @@ class _EmployeeActivationScreenState
       setState(() {
         _busy = false;
         _maskedPhone = '${env.row?['masked_phone'] ?? ''}';
+        // الطريقُ اليدويّ يعرف الرقم، فلا يحتاج معرّفَ الطلب.
+        _activationId = null;
         _otpCode = '';
       });
     } on ApiFailure catch (e) {
@@ -216,6 +357,16 @@ class _EmployeeActivationScreenState
         ),
         const SizedBox(height: 24),
 
+        // ⚠ ومن جاء من المسح يُعرض له اسمُه: هو لم يكتب رقماً ولا كوداً،
+        // فلولا الاسمُ لأدخل رمزاً وهو لا يدري لحسابِ من.
+        if (_employeeName != null) ...[
+          const SizedBox(height: 4),
+          Text(_employeeName!,
+              textAlign: TextAlign.center,
+              style: T.kufi(13.5, FontWeight.w700, color: R.inkA(.72))),
+          const SizedBox(height: 6),
+        ],
+        const SizedBox(height: 18),
         Center(
           child: OtpBoxes(value: _otpCode, length: 4, error: _error != null),
         ),
@@ -253,12 +404,23 @@ class _EmployeeActivationScreenState
 
     setState(() { _busy = true; _error = null; });
     try {
-      final phone = Fmt.phoneForApi(_phone.text);
       final deviceId = await ref.read(secureStoreProvider).deviceId();
 
+      /*
+       * ⚠ معرّفُ الطلب حين يكون، وإلا الرقم.
+       *
+       * فمن أدخل الكود يدوياً كتب رقمَه بيده، ومن مسح رمزاً لا يملكه —
+       * والخادم يقبل أيَّهما ويصل إلى الصفّ نفسِه. والجهازُ يحرس
+       * الاثنين: الرمزُ مربوطٌ بـ`device_hash` فلا يُكمَّل من غيره.
+       */
       final env = await ref.read(apiClientProvider).post(
         '/device/employee/activation/verify',
-        body: {'phone': phone, 'otp': otp, 'device_id': deviceId},
+        body: {
+          if (_activationId != null) 'activation_id': _activationId
+          else 'phone': Fmt.phoneForApi(_phone.text),
+          'otp': otp,
+          'device_id': deviceId,
+        },
       );
 
       final token = '${env.row?['access_token'] ?? ''}';

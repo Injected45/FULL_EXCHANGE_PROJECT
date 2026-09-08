@@ -43,6 +43,16 @@ class EmployeeActivationService
      */
     private const CODE_TTL_MINUTES = 10;
 
+    /**
+     * طولُ رمز QR بالبايت قبل الترميز — 32 بايتاً = 256 بت.
+     *
+     * ⚠ عشوائيةٌ قويّة لا كودٌ مقروء: كود التفعيل اليدويّ ثمانُ خانات من
+     * أبجديةٍ مقروءة لأنه يُملى صوتاً، وذلك سقفٌ على عشوائيّته يقبله لأنه
+     * محميٌّ بحدّ المحاولات وبمدّةٍ قصيرة. أمّا رمزُ QR فلا يُملى ولا يُكتب،
+     * فلا سببَ لإضعافه — ويُولَّد من `random_bytes` لا من `rand`.
+     */
+    private const QR_TOKEN_BYTES = 32;
+
     /** مدّة صلاحية رمز التحقّق. */
     private const OTP_TTL_MINUTES = 3;
 
@@ -89,7 +99,10 @@ class EmployeeActivationService
         // بالصوت على الهاتف غالباً، وخلطُ حرفٍ برقم يُفشل التفعيل بلا سبب.
         $code = $this->readableCode(8);
 
-        return DB::transaction(function () use ($agentId, $employeeId, $issuedBy, $code, $employee, $trace) {
+        // يُعرض مرّةً واحدة كالكود، ولا يُخزَّن إلا مُجزَّأً.
+        $qrToken = bin2hex(random_bytes(self::QR_TOKEN_BYTES));
+
+        return DB::transaction(function () use ($agentId, $employeeId, $issuedBy, $code, $qrToken, $employee, $trace) {
             // كودٌ فعّال واحد لكل موظف — الفهرس الفريد يحرس هذا، والإلغاء هنا
             // يجعل «إصدار كود جديد» يعني حتماً إبطال القديم.
             DB::table('employee_activation_codes')
@@ -112,6 +125,16 @@ class EmployeeActivationService
                 'issued_at'   => now(),
                 // ⚠ لا كودَ مفتوحَ الصّلاحية — انظر `CODE_TTL_MINUTES`.
                 'expires_at'  => now()->addMinutes(self::CODE_TTL_MINUTES),
+
+                /*
+                 * ⚠ رمزُ QR والكودُ اليدويّ **تمثيلان لطلبٍ واحد**، لا
+                 * طلبان. فهما على الصفّ نفسِه: حالةٌ واحدة، ومدّةٌ واحدة،
+                 * وإلغاءٌ واحد، واستهلاكٌ واحد.
+                 *
+                 * وجدولٌ ثانٍ كان سيعني كوداً مُلغى ورمزاً ما زال يعمل.
+                 */
+                'qr_token_hash' => hash('sha256', $qrToken),
+                'qr_issued_at'  => now(),
             ]);
 
             // الموظف الموقوف أمنياً يعود «بانتظار التفعيل» بكودٍ جديد —
@@ -130,6 +153,8 @@ class EmployeeActivationService
 
             return [
                 'code'       => $code,
+                // ⚠ يُعاد نصّاً هنا فقط — ولا يُقرأ من القاعدة ثانيةً.
+                'qr_token'   => $qrToken,
                 // يُعرَض للوكيل: كودٌ بلا موعدٍ يُملى على مهل.
                 'expires_at' => now()->addMinutes(self::CODE_TTL_MINUTES)->toIso8601String(),
                 'ttl_minutes' => self::CODE_TTL_MINUTES,
@@ -153,12 +178,125 @@ class EmployeeActivationService
        =================================================================== */
 
     /**
+     * تفعيلٌ بمسح QR — **يدخل هذا المسار نفسَه** لا مساراً ثانياً.
+     *
+     * ⚠ نصُّ البند 21: «ويجب ألا يكون هناك منطقان مختلفان للتفعيل». فكلُّ
+     * ما يفعله هذا هو **ترجمةُ الرمز إلى (رقمٍ + صفِّ طلب)**، ثمّ تسليمُ
+     * الأمر إلى `requestOtp` — فتجري عليه الفحوصُ نفسُها: الحالة، والمدّة،
+     * والجهاز الثاني، وحدُّ المعدّل، وحالةُ الموظف. ثمّ `verifyOtp` نفسُها
+     * بلا حرفٍ يتغيّر.
+     *
+     * ⚠ والرمزُ **ليس مصدرَ ثقة**: لا يحمل معرّفَ موظّفٍ ولا وكيلٍ ولا
+     * صلاحيات. هو مفتاحٌ معتِمٌ يُقاد به إلى صفٍّ في القاعدة، والصفُّ وحده
+     * يقول لمن هو ولأي وكيل — فلا يستطيع أحدٌ تعديلَه لينتقل إلى وكيلٍ آخر.
+     */
+    public function requestOtpByQr(string $qrToken, string $deviceId, array $trace): array
+    {
+        $deviceHash = DeviceRegistryService::hash($deviceId);
+        if ($deviceHash === null) {
+            return ['ok' => false, 'message' => 'تعذّر التعرّف على الجهاز.'];
+        }
+
+        $qrToken = trim($qrToken);
+
+        /*
+         * شكلُ الرمز يُفحص قبل لمس القاعدة: نصٌّ ستّ عشريّ بطولٍ معلوم.
+         * ورمزٌ لا يطابق الشكل لا حاجة لسؤال القاعدة عنه.
+         */
+        if (!preg_match('/^[0-9a-f]{' . (self::QR_TOKEN_BYTES * 2) . '}$/', $qrToken)) {
+            return ['ok' => false, 'message' => 'رمز التفعيل غير صالح.'];
+        }
+
+        $row = DB::table('employee_activation_codes')
+            ->where('qr_token_hash', hash('sha256', $qrToken))
+            ->first(['id', 'phone', 'status', 'scan_device_hash', 'employee_id', 'agent_id']);
+
+        if (!$row) {
+            $this->log->security('QR_UNKNOWN', 'رمز تفعيل غير معروف', [
+                'device_hash' => $deviceHash,
+            ] + $trace);
+
+            return ['ok' => false, 'message' => 'رمز التفعيل غير صالح.'];
+        }
+
+        /*
+         * ⚠ حسمُ التزامن هنا، قبل إرسال أي رمز تحقّق — البند 10: «رفض
+         * محاولة استخدامه بالتزامن من جهازين».
+         *
+         * والحارسُ **تحديثٌ شرطيّ في القاعدة** لا فحصٌ في الذاكرة: جهازان
+         * يمسحان في اللحظة نفسِها يقرآن معاً `scan_device_hash = NULL`،
+         * فيمرّ كلاهما على أي `if`. أمّا التحديثُ فيصيب صفّاً واحداً،
+         * والثاني يعود بصفرٍ فيُرفض.
+         *
+         * ولا يُحرق الرمز هنا: الجهازُ نفسُه قد يعيد المسح بعد انقطاعٍ في
+         * الشبكة، وحرقُ الرمز على انقطاعٍ عابر يُجبر الوكيل على إصدار غيره
+         * بلا سبب. فالشرطُ «لم يمسحه أحدٌ بعد، أو مسحه هذا الجهاز نفسُه».
+         */
+        $claimed = DB::table('employee_activation_codes')
+            ->where('id', $row->id)
+            ->where('status', 'ACTIVE')
+            ->where(function ($w) use ($deviceHash) {
+                $w->whereNull('scan_device_hash')
+                  ->orWhere('scan_device_hash', $deviceHash);
+            })
+            ->update([
+                'scanned_at'       => now(),
+                'scan_device_hash' => $deviceHash,
+            ]);
+
+        if ($claimed === 0) {
+            /*
+             * إمّا أن الرمز ليس `ACTIVE` — وحينها تتكفّل `requestOtp`
+             * بالرسالة الصحيحة (منتهٍ، مُلغى، مُستعمَل) — أو أن جهازاً آخر
+             * سبق إليه، وتلك حالةٌ أمنيةٌ تُسجَّل وتُرفض صراحةً.
+             */
+            if ($row->status === 'ACTIVE'
+                && $row->scan_device_hash !== null
+                && $row->scan_device_hash !== $deviceHash) {
+
+                /*
+                 * ⚠ ويُنسب الحدثُ إلى صاحبه. حدثٌ أمنيٌّ بلا موظّفٍ ولا
+                 * رقمٍ يبقى صفّاً يتيماً: لا يظهر في سجلّ الموظف حين
+                 * يُسأل عنه، ولا يُحذف مع بياناته حين تُحذف.
+                 *
+                 * ولا يُكتب الرمزُ نفسُه ولا جزءٌ منه — البند 24.
+                 */
+                $this->log->security('QR_OTHER_DEVICE',
+                    'محاولة مسح رمز تفعيلٍ مسحه جهازٌ آخر', [
+                        'device_hash' => $deviceHash,
+                        'phone'       => $row->phone,
+                        'employee_id' => $row->employee_id,
+                        'agent_id'    => $row->agent_id,
+                    ] + $trace);
+
+                return ['ok' => false, 'message' => 'هذا الرمز يُستخدم على جهاز آخر. اطلب رمزاً جديداً.'];
+            }
+        }
+
+        /*
+         * ⚠ والكودُ لا يُقرأ من القاعدة ولا يُقارَن: `requestOtp` تحتاج
+         * إثباتَ ملكية الطلب، وقد أُثبت بالرمز نفسِه. فتُستدعى بعلامةٍ
+         * تقول «تُخطَّ مقارنةُ الكود وحدها» — وما دونها من فحوصٍ يجري كلُّه.
+         */
+        return $this->requestOtp($row->phone, '', $deviceId, $trace, true, $row->id);
+    }
+
+    /**
      * يتحقّق من الرقم والكود والجهاز، وعند النجاح **فقط** يُرسل الرمز.
+     *
+     * @param bool $viaQr مرّ التحقّقُ من الملكية عبر رمز QR، فلا يُقارَن
+     *                    الكودُ المكتوب. وما عداه من فحوصٍ يجري كما هو.
      *
      * @return array{ok:bool, message:string, masked_phone?:string, activation_id?:int}
      */
-    public function requestOtp(string $phone, string $code, string $deviceId, array $trace): array
-    {
+    public function requestOtp(
+        string $phone,
+        string $code,
+        string $deviceId,
+        array $trace,
+        bool $viaQr = false,
+        ?int $pinnedCodeId = null,
+    ): array {
         $deviceHash = DeviceRegistryService::hash($deviceId);
         if ($deviceHash === null) {
             return ['ok' => false, 'message' => 'تعذّر التعرّف على الجهاز.'];
@@ -178,6 +316,16 @@ class EmployeeActivationService
             ->join('employees as e', 'e.id', '=', 'c.employee_id')
             ->where('c.phone', $phone)
             ->whereIn('c.status', ['ACTIVE', 'USED', 'COMPROMISED'])
+            /*
+             * ⚠ مسارُ QR يُثبّت الصفَّ الذي يقود إليه الرمزُ بعينِه.
+             *
+             * فبدونه يُقاد التحقّقُ بالرقم وحده ثمّ يأخذ **أحدثَ** صفّ،
+             * فيصير رمزٌ ألغاه الوكيلُ أمسِ صالحاً لأن للموظف صفّاً
+             * أحدثَ منه — أي أن الإلغاء لا يُلغي. والفرقُ يظهر في QR
+             * وحدَه لأنه لا يُقارَن بكود: الكودُ اليدويّ يحرسه
+             * `Hash::check` على الصفّ الذي وُجد.
+             */
+            ->when($pinnedCodeId !== null, fn ($q) => $q->where('c.id', $pinnedCodeId))
             ->whereNull('e.deleted_at')
             ->orderByDesc('c.id')
             ->select([
@@ -249,7 +397,7 @@ class EmployeeActivationService
             ];
         }
 
-        if (!Hash::check($code, $record->code_hash)) {
+        if (!$viaQr && !Hash::check($code, $record->code_hash)) {
             $this->bumpCodeAttempts($record);
             $this->log->security('CODE_FAILED', 'كود خاطئ', [
                 'phone' => $phone, 'device_hash' => $deviceHash,
@@ -307,6 +455,9 @@ class EmployeeActivationService
             'message'       => 'أُرسل رمز التحقّق.',
             'masked_phone'  => $this->maskPhone($phone),
             'activation_id' => (int) $record->code_id,
+            // يُعرَض في شاشة المسح: من مسح رمزاً يطمئنّ أنّه رمزُه هو،
+            // والاسمُ من القاعدة لا من الرمز — الرمزُ لا يحمل شيئاً.
+            'employee_name' => $record->full_name,
         ];
     }
 
@@ -403,8 +554,24 @@ class EmployeeActivationService
     /**
      * @return array{ok:bool, message:string, session?:array}
      */
-    public function verifyOtp(string $phone, string $otp, string $deviceId, array $trace): array
-    {
+    /**
+     * @param int|null $activationId معرّفُ الطلب، لمن جاء من مسح QR.
+     *
+     * ⚠ مسارُ QR لا يعرف رقمَ الهاتف — ولا ينبغي أن يعرفه: ما يعود إليه من
+     * الخادم رقمٌ **مقنَّع**، فمن صوّر رمزاً لا يخرج منه برقم موظّفٍ كامل.
+     * فيُقاد إلى صفّه بمعرّف الطلب، ويُشتقّ الرقمُ من الصفّ.
+     *
+     * وذلك لا يُضعف شيئاً: الصفُّ مربوطٌ بـ`device_hash` كما هو، فمعرّفُ
+     * الطلب وحده لا يفتح شيئاً على جهازٍ آخر — ويبقى رمزُ التحقّق الواصلُ
+     * إلى هاتف الموظف هو الحارسَ الأخير في الحالتين.
+     */
+    public function verifyOtp(
+        string $phone,
+        string $otp,
+        string $deviceId,
+        array $trace,
+        ?int $activationId = null,
+    ): array {
         $deviceHash = DeviceRegistryService::hash($deviceId);
         if ($deviceHash === null) {
             return ['ok' => false, 'message' => 'تعذّر التعرّف على الجهاز.'];
@@ -413,11 +580,20 @@ class EmployeeActivationService
         $phone = $this->normalizePhone($phone);
 
         $row = DB::table('employee_otps')
-            ->where('phone', $phone)
             ->where('device_hash', $deviceHash)   // رمزُ جهازٍ لا يُستعمل من غيره
             ->where('status', 'PENDING')
+            ->when(
+                $activationId !== null,
+                fn ($q) => $q->where('activation_id', $activationId),
+                fn ($q) => $q->where('phone', $phone),
+            )
             ->orderByDesc('id')
             ->first();
+
+        // والرقمُ من الصفّ لا من الطلب: ما بعده يعمل على رقمٍ واحد.
+        if ($row && $activationId !== null) {
+            $phone = $row->phone;
+        }
 
         if (!$row) {
             return ['ok' => false, 'message' => 'انتهت صلاحية رمز التحقق'];

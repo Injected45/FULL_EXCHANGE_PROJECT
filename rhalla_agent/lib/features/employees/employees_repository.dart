@@ -226,6 +226,31 @@ class PermissionItem {
       );
 }
 
+/// كودُ تفعيلٍ صادرٌ للتوّ — الكودُ ورمزُ QR **تمثيلان لطلبٍ واحد**.
+///
+/// ⚠ ولذلك لا يُفصلان في الطراز: حالةٌ واحدة، ومدّةٌ واحدة، وإلغاءٌ واحد.
+/// وطرازان منفصلان كانا سيُغريان بإلغاء أحدهما وترك الآخر يعمل.
+class ActivationCode {
+  const ActivationCode({
+    required this.code,
+    required this.qrToken,
+    required this.expiresAt,
+    required this.ttlMinutes,
+  });
+
+  /// ثمانُ خانات تُملى صوتاً.
+  final String code;
+
+  /// 64 خانةً ستّ عشريّة تُمسح ولا تُقرأ.
+  final String qrToken;
+
+  /// لحظةُ الحرق — بتوقيت الجهاز.
+  final DateTime? expiresAt;
+
+  final int ttlMinutes;
+
+  bool get hasQr => qrToken.length == 64;
+}
 class EmployeesRepository {
   EmployeesRepository(this._api);
 
@@ -286,11 +311,27 @@ class EmployeesRepository {
   Future<void> setStatus({required int id, required String status}) =>
       _api.post('/employees/$id/status', body: {'status': status});
 
-  /// يُعيد الكود **نصّاً صريحاً مرّة واحدة**؛ الخادم لا يحفظه كذلك ولا يُعيده
-  /// ثانيةً. لذلك تعرضه الشاشة فوراً وتقول للوكيل إنه لن يظهر مرّة أخرى.
-  Future<String> issueCode(int id) async {
+  /// يُعيد الكود ورمز QR **نصّاً صريحاً مرّة واحدة**؛ الخادم لا يحفظ أياً
+  /// منهما كذلك ولا يُعيده ثانيةً. لذلك تعرضهما الشاشة فوراً وتقول للوكيل
+  /// إنهما لن يظهرا مرّة أخرى.
+  Future<ActivationCode> issueCode(int id) async {
     final env = await _api.post('/employees/$id/activation-code');
-    return '${env.row?['code'] ?? ''}';
+    final r = env.row ?? const {};
+    return ActivationCode(
+      code: '${r['code'] ?? ''}',
+      qrToken: '${r['qr_token'] ?? ''}',
+      expiresAt: DateTime.tryParse('${r['expires_at'] ?? ''}')?.toLocal(),
+      ttlMinutes: int.tryParse('${r['ttl_minutes'] ?? ''}') ?? 10,
+    );
+  }
+
+  /// إلغاءُ الرمز قبل استعماله.
+  ///
+  /// ⚠ والإلغاءُ في الخادم لا في الشاشة: صورةُ الرمز على هاتفٍ آخر تبقى،
+  /// وما يموت هو الصفُّ الذي تقود إليه. وإغلاقُ الورقة وحده لا يُلغي شيئاً.
+  Future<bool> revokeCode(int id) async {
+    final env = await _api.post('/employees/$id/activation-code/revoke');
+    return env.row?['revoked'] == true;
   }
 
   Future<void> setPermissions({

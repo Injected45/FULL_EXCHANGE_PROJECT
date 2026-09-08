@@ -274,6 +274,46 @@ class EmployeeAdminController extends BaseController
         );
     }
 
+    /**
+     * POST employees/{id}/activation-code/revoke — إلغاءُ الرمز قبل استعماله.
+     *
+     * ⚠ البند 13: «إذا كان QR ما زال ظاهراً على هاتف آخر أو محفوظاً
+     * Screenshot، يجب ألا يعمل بعد إلغائه». والإلغاءُ في القاعدة لا في
+     * الشاشة: صورةُ الرمز تبقى، وما يموت هو الصفُّ الذي تقود إليه.
+     *
+     * ويُلغي الكودَ اليدويّ معه — لأنهما طلبٌ واحد لا اثنان.
+     */
+    public function revokeCode(Request $request, int $id)
+    {
+        [$user, $err] = $this->admin();
+        if ($err) return $err;
+
+        $employee = $this->ownedEmployee($user->id, $id);
+        if (!$employee) return $this->sendError('الموظف غير موجود.', [], 404);
+
+        $n = DB::table('employee_activation_codes')
+            ->where('employee_id', $id)
+            ->where('status', 'ACTIVE')
+            ->update([
+                'status'         => 'REVOKED',
+                'revoked_at'     => now(),
+                'revoked_reason' => 'ألغاه الوكيل',
+            ]);
+
+        if ($n > 0) {
+            $this->log->audit('EMPLOYEE_CODE_REVOKED', [
+                'agent_id'    => $user->id,
+                'employee_id' => $id,
+                'entity_type' => 'employee_activation_code',
+                'entity_id'   => (string) $id,
+            ] + $this->trace($request, $user));
+        }
+
+        return $this->sendResponse(
+            ['revoked' => $n > 0],
+            $n > 0 ? 'أُلغي رمز التفعيل.' : 'لا رمزَ فعّالاً لإلغائه.'
+        );
+    }
     /** GET employees/devices — الأجهزة المفعّلة */
     public function devices(Request $request)
     {

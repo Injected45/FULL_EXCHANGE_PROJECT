@@ -181,6 +181,22 @@ class InsufficientFunds {
 /// الشريط الأحمر قبل تشديد `firstValidationError`.
 ///
 /// `Debit` هو إجمالي المخصوم في تلك المدّة **مع هذه الحوالة**، لا مبلغها.
+/// حوالةُ موظفٍ تجاوزت سياستَه فذهبت إلى وكيله طلبَ موافقة.
+///
+/// ⚠ ليست خطأً ولا رفضاً: الطلبُ محفوظٌ كما أدخله الموظف، ولا يُعيد
+/// إدخالَ شيء. وهو ينتظر قرارَ الوكيل لا غير.
+class TransferPendingApproval implements Exception {
+  const TransferPendingApproval({required this.message, required this.reasons});
+
+  final String message;
+
+  /// أسبابُ التصعيد — قد تجتمع أكثر من واحد في طلبٍ واحد.
+  final List<String> reasons;
+
+  @override
+  String toString() => message;
+}
+
 class TransferLimitExceeded {
   const TransferLimitExceeded({
     required this.labels,
@@ -313,6 +329,31 @@ class SendRepository {
     });
 
     final payload = env.payload;
+
+    /*
+     * ⚠ **تصعيدٌ لا نجاح.**
+     *
+     * الخادم يردّ `success` لأن الطلبَ قُبل واستُلم — لكنّ الحوالة
+     * **لم تُنفَّذ**: لا صفَّ في الدفتر ولا رصيدَ خُصم. ولو مضى
+     * التطبيق إلى شاشة «تمّت» لخرج الموظف بفاتورةٍ يسلّم عليها
+     * المستفيدَ مالاً على حوالةٍ لم تقع (البند 37).
+     *
+     * فيُرفع استثناءٌ مميَّز — لا `ApiFailure`: هذا ليس خطأً،
+     * والشاشةُ تعرضه بلونٍ آخر ونصٍّ آخر.
+     */
+    if (payload is Map && payload['pending_approval'] == true) {
+      throw TransferPendingApproval(
+        message: env.messageText ??
+            'قيمة الحوالة تتجاوز سقف التحويل المسموح لك، '
+                'تم إرسال طلب للوكيل للموافقة.',
+        reasons: (payload['reason_labels'] as List?)
+                ?.map((e) => '$e')
+                .where((e) => e.trim().isNotEmpty)
+                .toList() ??
+            const [],
+      );
+    }
+
     if (payload is Map && payload['transfer'] is Map) {
       return CreatedTransfer.fromJson(
         (payload['transfer'] as Map).cast<String, dynamic>(),

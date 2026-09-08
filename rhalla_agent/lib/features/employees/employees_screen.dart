@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/format/fmt.dart';
@@ -12,6 +15,8 @@ import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../chat/chat_repository.dart';
 import '../chat/chat_screen.dart';
+import 'approvals_badge.dart';
+import 'employee_limits_sheet.dart';
 import 'employees_repository.dart';
 
 /// «الموظفون» — إدارة من يعمل تحت الوكيل وما يُسمح له.
@@ -42,6 +47,11 @@ class EmployeesScreen extends ConsumerWidget {
                   icon: Icon(Icons.insert_chart_outlined_rounded,
                       size: 22, color: R.primaryDark),
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                ),
+                // ⚠ طلباتُ الموافقة أوّلَ الرأس: هي وحدها التي تنتظر
+                // فعلاً من الوكيل، وبقيّةُ الأيقونات تصفّحٌ يحتمل.
+                ApprovalsBadgeIcon(
+                  onTap: () => context.push('/employees/approvals'),
                 ),
                 IconButton(
                   tooltip: 'الأجهزة المفعّلة',
@@ -246,10 +256,24 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
           // لا سبيل إلى مراسلة موظّفٍ لم يبدأ هو. والزرّ يُنشئ المحادثة عند
           // الضغط لا قبله: محادثةٌ فارغة لكل موظّف تملأ القائمة بما لم يبدأ.
           const SizedBox(height: 8),
-          _Action(
-            label: 'مراسلة',
-            icon: Icons.chat_bubble_outline_rounded,
-            onTap: _busy ? null : _openChat,
+          Row(
+            children: [
+              Expanded(
+                child: _Action(
+                  label: 'سقف التحويل',
+                  icon: Icons.speed_rounded,
+                  onTap: _busy ? null : _openLimits,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _Action(
+                  label: 'مراسلة',
+                  icon: Icons.chat_bubble_outline_rounded,
+                  onTap: _busy ? null : _openChat,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -267,14 +291,23 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
   Future<void> _issueCode() async {
     setState(() => _busy = true);
     try {
-      final code =
+      final issued =
           await ref.read(employeesRepositoryProvider).issueCode(widget.e.id);
       if (!mounted) return;
       await showModalBottomSheet<void>(
         context: context,
         useRootNavigator: true,
         backgroundColor: Colors.transparent,
-        builder: (_) => _CodeSheet(code: code, name: widget.e.fullName),
+        // ⚠ الورقة تحمل الرمزَ والعدّادَ وزرَّي التجديد والإلغاء، فقد
+        // تطول على شاشةٍ قصيرة — و`isScrollControlled` هو ما يسمح لها
+        // بتجاوز نصف الشاشة بدل أن تقتطع نفسها.
+        isScrollControlled: true,
+        builder: (_) => _CodeSheet(
+          issued: issued,
+          name: widget.e.fullName,
+          phone: widget.e.phone,
+          employeeId: widget.e.id,
+        ),
       );
       if (mounted) ref.invalidate(employeesProvider);
     } on ApiFailure catch (e) {
@@ -315,6 +348,21 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
             style: T.kufi(13, FontWeight.w600))),
       );
     }
+  }
+
+  /// ورقةُ سقف التحويل — سياسةُ هذا الموظف وحدَه.
+  Future<void> _openLimits() async {
+    await showModalBottomSheet<bool>(
+      context: context,
+      useRootNavigator: true,
+      backgroundColor: Colors.transparent,
+      // الورقةُ فيها حقولُ إدخال، فترتفع فوق لوحة المفاتيح.
+      isScrollControlled: true,
+      builder: (_) => EmployeeLimitsSheet(
+        employeeId: widget.e.id,
+        employeeName: widget.e.fullName,
+      ),
+    );
   }
 
   Future<void> _toggleSuspend() async {
@@ -364,15 +412,81 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
   }
 }
 
-/// عرض كود التفعيل — **مرّة واحدة**.
+/// عرض كود التفعيل ورمز QR — **مرّة واحدة**.
 ///
-/// الخادم يحفظه مُجزّأً ولا يُعيده أبداً؛ فإن أُغلقت هذه الورقة قبل أن يُنسخ
-/// الكود فلا سبيل إلا إصدار كودٍ جديد. ولذلك تقول ذلك صراحةً.
-class _CodeSheet extends StatelessWidget {
-  const _CodeSheet({required this.code, required this.name});
+/// الخادم يحفظ الاثنين مُجزَّأين (Hash / SHA-256)، فلا وجود لهما بعد إغلاق
+/// هذه الورقة. والرمزُ يُقدَّم أولاً لأنه أسرعُ وأقلُّ خطأً، والكودُ باقٍ
+/// كاملاً تحته لمن لا كاميرا لديه أو لمن يُملي الكود صوتاً على الهاتف.
+class _CodeSheet extends ConsumerStatefulWidget {
+  const _CodeSheet({
+    required this.issued,
+    required this.name,
+    required this.phone,
+    required this.employeeId,
+  });
 
-  final String code;
+  final ActivationCode issued;
   final String name;
+
+  /// يُعرض تحت الاسم: الوكيل قد يُصدر أكواداً لعدّة موظفين في جلسةٍ واحدة،
+  /// وأسماءٌ متشابهة تجعل الرمزَ يُسلَّم إلى غير صاحبه.
+  final String phone;
+
+  final int employeeId;
+
+  @override
+  ConsumerState<_CodeSheet> createState() => _CodeSheetState();
+}
+
+class _CodeSheetState extends ConsumerState<_CodeSheet> {
+  late ActivationCode _c = widget.issued;
+  Timer? _tick;
+  Duration _left = Duration.zero;
+  bool _busy = false;
+  bool _revoked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _restart();
+  }
+
+  /*
+   * ⚠ العدّاد يُحسب من `expires_at` الآتي من الخادم، لا من عدٍّ تنازليّ
+   * يبدأ من عشر دقائق.
+   *
+   * فالعدُّ المحليّ يتوقّف إن نام الجهاز أو خرج التطبيق إلى الخلفية، فيُظهر
+   * وقتاً باقياً لرمزٍ مات — والوكيل يُصرّ على أنه صالح. والفرقُ يظهر عند
+   * أوّل مكالمة يقول فيها الموظف «الرمز لا يعمل» والشاشةُ أمام الوكيل تقول
+   * إن أمامه أربع دقائق.
+   */
+  void _restart() {
+    _tick?.cancel();
+    _recompute();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) => _recompute());
+  }
+
+  void _recompute() {
+    final end = _c.expiresAt;
+    final left = end == null ? Duration.zero : end.difference(DateTime.now());
+    final next = left.isNegative ? Duration.zero : left;
+    if (next != _left && mounted) setState(() => _left = next);
+    if (next == Duration.zero) _tick?.cancel();
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  bool get _dead => _revoked || _left == Duration.zero;
+
+  String get _clock {
+    final m = _left.inMinutes.toString().padLeft(2, '0');
+    final s = (_left.inSeconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
 
   @override
   Widget build(BuildContext context) => Container(
@@ -382,130 +496,318 @@ class _CodeSheet extends StatelessWidget {
           borderRadius:
               const BorderRadius.vertical(top: Radius.circular(R.rNav)),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 44,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: R.inkA(.16),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            // العنوان والاسم في سطرين لا سطر واحد.
-            //
-            // اسم الموظف قد يكون ثلاثياً أو رباعياً، فيدفع «كود تفعيل» في سطر
-            // واحد إلى الاقتطاع أو إلى لفٍّ يقطع العبارة في منتصفها. وفصلُهما
-            // يجعل العنوان ثابتاً مهما طال الاسم، ويترك للاسم سطرين كاملين.
-            Column(
-              children: [
-                Text('كود تفعيل الموظف',
-                    textAlign: TextAlign.center,
-                    style: T.kufi(16, FontWeight.w700)),
-                const SizedBox(height: 4),
-                Text(
-                  name,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: T.kufi(14, FontWeight.w600, color: R.inkA(.62)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 18),
-              decoration: BoxDecoration(
-                color: R.primaryA(.08),
-                border: Border.all(color: R.primaryA(.28)),
-                borderRadius: BorderRadius.circular(R.rCard),
-              ),
-              child: Directionality(
-                textDirection: TextDirection.ltr,
-                child: Text(
-                  code,
-                  textAlign: TextAlign.center,
-                  style: T.kufi(26, FontWeight.w800,
-                      color: R.primaryDark, spacing: 6),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            /*
-             * ⚠ المدّةُ تُقال هنا لا تُترك للمفاجأة.
-             *
-             * الكودُ يُحرق بعد عشر دقائق إن لم يُستعمل (أمر المالك،
-             * 8 سبتمبر 2026: «يُمنع ترك صلاحية المفتاح مفتوحة»). ووكيلٌ
-             * يُصدره ثم يُسلّمه غداً يجد موظّفَه يقول «الكود لا يعمل» —
-             * فيظنّ التطبيق معطوباً، والسببُ قاعدةٌ لم تُقَل له.
-             */
-            const WarnBanner(
-              text: 'انسخ الكود الآن — لن يظهر مرة أخرى. '
-                  'وصلاحيته عشر دقائق فقط، فإن لم يُستعمل فيها فأصدر غيره.',
-            ),
-            const SizedBox(height: 18),
-            // النسخ والمشاركة فعلان نظيران، فهما في سطر واحد.
-            //
-            // والمشاركة ليست ترفاً: الكود يُسلَّم للموظف عبر واتساب غالباً،
-            // والنسخُ يعني الخروج من التطبيق وفتح المحادثة ولصقَه — بينما
-            // ورقة المشاركة تفتح البرامج المثبَّتة مباشرةً. والنسخ يبقى
-            // كما هو لمن لا يريد المشاركة، ولمن لا يجد برنامجاً مناسباً.
-            //
-            // النسخ يبقى الأساسيّ (يمين السطر في واجهة عربية) لأن التحذير
-            // فوقه يقول «انسخ الكود الآن» — وزرّان أخضران متجاوران يتنافسان.
-            Row(
-              children: [
-                Expanded(
-                  child: PrimaryButton(
-                    label: 'نسخ الكود',
-                    icon: const Icon(Icons.copy_rounded,
-                        size: 18, color: Colors.white),
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: code));
-                      ScaffoldMessenger.of(context)
-                        ..hideCurrentSnackBar()
-                        ..showSnackBar(SnackBar(
-                          content: Text('نُسخ الكود',
-                              style: T.plex(13, FontWeight.w500,
-                                  color: Colors.white)),
-                          backgroundColor: R.inkA(.92),
-                          behavior: SnackBarBehavior.floating,
-                        ));
-                    },
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: R.inkA(.16),
+                    borderRadius: BorderRadius.circular(99),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SecondaryButton(
-                    label: 'مشاركة',
-                    icon: Icon(Icons.share_rounded,
-                        size: 18, color: R.primaryDark),
-                    onPressed: () => SharePlus.instance.share(
-                      // الاسم مع الكود: الوكيل قد يُصدر أكواداً لعدّة موظفين
-                      // في جلسة واحدة، ورسالةٌ بكودٍ مجرّد لا يُعرف صاحبها.
-                      ShareParams(
-                        text: 'كود تفعيل $name في تطبيق الموظف: $code',
+              ),
+              const SizedBox(height: 20),
+              // العنوان والاسم في سطرين لا سطر واحد.
+              //
+              // اسم الموظف قد يكون ثلاثياً أو رباعياً، فيدفع «كود تفعيل» في
+              // سطر واحد إلى الاقتطاع أو إلى لفٍّ يقطع العبارة في منتصفها.
+              // وفصلُهما يجعل العنوان ثابتاً مهما طال الاسم.
+              Column(
+                children: [
+                  Text('تفعيل الموظف',
+                      textAlign: TextAlign.center,
+                      style: T.kufi(16, FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.name,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: T.kufi(14, FontWeight.w600, color: R.inkA(.62)),
+                  ),
+                  if (widget.phone.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    // رقمٌ داخل نصٍّ عربيّ ينقلب ترتيبُه — فسطرُه وحدَه وبـLTR.
+                    Directionality(
+                      textDirection: TextDirection.ltr,
+                      child: Text(
+                        Fmt.phone(widget.phone),
+                        textAlign: TextAlign.center,
+                        style: T.plex(12, FontWeight.w500, color: R.inkA(.5)),
                       ),
                     ),
-                  ),
+                  ],
+                ],
+              ),
+              if (_c.hasQr) ...[
+                const SizedBox(height: 16),
+                _qr(),
+                const SizedBox(height: 12),
+                _countdown(),
+                const SizedBox(height: 8),
+                Text(
+                  _dead
+                      ? 'أصدر رمزاً جديداً ليُمسح.'
+                      : 'اطلب من الموظف فتح تطبيق الرحالة ⇦ الدخول كموظف ⇦ '
+                          'مسح رمز التفعيل.',
+                  textAlign: TextAlign.center,
+                  style: T.plex(12, FontWeight.w400,
+                      color: R.inkA(.55), height: 1.7),
                 ),
               ],
-            ),
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              style: TextButton.styleFrom(minimumSize: const Size(44, 48)),
-              child: Text('تمّ',
-                  style: T.plex(13, FontWeight.w500, color: R.inkA(.55))),
-            ),
-          ],
+              const SizedBox(height: 18),
+              /*
+               * ⚠ والكودُ يبقى كاملاً تحت الرمز، لا يُستبدل به.
+               *
+               * فالرمزُ يحتاج كاميرا تعمل وإذناً مُنِح وضوءاً كافياً، وأيُّها
+               * تخلّف بقي الكودُ الطريقَ الوحيد. وحذفُه لأن الرمز أسرعُ
+               * يُعطّل التفعيل كلَّه على هاتفٍ كاميرتُه معطوبة.
+               */
+              Text('أو أدخل الكود يدوياً',
+                  textAlign: TextAlign.center,
+                  style: T.plex(12, FontWeight.w600, color: R.inkA(.5))),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: _dead ? R.inkA(.05) : R.primaryA(.08),
+                  border:
+                      Border.all(color: _dead ? R.inkA(.14) : R.primaryA(.28)),
+                  borderRadius: BorderRadius.circular(R.rCard),
+                ),
+                child: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Text(
+                    _c.code,
+                    textAlign: TextAlign.center,
+                    style: T.kufi(24, FontWeight.w800,
+                        color: _dead ? R.inkA(.35) : R.primaryDark, spacing: 6),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              /*
+               * ⚠ المدّةُ تُقال هنا لا تُترك للمفاجأة.
+               *
+               * الكودُ يُحرق بعد عشر دقائق إن لم يُستعمل (أمر المالك،
+               * 8 سبتمبر 2026: «يُمنع ترك صلاحية المفتاح مفتوحة»). ووكيلٌ
+               * يُصدره ثم يُسلّمه غداً يجد موظّفَه يقول «الكود لا يعمل» —
+               * فيظنّ التطبيق معطوباً، والسببُ قاعدةٌ لم تُقَل له.
+               */
+              WarnBanner(
+                text: _dead
+                    ? 'انتهت صلاحية هذا التفعيل. أصدر رمزاً جديداً.'
+                    : 'انسخ الكود الآن — لن يظهر مرة أخرى. '
+                        'وصلاحيته عشر دقائق فقط، فإن لم يُستعمل فيها '
+                        'فأصدر غيره.',
+              ),
+              const SizedBox(height: 18),
+              // النسخ والمشاركة فعلان نظيران، فهما في سطر واحد.
+              //
+              // والمشاركة ليست ترفاً: الكود يُسلَّم للموظف عبر واتساب غالباً،
+              // والنسخُ يعني الخروج من التطبيق وفتح المحادثة ولصقَه — بينما
+              // ورقة المشاركة تفتح البرامج المثبَّتة مباشرةً.
+              //
+              // ⚠ والمشاركةُ تُرسل الكودَ وحدَه لا الرمز: رمزُ QR صورةٌ تُمسح
+              // من الشاشة أمام الموظف، وإرسالُه في محادثة يجعله ملفاً باقياً
+              // في هاتفين ومعرض صورٍ وسحابةِ نسخٍ احتياطي.
+              Row(
+                children: [
+                  Expanded(
+                    child: PrimaryButton(
+                      label: 'نسخ الكود',
+                      icon: const Icon(Icons.copy_rounded,
+                          size: 18, color: Colors.white),
+                      onPressed: _dead
+                          ? null
+                          : () {
+                              Clipboard.setData(ClipboardData(text: _c.code));
+                              _say('نُسخ الكود');
+                            },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SecondaryButton(
+                      label: 'مشاركة',
+                      icon: Icon(Icons.share_rounded,
+                          size: 18, color: R.primaryDark),
+                      onPressed: _dead
+                          ? null
+                          : () => SharePlus.instance.share(
+                                // الاسم مع الكود: الوكيل قد يُصدر أكواداً
+                                // لعدّة موظفين في جلسة واحدة، ورسالةٌ بكودٍ
+                                // مجرّد لا يُعرف صاحبها.
+                                ShareParams(
+                                  text: 'كود تفعيل ${widget.name} في تطبيق '
+                                      'الموظف: ${_c.code}',
+                                ),
+                              ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: SecondaryButton(
+                      label: 'إصدار رمز جديد',
+                      icon: Icon(Icons.refresh_rounded,
+                          size: 18, color: R.primaryDark),
+                      onPressed: _busy ? null : _renew,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SecondaryButton(
+                      label: 'إلغاء الرمز',
+                      icon:
+                          Icon(Icons.block_rounded, size: 18, color: R.error),
+                      onPressed: (_busy || _revoked) ? null : _revoke,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: TextButton.styleFrom(minimumSize: const Size(44, 48)),
+                child: Text('تمّ',
+                    style: T.plex(13, FontWeight.w500, color: R.inkA(.55))),
+              ),
+            ],
+          ),
         ),
       );
+
+  Widget _qr() => Center(
+        child: Container(
+          padding: const EdgeInsets.all(14), // المنطقة الهادئة حول الرمز
+          decoration: BoxDecoration(
+            // ⚠ أبيض صريح لا لون الورقة: الماسحات تقرأ التباين، ورمزٌ على
+            // خلفيةٍ رماديةٍ فاتحة يُقرأ على شاشةٍ ويُخفق على أخرى.
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(R.rCard),
+            border: Border.all(color: R.inkA(.10)),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Opacity(
+                opacity: _dead ? .12 : 1,
+                child: QrImageView(
+                  data: _c.qrToken,
+                  version: QrVersions.auto,
+                  size: 208,
+                  padding: EdgeInsets.zero,
+                  backgroundColor: Colors.white,
+                  // ⚠ أعلى مستوى تصحيحٍ للأخطاء: الرمز يُمسح من شاشةِ هاتفٍ
+                  // فيها انعكاسٌ وبصمات، لا من ورقةٍ مطبوعة.
+                  errorCorrectionLevel: QrErrorCorrectLevel.H,
+                  eyeStyle: QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: R.ink,
+                  ),
+                  dataModuleStyle: QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: R.ink,
+                  ),
+                ),
+              ),
+              if (_dead)
+                Text(
+                  _revoked ? 'أُلغي' : 'انتهى',
+                  style: T.kufi(18, FontWeight.w800, color: R.error),
+                ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _countdown() {
+    final low = _left.inSeconds <= 60;
+    final tone = _dead ? R.error : (low ? R.warnIcon : R.primaryDark);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.schedule_rounded, size: 15, color: tone),
+        const SizedBox(width: 6),
+        Text(_dead ? 'انتهت الصلاحية' : 'ينتهي خلال',
+            style: T.plex(12, FontWeight.w500, color: tone)),
+        if (!_dead) ...[
+          const SizedBox(width: 6),
+          // الوقت رقمٌ وترتيبُه من اليسار — كسائر أرقام التطبيق.
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child:
+                Text(_clock, style: T.kufi(13, FontWeight.w800, color: tone)),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _renew() async {
+    setState(() => _busy = true);
+    try {
+      final next = await ref
+          .read(employeesRepositoryProvider)
+          .issueCode(widget.employeeId);
+      if (!mounted) return;
+      setState(() {
+        _c = next;
+        _revoked = false;
+        _busy = false;
+      });
+      _restart();
+      ref.invalidate(employeesProvider);
+    } on ApiFailure catch (e) {
+      if (mounted) setState(() => _busy = false);
+      _say(e.message);
+    } catch (_) {
+      if (mounted) setState(() => _busy = false);
+      _say('تعذّر إصدار رمز جديد — تحقّق من الاتصال.');
+    }
+  }
+
+  Future<void> _revoke() async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(employeesRepositoryProvider).revokeCode(widget.employeeId);
+      if (!mounted) return;
+      setState(() {
+        _revoked = true;
+        _busy = false;
+      });
+      _tick?.cancel();
+      ref.invalidate(employeesProvider);
+      _say('أُلغي التفعيل. الرمز والكود لم يعودا يعملان.');
+    } on ApiFailure catch (e) {
+      if (mounted) setState(() => _busy = false);
+      _say(e.message);
+    } catch (_) {
+      if (mounted) setState(() => _busy = false);
+      _say('تعذّر الإلغاء — تحقّق من الاتصال.');
+    }
+  }
+
+  void _say(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content:
+            Text(m, style: T.plex(13, FontWeight.w500, color: Colors.white)),
+        backgroundColor: R.inkA(.92),
+        behavior: SnackBarBehavior.floating,
+      ));
+  }
 }
 
 /// إضافة موظف — الاسم والهاتف ونقاط البيع.

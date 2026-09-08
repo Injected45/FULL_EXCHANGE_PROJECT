@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\EmployeeChatController;
 use App\Http\Controllers\Api\CompanyBrandingController;
 use App\Http\Controllers\Api\EmployeeActivationController;
 use App\Http\Controllers\Api\EmployeeAdminController;
+use App\Http\Controllers\Api\EmployeeApprovalController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\EmployeeReportsController;
 use App\Http\Controllers\Api\SupportAuthController;
@@ -98,6 +99,11 @@ Route::get('company/branding/logo/{name}',
  */
 Route::post('device/employee/activation/request',
     [ EmployeeActivationController::class , 'requestOtp' ]);
+/* مسحُ رمز QR — الخطوةُ الأولى نفسُها بتمثيلٍ آخر، وتنتهي إلى
+   `requestOtp` عينِها. خارج `auth:sanctum` كأختِها: الموظف لا رمزَ له بعد. */
+Route::post('device/employee/activation/qr',
+    [ EmployeeActivationController::class , 'requestByQr' ]);
+
 Route::post('device/employee/activation/verify',
     [ EmployeeActivationController::class , 'verifyOtp'  ]);
 
@@ -160,6 +166,21 @@ Route::post('device/employee/transfers/create',
 Route::get ('device/employee/transfers/search',
     [ EmployeeController::class , 'searchTransfer' ])
     ->middleware('employee:SEARCH_TRANSFER');
+
+/*
+ * طلباتُ الموافقة التي أنشأها الموظف — قراءةٌ وإلغاءٌ لطلبه هو.
+ *
+ * ⚠ ولا اعتمادَ هنا ولا رفض: القرارُ خلف جلسة الوكيل، وهذه جلسةُ موظف.
+ * فالفصلُ بابٌ مغلقٌ لا شرطٌ في الشيفرة (البند 11).
+ *
+ * وتحت صلاحية إنشاء الحوالة نفسِها: من لا يُنشئ حوالةً لا طلباتِ له.
+ */
+Route::get ('device/employee/approvals',
+    [ EmployeeController::class , 'myApprovals' ])
+    ->middleware('employee:CREATE_TRANSFER');
+Route::post('device/employee/approvals/{id}/cancel',
+    [ EmployeeController::class , 'cancelApproval' ])
+    ->middleware('employee:CREATE_TRANSFER')->whereNumber('id');
 
 Route::get ('device/employee/transfers/mine',
     [ EmployeeController::class , 'myTransfers' ])
@@ -449,6 +470,25 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
   Route::put ('employees/{id}',                 [ EmployeeAdminController::class , 'update' ])->whereNumber('id');
   Route::post('employees/{id}/status',          [ EmployeeAdminController::class , 'setStatus' ])->whereNumber('id');
   Route::post('employees/{id}/activation-code', [ EmployeeAdminController::class , 'issueCode' ])->whereNumber('id');
+  Route::post('employees/{id}/activation-code/revoke', [ EmployeeAdminController::class , 'revokeCode' ])->whereNumber('id');
+
+  /*
+   * سقفُ الموظف وطلباتُ الموافقة — واجهةُ الوكيل.
+   *
+   * ⚠ داخل `auth:sanctum` عمداً: الموافقةُ فعلُ وكيلٍ لا فعلُ موظف،
+   * وجلسةُ الموظف لا تُنتج رمزَ Sanctum أصلاً — فلا يبلغ هذه المسارات.
+   */
+  Route::get ('employees/approvals',       [ EmployeeApprovalController::class , 'index' ]);
+  Route::get ('employees/approvals/count', [ EmployeeApprovalController::class , 'count' ]);
+  Route::post('employees/approvals/{id}/approve',
+      [ EmployeeApprovalController::class , 'approve' ])->whereNumber('id');
+  Route::post('employees/approvals/{id}/reject',
+      [ EmployeeApprovalController::class , 'reject' ])->whereNumber('id');
+
+  Route::get ('employees/{id}/limits',
+      [ EmployeeApprovalController::class , 'showLimits' ])->whereNumber('id');
+  Route::put ('employees/{id}/limits',
+      [ EmployeeApprovalController::class , 'updateLimits' ])->whereNumber('id');
   Route::put ('employees/{id}/permissions',     [ EmployeeAdminController::class , 'setPermissions' ])->whereNumber('id');
 
   // تقارير تشغيلية — قراءة فقط، ولا تمسّ رصيداً ولا قيداً.

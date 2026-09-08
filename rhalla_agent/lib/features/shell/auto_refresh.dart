@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../alerts/incoming_alerts.dart';
+import '../employees/approvals_badge.dart';
 import '../chat/chat_unread.dart';
 import '../chat/chat_repository.dart';
 import '../home/home_repository.dart';
@@ -80,6 +81,9 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
   /// شارة الدردشة — تُؤخذ مثل الجرس، وللسبب نفسه.
   ChatUnreadController? _chat;
 
+  /// شارةُ طلبات الموافقة — الثالثةُ على النبضة نفسِها لا على مؤقّتٍ ثالث.
+  ApprovalsBadgeController? _approvals;
+
   @override
   void initState() {
     super.initState();
@@ -100,6 +104,12 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
       final chat = ref.read(chatUnreadProvider.notifier);
       _chat = chat;
       chat.start();
+
+      // ⚠ وقراءةٌ أولى فورية لا انتظارَ نبضةٍ كاملة: وكيلٌ يفتح
+      // التطبيق وعنده طلباتٌ تنتظره يجب أن يراها الآن لا بعد ربع دقيقة.
+      final appr = ref.read(approvalsBadgeProvider.notifier);
+      _approvals = appr;
+      appr.refresh();
     });
   }
 
@@ -172,6 +182,14 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
     //
     // وما تفتحه التقارير والحساب من شاشات (كشف الحساب، نقاط البيع،
     // الحوالات) شاشاتٌ مدفوعة تجلب عند فتحها، ولها السحب للتحديث.
+    /*
+     * ⚠ شارةُ الموافقات تُحدَّث في كل تبويب لا في تبويبٍ واحد.
+     *
+     * فالطلبُ يصل والوكيل في أي شاشة، وشارةٌ لا تظهر إلّا في الرئيسية
+     * تعني حوالةً تنتظر ساعةً لأن صاحب القرار كان في التقارير.
+     */
+    _approvals?.refresh();
+
     switch (widget.tabIndex) {
       case 0:
         ref.invalidate(homeSnapshotProvider);
@@ -194,6 +212,7 @@ class _AutoRefreshState extends ConsumerState<AutoRefresh>
     // تقع بعد هدم النطاق نفسه.
     _alerts?.reset();
     _chat?.reset();
+    _approvals?.clearLocal();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

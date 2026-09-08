@@ -12,6 +12,7 @@ import 'features/employees/employee_devices_screen.dart';
 import 'features/employees/employee_permissions_screen.dart';
 import 'features/employees/employee_reports_screen.dart';
 import 'features/employees/employees_repository.dart';
+import 'features/employees/approvals_screen.dart';
 import 'features/employees/employees_screen.dart';
 import 'features/employee_app/employee_activation_screen.dart';
 import 'features/employee_app/employee_home_screen.dart';
@@ -254,6 +255,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/employees/reports',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const EmployeeReportsScreen(),
+      ),
+      GoRoute(
+        // طلباتُ الموافقة — خارج التبويبات: لا تُفتح إلّا من الجرس أو
+        // من شاشة الموظفين، وهي شاشةُ قرارٍ لا شاشةَ تصفّح.
+        path: '/employees/approvals',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const ApprovalsScreen(),
       ),
       GoRoute(
         path: '/employees/devices',

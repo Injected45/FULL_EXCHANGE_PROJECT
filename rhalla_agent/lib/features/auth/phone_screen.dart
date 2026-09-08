@@ -160,13 +160,18 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen>
           // زرٌّ نصّي لا زرّ رئيسي: الوكيل هو المسار الغالب، والموظف يدخل
           // مرّة واحدة عند التفعيل ثم يبقى داخلاً. وإبرازهما معاً يجعل
           // الوكيل يتردّد كل مرّة أمام خيارين متساويين.
+          // ⚠ وأُكبرت وأُثقلت بطلب المالك (8 سبتمبر 2026) — لا لتصير زرّاً
+          // ثانياً، بل لأنّ الموظف يبحث عنها **مرّةً واحدة في حياته مع
+          // الجهاز**، وسطرٌ بحجم 13 تحت زرٍّ أخضر عريض لا يُرى في تلك المرّة.
+          // فبقيت زرّاً نصّياً بلا إطارٍ ولا خلفية، وكبرت وحدَها.
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: TextButton(
               onPressed: _sending ? null : () => context.push('/employee/activate'),
-              style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
+              style: TextButton.styleFrom(minimumSize: const Size(44, 48)),
+              // كوفي لا بلكس: خطُّ العربية في التطبيق، وهو أوضح كلّما كبر.
               child: Text('الدخول كموظف',
-                  style: T.plex(13, FontWeight.w600, color: R.primaryDark)),
+                  style: T.kufi(15.5, FontWeight.w700, color: R.primaryDark)),
             ),
           ),
 

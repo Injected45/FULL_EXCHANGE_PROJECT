@@ -4,6 +4,10 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- مسحُ رمز تفعيل الموظف. ونصُّها بالعربية لأنّ من يقرؤها هو
+	     الموظف نفسُه، وiOS يعرضها كما هي بلا ترجمة. -->
+	<key>NSCameraUsageDescription</key>
+	<string>يحتاج التطبيق إلى الكاميرا لمسح رمز تفعيل الموظف (QR).</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

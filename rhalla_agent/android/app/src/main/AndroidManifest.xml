@@ -13,6 +13,16 @@
          عليها كل شيء عدا التسجيل. -->
     <uses-feature android:name="android.hardware.microphone" android:required="false"/>
 
+    <!-- مسحُ رمز QR لتفعيل الموظف. يُطلب الإذن عند فتح الماسح لا عند
+         الإقلاع، ورفضُه لا يمنع التفعيل: الإدخالُ اليدويّ للكود باقٍ
+         طريقاً كاملاً لا بديلاً ناقصاً. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- والكاميرا ليست شرطاً لتشغيل التطبيق — كالميكروفون تماماً:
+         بدون هذا يُخفي Google Play التطبيق عن كل جهازٍ بلا كاميرا. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+
     <application
         android:label="الرحالة | الوكيل"
         android:name="${applicationName}"

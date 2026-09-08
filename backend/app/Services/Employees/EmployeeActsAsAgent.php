@@ -194,6 +194,8 @@ class EmployeeActsAsAgent
         object $session,
         string $transferNumber,
         float $amount,
+        ?string $recipientPhone = null,
+        ?string $recipientName = null,
     ): void {
         try {
             DB::table('transfer_attributions')->insert([
@@ -205,6 +207,16 @@ class EmployeeActsAsAgent
                 'device_hash'      => $session->device_hash ?? null,
                 'session_id'       => $session->id ?? null,
                 'amount'           => $amount,
+                /*
+                 * ⚠ المستفيدُ يُسجَّل هنا لأن سؤال «هل حوّل هذا الموظف
+                 * لهذا الرقم قبل ساعة؟» يُسأل عن **الحوالات التي وقعت**،
+                 * وهذا الجدولُ هو سجلُّها التشغيليّ. وبدونه يبدأ فحصُ
+                 * التكرار من فراغٍ عند كل حوالة فلا يمنع شيئاً.
+                 *
+                 * والرقمُ بصيغة الخادم نفسِها كما وصل، فيطابق ما يُبحث به.
+                 */
+                'recipient_phone'     => $recipientPhone !== '' ? $recipientPhone : null,
+                'recipient_name_norm' => EmployeeLimitPolicy::normalizeName($recipientName),
                 'occurred_at'      => now(),
             ]);
         } catch (\Throwable) {
