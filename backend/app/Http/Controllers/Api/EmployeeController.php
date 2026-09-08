@@ -176,6 +176,45 @@ class EmployeeController extends BaseController
         $clientId = trim((string) $request->input('client_id', ''));
         $claimId = null;
 
+        /*
+         * ⚠ الترتيبُ هنا مقصود، وقد أخطأتُه مرّةً فكشفه الاختبار:
+         *
+         *   ١) طلبٌ مكرّرٌ بمفتاحٍ معروف  ⇐ يُردّ بنتيجته.
+         *   ٢) ثمّ قاعدةُ الدقيقة.
+         *   ٣) ثمّ الحجز، ثمّ التنفيذ.
+         *
+         * ولو سبقت قاعدةُ الدقيقة قراءةَ المفتاح لقيل للموظف «انتظر دقيقة»
+         * عن حوالةٍ **نجحت للتوّ**: الضغطةُ المكرّرة تقع بعد ثوانٍ، فتقع
+         * دائماً داخل المهلة. فيظنّها لم تقع ويعيدها ثالثةً.
+         */
+        if ($clientId !== '') {
+            $prior = $actor->findClaim($employee, $clientId);
+
+            if ($prior) {
+                return $this->sendResponse([
+                    'duplicate'       => true,
+                    'transfer_number' => $prior->transfer_number,
+                    'status'          => $prior->status,
+                ], $prior->transfer_number !== null
+                    ? 'هذه الحوالة أُنشئت بالفعل.'
+                    : 'الطلب قيد التنفيذ — لا تُعد الإرسال.');
+            }
+        }
+
+        /*
+         * ⚠ قاعدةُ الدقيقة — قبل الحجز لا بعده، وإلّا احترق مفتاحُ الطلب
+         * على محاولةٍ لم تقع فلا تُعاد به بعد دقيقة.
+         *
+         * والرسالةُ صريحة بدل «لم يتم العثور على السجل بعد الإدخال»: 500
+         * غامضٌ سببُه مهلةٌ عادية. انظر `minuteRuleBlocks`.
+         */
+        $agentAcc = DB::table('users')->where('id', $employee->agent_id)->value('AccID');
+
+        if ($agentAcc !== null && $actor->minuteRuleBlocks((int) $agentAcc)) {
+            return $this->sendError(
+                'يمكن إنشاء حوالة أخرى بعد دقيقة من السابقة.', [], 422);
+        }
+
         if ($clientId !== '') {
             $claim = $actor->claim($employee, $clientId);
 

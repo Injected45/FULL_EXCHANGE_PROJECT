@@ -138,7 +138,19 @@ $line('  الردّ: ' . $r['status'] . ' — '
 $created = ($r['body']['success'] ?? false) === true;
 $code = $r['body']['data']['transfer']['Code'] ?? null;
 
-$check('الإنشاء نجح', $created, 'code=' . ($code ?? '—'));
+/*
+ * ⚠ رفضُ المهلة ليس إخفاقاً ولا نجاحاً: تشغيلُ الملفّ مرّتين في دقيقة
+ * يقع فيه حتماً. فيُعلَن «متخطّى» بصوتٍ عالٍ — لا PASS يُخفي أنّ شيئاً
+ * لم يُختبَر، ولا FAIL يُوهم بعطبٍ لا وجود له.
+ */
+$rateLimited = !$created
+    && str_contains((string) ($r['body']['message'] ?? ''), 'بعد دقيقة');
+
+if ($rateLimited) {
+    $line('  SKIP  الإنشاء — مهلةُ الدقيقة قائمة. أعد التشغيل بعد دقيقة.');
+} else {
+    $check('الإنشاء نجح', $created, 'code=' . ($code ?? '—'));
+}
 
 if (!$created) {
     $line();
@@ -236,41 +248,86 @@ $line('── ٦) تكرارُ الطلب لا يُنشئ حوالتين (Idempo
  * ⚠ أخطرُ فحصٍ ماليّ في الملفّ: ضغطةٌ مكرّرة أو شبكةٌ أعادت الإرسال تعني
  * طلبين على المال. والمالُ لا يُسترجع.
  *
- * والفحصُ بمفتاحٍ واحدٍ يُرسَل مرّتين — كما يفعل التطبيق حين يعيد المحاولة.
+ * ⚠ ويُزرع الحجزُ الأوّل في القاعدة بدل إنشاء حوالةٍ ثانية: الحوالةُ
+ * أُنشئت قبل سطورٍ، فقاعدةُ الدقيقة قائمةٌ الآن وستمنع أيّ إنشاءٍ جديد —
+ * فاختبارٌ يعتمد على نجاح إنشاءٍ ثانٍ يقيس المهلةَ لا الازدواج. والمزروعُ
+ * يمثّل بالضبط ما تتركه محاولةٌ نجحت.
  */
-$key  = 'test-' . bin2hex(random_bytes(8));
-$body2 = $body + ['client_id' => $key];
+$key = 'test-' . bin2hex(random_bytes(8));
+DB::table('employee_transfer_claims')->insert([
+    'employee_id'     => $emp->id,
+    'agent_id'        => $emp->agent_id,
+    'client_id'       => $key,
+    'transfer_number' => $code ?: 'SEED-1',
+    'status'          => 'DONE',
+    'created_at'      => now(),
+    'completed_at'    => now(),
+]);
 
 $before6 = (int) DB::selectOne('SELECT COUNT(*) v FROM InternalEx')->v;
 
-$r1 = $call('POST', '/device/employee/transfers/create', $raw, $body2);
-$r2 = $call('POST', '/device/employee/transfers/create', $raw, $body2);
+$r2 = $call('POST', '/device/employee/transfers/create', $raw,
+    $body + ['client_id' => $key]);
 
 $after6 = (int) DB::selectOne('SELECT COUNT(*) v FROM InternalEx')->v;
 
-$made = $after6 - $before6;
-$check('⚠ طلبان بمفتاحٍ واحد ⇐ حوالةٌ واحدة على الأكثر',
-    $made <= 1, 'حوالات جديدة=' . $made);
+$check('⚠ الطلبُ بمفتاحٍ معالَجٍ لا يُنشئ حوالةً ثانية',
+    $after6 === $before6, 'حوالات جديدة=' . ($after6 - $before6));
 
-$check('والثاني يُعلَن مكرّراً لا يُنفَّذ',
+$check('ويُعلَن مكرّراً',
     ($r2['body']['data']['duplicate'] ?? false) === true,
-    'ردّ الثاني: ' . mb_substr((string) ($r2['body']['message'] ?? ''), 0, 60));
+    mb_substr((string) ($r2['body']['message'] ?? ''), 0, 60));
 
-/* والحجزُ نفسُه صفٌّ واحد لا اثنان — الفهرس الفريد هو الحارس. */
+$check('⚠ ويُردّ برقم الحوالة الأولى لا برسالة خطأ',
+    ($r2['body']['data']['transfer_number'] ?? null) === ($code ?: 'SEED-1'),
+    (string) ($r2['body']['data']['transfer_number'] ?? '—'));
+
+/* والحجزُ صفٌّ واحد — الفهرس الفريد هو الحارس من السباق. */
 $claims = DB::table('employee_transfer_claims')
     ->where('employee_id', $emp->id)->where('client_id', $key)->count();
 $check('وحجزٌ واحد في القاعدة', $claims === 1, 'حجوزات=' . $claims);
 
-/* ومفتاحٌ جديد يُنفَّذ عادياً — الحماية تمنع التكرار لا العمل. */
-$r3 = $call('POST', '/device/employee/transfers/create', $raw,
-    $body + ['client_id' => 'test-' . bin2hex(random_bytes(8))]);
-$check('ومفتاحٌ جديد يُنفَّذ عادياً',
-    ($r3['body']['success'] ?? false) === true || $r3['status'] === 422,
-    'status=' . $r3['status'] . ' — ' . mb_substr((string) ($r3['body']['message'] ?? ''), 0, 50));
+/* ⚠ والحارسُ الحقيقيّ: إدراجان بالمفتاح نفسِه لا يمرّان. */
+$dup = false;
+try {
+    DB::table('employee_transfer_claims')->insert([
+        'employee_id' => $emp->id, 'agent_id' => $emp->agent_id,
+        'client_id'   => $key, 'status' => 'PENDING', 'created_at' => now(),
+    ]);
+} catch (\Throwable) {
+    $dup = true;
+}
+$check('⚠ والقاعدةُ ترفض حجزاً ثانياً بالمفتاح نفسِه', $dup);
 
-/* تنظيفُ حجوزات الفحص. */
 DB::table('employee_transfer_claims')->where('employee_id', $emp->id)
     ->where('client_id', 'like', 'test-%')->delete();
+('── ٧) قاعدةُ الدقيقة تُقال بوضوح لا كخطأ 500 ─────────────────');
+
+$line();
+$line('── ٧) قاعدةُ الدقيقة تُقال بوضوح لا كخطأ 500 ─────────────────');
+
+/*
+ * ⚠ في المنظومة عتبتان: وحدةُ التحكّم `< 1` على MAX(ID)، والمحفّز
+ * `<= 1` على MAX(IDCode). فعند الدقيقة الواحدة تسمح الأولى ويُلغي
+ * الثاني، فيُمحى الصفُّ ويرمي المسارُ «لم يتم العثور على السجل بعد
+ * الإدخال» — 500 غامضٌ سببُه مهلة. وقد وقع فعلاً.
+ *
+ * والحوالةُ أُنشئت للتوّ أعلاه، فالمهلةُ قائمةٌ الآن.
+ */
+$r = $call('POST', '/device/employee/transfers/create', $raw,
+    $body + ['client_id' => 'min-' . bin2hex(random_bytes(6))]);
+
+$check('⚠ الردُّ 422 لا 500', $r['status'] === 422, 'status=' . $r['status']);
+$check('ورسالةٌ يفهمها الموظف',
+    !str_contains((string) ($r['body']['message'] ?? ''), 'لم يتم العثور'),
+    mb_substr((string) ($r['body']['message'] ?? ''), 0, 60));
+
+/* ولا حجزَ احترق على محاولةٍ لم تقع. */
+$burned = DB::table('employee_transfer_claims')->where('employee_id', $emp->id)
+    ->where('client_id', 'like', 'min-%')->count();
+$check('⚠ ولم يحترق مفتاحُ الطلب — تُعاد المحاولة بعد دقيقة',
+    $burned === 0, 'حجوزات=' . $burned);
+
 $line();
 $line('── تنظيف ────────────────────────────────────────────────────');
 
