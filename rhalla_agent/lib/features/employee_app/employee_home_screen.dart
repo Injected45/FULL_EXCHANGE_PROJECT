@@ -56,7 +56,12 @@ class _EmployeeHomeScreenState extends ConsumerState<EmployeeHomeScreen> {
 
     return Screen(
       child: RefreshIndicator(
-        onRefresh: () => ref.read(employeeAuthProvider.notifier).refresh(),
+        // ⚠ العهدة تُبطَل مع السحبة: الموظف يسحب بعد أن سلّم حوالة ليرى
+        // أثرها، ورقمٌ قديمٌ تحت اسمه بعد سحبةٍ صريحة أسوأ من لا رقم.
+        onRefresh: () async {
+          ref.invalidate(custodyProvider);
+          await ref.read(employeeAuthProvider.notifier).refresh();
+        },
         color: R.primary,
         backgroundColor: Colors.white,
         child: ListView(
@@ -329,6 +334,8 @@ class _Header extends ConsumerWidget {
                           style: T.plex(11.5, FontWeight.w400,
                               color: R.whiteA(.82)),
                         ),
+                        if (profile.can('VIEW_OWN_CASHBOX'))
+                          const _CustodyLine(),
                       ],
                     ),
                   ),
@@ -990,3 +997,117 @@ class _Failed extends StatelessWidget {
         ),
       );
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   عهدة الموظف — سطرٌ تحت اسمه في الترويسة
+   ══════════════════════════════════════════════════════════════════════════
+
+   ⚠ **النقد في درج الموظف ليس ملكَه — هو عهدةٌ عند الوكيل.** فما يظهر
+   التزامٌ عليه لا رصيدٌ له، والصياغة تقولها: «في عهدتك» لا «رصيدك».
+
+       المتوقَّع = الافتتاحيّ + الداخل − الخارج
+
+   ⚠ **والإشارة تقلب المعنى، فيتغيّر النصّ معها لا الرقمُ وحدَه**:
+
+     • موجب ⇦ نقدٌ في يده يسلّمه للوكيل — عليه.
+     • سالب ⇦ دفع أكثر ممّا قبض — له على الوكيل. وهي حالةٌ واقعية:
+       موظفٌ بدأ ورديّته بلا نقد ثمّ سلّم حوالاتٍ من ماله.
+
+   وعرض السالب برقمٍ ناقص وحدَه يجعل الموظف يقرأ عجزاً في عهدته وهو دائنٌ
+   لوكيله — وهذا عكس الحقيقة تماماً.
+
+   ⚠ **ولا يُعرض شيءٌ بلا وردية.** وصفرٌ حينئذٍ خطأ: «لا شيء عليك» غيرُ
+   «لم تبدأ بعد»، والفرق بينهما يومُ عملٍ كامل.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+class _CustodyLine extends ConsumerWidget {
+  const _CustodyLine();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(custodyProvider);
+
+    return async.maybeWhen(
+      data: (c) {
+        if (!c.hasShift) return const SizedBox.shrink();
+
+        final owed = c.expected >= 0;
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            children: [
+              Icon(
+                owed
+                    ? Icons.account_balance_wallet_rounded
+                    : Icons.south_west_rounded,
+                size: 13,
+                color: R.whiteA(.9),
+              ),
+              const SizedBox(width: 5),
+              Text(owed ? 'في عهدتك · ' : 'مستحقٌّ لك · ',
+                  style: T.plex(11.5, FontWeight.w600, color: R.whiteA(.9))),
+              // رقمٌ لاتينيّ الاتجاه كسائر مبالغ التطبيق، والرمز عن يساره،
+              // والقيمة مطلقة لأن الإشارة قيلت بالنصّ.
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('${c.currency} ',
+                        style: T.plex(10.5, FontWeight.w500,
+                            color: R.whiteA(.82))),
+                    Text(Fmt.money(c.expected.abs()),
+                        style: T.kufi(12.5, FontWeight.w800,
+                            color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      // لا هيكلَ تحميلٍ ولا رسالةَ خطأ: سطرٌ ثانويّ تحت الاسم، ووميضُه في كل
+      // فتحةٍ يزاحم ما فوقه. يظهر حين يصل الرقم، ويصمت حين لا يصل.
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+/// عهدة الموظف كما يحسبها الخادم — لا يُحسب هنا شيء.
+class Custody {
+  const Custody({
+    required this.hasShift,
+    required this.opening,
+    required this.inAmount,
+    required this.outAmount,
+    required this.expected,
+    required this.currency,
+  });
+
+  final bool hasShift;
+  final double opening;
+  final double inAmount;
+  final double outAmount;
+
+  /// ⚠ قد تكون سالبة — انظر التعليق أعلاه.
+  final double expected;
+
+  final String currency;
+
+  static Custody fromJson(Map<String, dynamic> j) => Custody(
+        hasShift: j['has_shift'] == true,
+        opening: Fmt.num_(j['opening']),
+        inAmount: Fmt.num_(j['in']),
+        outAmount: Fmt.num_(j['out']),
+        expected: Fmt.num_(j['expected']),
+        currency: (j['currencyCode'] ?? 'د.ل').toString(),
+      );
+}
+
+/// ⚠ مسارٌ خفيف مستقلٌّ عن شاشة الخزينة: يُسأل مع كل فتحةٍ للشاشة الرئيسية،
+/// وجلبُ قائمة الحركات كلِّها من أجل رقمٍ واحد إسرافٌ يتكرّر كل مرة.
+final custodyProvider = FutureProvider.autoDispose<Custody>((ref) async {
+  final env = await ref.watch(apiClientProvider).get('/device/employee/custody');
+  return Custody.fromJson(env.row ?? const {});
+});

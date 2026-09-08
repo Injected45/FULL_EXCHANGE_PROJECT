@@ -143,6 +143,14 @@ Fifteen tables (`backend/database/sql/employees/`), and these are the decisions 
 
 **The employee cashbox is an operational ledger, authorised separately by the owner (3 Sep 2026) on condition it does not conflict with the agent↔Rhalla financial flow.** `Expected = opening + in − out`. Two decisions: the balance is **computed from entries, never stored** (a stored balance drifts from its entries at the first interruption and then nobody knows which is right), and **entries are never deleted or edited** — corrections are reversal rows that keep the original. Shift closing compares expected against counted with a `0.0005` threshold, because exact float equality reports a phantom "shortage" of 0.0000001 on every close. `tests/manual/employee_cashbox_acceptance.php` and `employee_activation_acceptance.php` and `employee_permissions_acceptance.php` (the last over real HTTP) pin all of it — 62 checks, each suite ending in a financial-invariant snapshot of `wallet`, `ExchangeAccData`, `InternalEx`, `EX24AccSafeActivityTb` and `AccountsTb`.
 
+**What the employee owes is shown under his name on his own home screen** (`GET device/employee/custody`, behind `VIEW_OWN_CASHBOX`). It is the same `Expected` — no second calculation exists, and a second one would eventually disagree with the first.
+
+Three things about that line are the point of it:
+
+- **The cash in his drawer is not his; it is the agent's custody with him.** So it reads «في عهدتك», never «رصيدك» — the number is an obligation on him, not a balance of his.
+- **The sign flips the sentence, not just the number.** Positive means cash he holds and owes; negative means he paid out more than he took in and the agent owes *him* — real whenever an employee starts a shift with no float and delivers transfers from his own money. The value is rendered absolute and the text carries the direction, because a bare minus sign reads as a shortage in his custody when he is in fact the creditor.
+- **With no open shift it shows nothing at all — not zero.** Zero reads as "nothing owed", which is a different statement from "hasn't started", and the difference between them is a full day's work.
+
 **`CREATE_TRANSFER` is now wired — under the owner's explicit authorisation of 8 Sep 2026**, which came with the shape of the thing attached: «الموظف ينفذ الحوالة وكأنه الوكيل، عبارة عن واجهة من وكيل وليس مستقلاً استقلالية تامة». So the employee is a *face* of the agent, not a second party.
 
 That single sentence decides the architecture, and `EmployeeActsAsAgent` implements it literally: the employee's request is executed **as the agent** (`Auth::setUser($agent)` inside a try, restored in a `finally`), through the same `InternalExchange` the agent's own app calls. Verified byte-for-byte on a real transfer — `AccFrom`, `uesrID`, `SenderName` and `SPhone1` are identical to an agent-created row, and **no column in `InternalEx` mentions the employee at all**. Who actually typed it lives beside the ledger in `transfer_attributions`, never inside it.
@@ -219,11 +227,19 @@ The bell in the home header carries a count of incoming transfers the agent has 
 Four decisions in it:
 
 1. **What counts as "seen" is stored on the device, not the server.** "Have I read this?" belongs to whoever holds the phone, not to the account; putting it on the server means a new table and a write on every invoice open, bought nothing, and the bell decides nothing financial. `SecureStore.readSeenIncoming` keeps the newest 400 ids and is **not cleared on sign-out** — the returning agent is the same agent, and forgetting would ring for their whole history.
-2. **The first poll of a session never rings.** It establishes the baseline; a backlog that existed before the app opened is announced by the counter, silently. Ringing for it would train the agent to ignore the bell.
+2. **The first poll of a session never rings.** It establishes the baseline; a backlog that existed before the app opened is announced by the counter, silently. Ringing for it would train the agent to ignore the bell. This was documented here before it was true — `_announced` started empty every session, so the first poll rang for the whole backlog. `_baseline` now implements it, and `test/incoming_alerts_test.dart` (6 tests) pins it along with the rest of the bell's timing.
 3. **Opening the invoice is what clears a transfer from the count, not opening the list.** A count that drops because a screen with twenty rows was displayed is a false promise.
 4. **The sound is the device's own notification tone** (`RingtoneManager` through the existing `com.rhalla.rhalla_agent/device` channel, `SystemSound.play` as the iOS fallback, haptics on both). No bundled audio file and no audio package: a stranger's tone in a bigger APK, against the one sound the user is already trained to look up at. It respects silent mode, which is correct.
 
 The poll lives in `AutoRefresh` (the shell), not in the home screen — a bell that only rings while you are looking at it is not a bell — and stops when the app is backgrounded. Alerting a closed app is push-notification work, which this is not.
+
+**The drop-down banner** (`incoming_toast.dart`, owner's request 8 Sep 2026) rides the same poll: it slides down from the top of the screen with the ring, carries the company logo in a white circle and «لديك حوالة جديدة», stays five seconds, and lifts. Tapping it opens `/transfers`; swiping up dismisses it early.
+
+- **It is mounted above the `Navigator` in `main.dart`**, beside `AmbientBackground` and for the same reason — the agent may be inside a transfer's details or the statement when one arrives, and a banner under the `Navigator` is covered by the first screen pushed over it.
+- **Nothing in it says "agent only" or "after login only".** The *source* cannot count before then: the incoming poll runs from the agent shell alone. A condition written in the widget gets forgotten when a route is added; a source that cannot fire does not.
+- **The event is a counter (`IncomingAlerts.ping`), not a flag.** A flag would have to be lowered by whoever displayed it, and a second arrival landing before it was lowered would be swallowed. The counter also survives `markAllSeen`, which resets `unseen` to zero — reset the counter there and opening the list would itself drop a banner.
+- **The white circle behind the logo is not decoration.** Company logos arrive as uploaded — mostly dark ink on white — and the banner is a dark gradient; without the disc the logo disappears into it. Same rule as the invoice.
+- **There is still no system-tray notification, and adding one would buy nothing today.** The poll stops when the app is backgrounded, so a local notification could only fire while the app is open — exactly when the banner already shows. A notification that reaches a closed app is push (FCM), which this project does not have; the backend's Pusher broadcast is a separate channel the app never subscribes to.
 
 ### Commission is displayed with its transfer, not as its own row
 

@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
+import 'features/alerts/incoming_toast.dart';
 import 'features/branding/branding_controller.dart';
 import 'router.dart';
 import 'ui/widgets/ambient.dart';
@@ -62,7 +63,16 @@ class RhallaAgentApp extends ConsumerWidget {
           key: ValueKey(brandEpoch),
           child: Directionality(
             textDirection: TextDirection.rtl,
-            child: AmbientBackground(child: child ?? const SizedBox.shrink()),
+            // شريطُ «لديك حوالة جديدة» فوق الـ Navigator للسبب نفسِه: الوكيل
+            // قد يكون في أي شاشةٍ حين تصل واردة، وشريطٌ تحت الـ Navigator
+            // تغطّيه أوّلُ شاشةٍ تُدفَع. وهو صامتٌ قبل الدخول لأن نبضة
+            // الوارد لا تعمل إلا من هيكل الوكيل — لا لشرطٍ مكتوبٍ هنا.
+            child: Stack(
+              children: [
+                AmbientBackground(child: child ?? const SizedBox.shrink()),
+                const IncomingToast(),
+              ],
+            ),
           ),
         );
       },

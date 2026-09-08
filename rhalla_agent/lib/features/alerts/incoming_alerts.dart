@@ -18,9 +18,21 @@ import '../../core/storage/secure_store.dart';
 /// أول واردة جديدة، و2 إن جاءت ثانية قبل أن يفتحها، وهكذا.
 @immutable
 class IncomingAlerts {
-  const IncomingAlerts({this.unseen = 0});
+  const IncomingAlerts({this.unseen = 0, this.ping = 0, this.arrived = 0});
 
   final int unseen;
+
+  /// عدّادُ وصولٍ يتزايد ولا يعود — كل زيادةٍ فيه حدثُ «وصلت واردةٌ جديدة».
+  ///
+  /// ⚠ **مقصودٌ أنه ليس `bool`**: الشريط المنسدل حدثٌ لا حالة، ولو كان راية
+  /// تُرفع وتُخفض لوجب على من يعرضه أن يُنزلها، فتضيع نبضةٌ ثانية تقع قبل
+  /// أن يُنزلها. والعدّادُ يجعل «هل هذه نبضةٌ جديدة؟» مقارنةً لا تُخطئ.
+  ///
+  /// ولا يُستعمل للعرض: الرقم الذي يراه الوكيل هو [unseen].
+  final int ping;
+
+  /// كم وصل في هذه النبضة بالذات — لا الإجمالي.
+  final int arrived;
 
   bool get any => unseen > 0;
 }
@@ -53,6 +65,9 @@ class IncomingAlertsController extends StateNotifier<IncomingAlerts> {
   bool _loaded = false;
   bool _busy = false;
 
+  /// أوّلُ نبضةٍ في هذه الجلسة — تُثبّت الأساس ولا تنبّه. انظر [refresh].
+  bool _baseline = true;
+
   Timer? _timer;
 
   /// كل نصف دقيقة.
@@ -81,6 +96,7 @@ class IncomingAlertsController extends StateNotifier<IncomingAlerts> {
     stop();
     _announced = <int>{};
     _pending = <int>{};
+    _baseline = true;
     state = const IncomingAlerts();
   }
 
@@ -110,11 +126,35 @@ class IncomingAlertsController extends StateNotifier<IncomingAlerts> {
       // الفرق هو الفرق بين تنبيهٍ يُسمع مرّة عند الوصول، وجرسٍ يرنّ كل
       // ثلاثين ثانية إلى أن يفتح الوكيل الحوالة. والثاني يُسكَت بإسكات
       // الهاتف كلّه، فيضيع التنبيه الحقيقي معه.
-      if (unseen.difference(_announced).isNotEmpty) _ring();
+      /*
+       * ⚠ **النبضة الأولى تُثبّت الأساس ولا تنبّه.**
+       *
+       * ما تراكم قبل فتح التطبيق ليس وصولاً حدث الآن: يُعلنه العدّاد على
+       * الجرس صامتاً. ورنّةٌ وشريطٌ منسدل عند كل فتحةٍ لحوالاتٍ عمرها يومان
+       * يُعلّمان الوكيل أن التنبيه لا يعني شيئاً — وحينها يضيع التنبيه
+       * الحقيقيّ وسط ما اعتاد تجاهله.
+       *
+       * وتثبيتُ الأساس هو ملءُ [_announced] بلا رنين، لا تخطّي النبضة:
+       * تخطّيها يترك العدّاد صفراً ثلاثين ثانيةً أخرى.
+       */
+      final fresh = _baseline ? <int>{} : unseen.difference(_announced);
+      _baseline = false;
+
+      if (fresh.isNotEmpty) _ring();
       _announced.addAll(unseen);
 
-      if (unseen.length != state.unseen) {
-        state = IncomingAlerts(unseen: unseen.length);
+      // ⚠ النبضة تُرفع مع الرنّة نفسها لا بعدها: الصوتُ والشريطُ حدثٌ واحد
+      // في حسّ الوكيل، وأيّ فصلٍ بينهما يجعله يسمع جرساً لا يرى سببه.
+      //
+      // وتُكتب الحالةُ كاملةً هنا — بما فيها [unseen] وإن لم يتغيّر عدده:
+      // واردةٌ سُلِّمت وأخرى وصلت في النبضة ذاتها تُبقي العدد كما هو، ولو
+      // كان الشرطُ على العدد وحدَه لَما انسدل الشريط أصلاً.
+      if (fresh.isNotEmpty || unseen.length != state.unseen) {
+        state = IncomingAlerts(
+          unseen: unseen.length,
+          ping: fresh.isEmpty ? state.ping : state.ping + 1,
+          arrived: fresh.isEmpty ? state.arrived : fresh.length,
+        );
       }
     } on ApiFailure {
       // الجرس لا يعرض أخطاء. انقطاعُ الشبكة يُبقيه على آخر ما يعرف، ورسالةُ
@@ -144,7 +184,11 @@ class IncomingAlertsController extends StateNotifier<IncomingAlerts> {
     _seen = {..._seen, ..._pending};
     await _store.writeSeenIncoming(_seen);
 
-    if (state.unseen != 0) state = const IncomingAlerts();
+    // ⚠ [ping] يُحمل كما هو: فتحُ القائمة ليس وصولاً، وتصفيرُه هنا
+    // تغييرٌ يقرؤه الشريط المنسدل حدثاً فينسدل بلا حوالة.
+    if (state.unseen != 0) {
+      state = IncomingAlerts(ping: state.ping, arrived: state.arrived);
+    }
   }
 
   Set<int> _idsOf(Envelope env) {
