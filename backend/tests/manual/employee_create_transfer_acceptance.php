@@ -228,6 +228,49 @@ if ($created && $code) {
     $check('نسبةٌ واحدة لكل (حوالة، فعل)', $n1 === 1, 'عدد=' . $n1);
 }
 
+
+$line();
+$line('── ٦) تكرارُ الطلب لا يُنشئ حوالتين (Idempotency) ─────────────');
+
+/*
+ * ⚠ أخطرُ فحصٍ ماليّ في الملفّ: ضغطةٌ مكرّرة أو شبكةٌ أعادت الإرسال تعني
+ * طلبين على المال. والمالُ لا يُسترجع.
+ *
+ * والفحصُ بمفتاحٍ واحدٍ يُرسَل مرّتين — كما يفعل التطبيق حين يعيد المحاولة.
+ */
+$key  = 'test-' . bin2hex(random_bytes(8));
+$body2 = $body + ['client_id' => $key];
+
+$before6 = (int) DB::selectOne('SELECT COUNT(*) v FROM InternalEx')->v;
+
+$r1 = $call('POST', '/device/employee/transfers/create', $raw, $body2);
+$r2 = $call('POST', '/device/employee/transfers/create', $raw, $body2);
+
+$after6 = (int) DB::selectOne('SELECT COUNT(*) v FROM InternalEx')->v;
+
+$made = $after6 - $before6;
+$check('⚠ طلبان بمفتاحٍ واحد ⇐ حوالةٌ واحدة على الأكثر',
+    $made <= 1, 'حوالات جديدة=' . $made);
+
+$check('والثاني يُعلَن مكرّراً لا يُنفَّذ',
+    ($r2['body']['data']['duplicate'] ?? false) === true,
+    'ردّ الثاني: ' . mb_substr((string) ($r2['body']['message'] ?? ''), 0, 60));
+
+/* والحجزُ نفسُه صفٌّ واحد لا اثنان — الفهرس الفريد هو الحارس. */
+$claims = DB::table('employee_transfer_claims')
+    ->where('employee_id', $emp->id)->where('client_id', $key)->count();
+$check('وحجزٌ واحد في القاعدة', $claims === 1, 'حجوزات=' . $claims);
+
+/* ومفتاحٌ جديد يُنفَّذ عادياً — الحماية تمنع التكرار لا العمل. */
+$r3 = $call('POST', '/device/employee/transfers/create', $raw,
+    $body + ['client_id' => 'test-' . bin2hex(random_bytes(8))]);
+$check('ومفتاحٌ جديد يُنفَّذ عادياً',
+    ($r3['body']['success'] ?? false) === true || $r3['status'] === 422,
+    'status=' . $r3['status'] . ' — ' . mb_substr((string) ($r3['body']['message'] ?? ''), 0, 50));
+
+/* تنظيفُ حجوزات الفحص. */
+DB::table('employee_transfer_claims')->where('employee_id', $emp->id)
+    ->where('client_id', 'like', 'test-%')->delete();
 $line();
 $line('── تنظيف ────────────────────────────────────────────────────');
 

@@ -2314,6 +2314,61 @@ return $this->sendResponse( $results , 'Success');
           unset($row->RawValue);
       }
 
+      /*
+       * نقطةُ البيع التي نُفّذت منها — تكملةُ «تم الإنشاء بواسطة».
+       *
+       * ⚠ **الاسمُ ليس هنا**: يأتي من `ExecutedBy` في الاستعلام أعلاه،
+       * وهو موجودٌ منذ الكشف المطبوع. وتكراره هنا يعني مصدرين لحقيقةٍ
+       * واحدة يفترقان عند أوّل تعديل — فهذا الجزء يضيف ما ينقص وحده:
+       * معرّفَ الموظف (لِتُتاح التصفية) واسمَ نقطة البيع.
+       *
+       * ⚠ **ولا يمسّ الدفتر بحرف**: `transfer_attributions` طبقةٌ تشغيلية
+       * بجوار الدفتر لا داخله، والصفُّ الماليّ يبقى حوالةَ الوكيل من حسابه.
+       *
+       * ⚠ **واستعلامٌ واحد للصفحة كلِّها** لا واحدٌ لكل صفّ — وهو الشكل
+       * الذي جعل هذا الكشف نفسَه يستغرق 68 ثانية (انظر CLAUDE.md).
+       * ومقسَّمٌ عند 1000: `IN` في SQL Server تقف عند 2100 وسيط.
+       */
+      $codes = [];
+      foreach ($results as $row) {
+          if (!empty($row->Code)) {
+              $codes[(string) $row->Code] = true;
+          }
+      }
+      $codes = array_keys($codes);
+
+      $byCode = [];
+      if ($codes !== []) {
+          foreach (array_chunk($codes, 1000) as $chunk) {
+              $rows = DB::table('transfer_attributions as t')
+                  ->leftJoin('AuthorizedUsers as p', 'p.ID', '=', 't.point_of_sale_id')
+                  ->where('t.action', 'CREATED')
+                  ->whereNotNull('t.employee_id')
+                  ->whereIn('t.transfer_number', $chunk)
+                  ->get(['t.transfer_number', 't.employee_id', 't.point_of_sale_id',
+                         'p.Name_post']);
+
+              foreach ($rows as $a) {
+                  $byCode[(string) $a->transfer_number] = $a;
+              }
+          }
+      }
+
+      foreach ($results as $row) {
+          $a = $byCode[(string) ($row->Code ?? '')] ?? null;
+
+          /*
+           * ⚠ المفتاحُ يُرسَل دائماً ولو فارغاً — كما `CommissionAmount`
+           * تماماً وللسبب نفسه: التطبيق يميّز «أنشأها الوكيل بنفسه» من «لم
+           * تصل البيانات» بوجود المفتاح لا بقيمته. وإرسالُه أحياناً يخترع
+           * حالةً ثالثة لم تُختبَر.
+           */
+          $row->CreatedByEmployeeId = $a ? (int) $a->employee_id : null;
+          $row->CreatedByPosId      = $a && $a->point_of_sale_id
+              ? (int) $a->point_of_sale_id : null;
+          $row->CreatedByPosName    = $a->Name_post ?? null;
+      }
+
       return $this->sendResponse($results, 'تم جلب كشف الحساب بنجاح.');
   } 
   public function GetCities(Request $request)

@@ -48,10 +48,23 @@ final _rootKey = GlobalKey<NavigatorState>();
 ///
 /// ⚠ قائمةٌ صريحةٌ لا بادئةٌ مفتوحة: `startsWith('/send')` كانت ستفتح معها
 /// الحوالة الخارجية والتحويل بين الحسابات، ولم يُؤذَن بواحدٍ منهما.
-bool _sharedWithEmployee(String loc) =>
-    loc == '/send/internal' ||
-    loc == '/send/internal/review' ||
-    loc == '/send/internal/done';
+///
+/// ⚠ **ومشروطةٌ بالصلاحية لا بالدخول وحده.**
+///
+/// إخفاءُ البطاقة من الشاشة لا يُغلق المسار: `context.push('/send/internal')`
+/// من أي موضع، أو رابطٌ عميق، أو زرُّ رجوعٍ إلى شاشةٍ بقيت في السجلّ بعد
+/// سحب الصلاحية — كلُّها تبلغ الشاشة. ونصُّ البند صريح: «ولا يستطيع الوصول
+/// إليه عن طريق API أو Deep Link أو أي وسيلة أخرى».
+///
+/// والخادمُ يبقى الحارسَ الأخير (403 عند أوّل نداء)، لكنّ شاشةً تُفتح ثم
+/// تسقط عند الإرسال تُعلّم الموظف أن التطبيق معطوب لا أنه غير مصرَّح.
+bool _sharedWithEmployee(String loc, EmployeeAuthState emp) {
+  final shared = loc == '/send/internal' ||
+      loc == '/send/internal/review' ||
+      loc == '/send/internal/done';
+
+  return shared && (emp.profile?.can('CREATE_TRANSFER') ?? false);
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authControllerProvider);
@@ -96,7 +109,7 @@ final routerProvider = Provider<GoRouter>((ref) {
        */
       if (employeeIn) {
         return (inEmployeeArea && loc != '/employee/activate') ||
-                _sharedWithEmployee(loc)
+                _sharedWithEmployee(loc, emp)
             ? null
             : '/employee/home';
       }

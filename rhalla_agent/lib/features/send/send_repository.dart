@@ -287,6 +287,9 @@ class SendRepository {
     required int accId,
     String? senderName,
     String? senderPhone,
+    /// مفتاحُ الطلب — يمنع ازدواج الحوالة عند تكرار الضغط أو إعادة
+    /// الإرسال بعد انقطاع. يُولَّد مرّةً لكل محاولةٍ لا لكل نداء.
+    String? clientId,
   }) async {
     final env = await _api.post(
         await _path('/device/internal/exchange',
@@ -306,6 +309,7 @@ class SendRepository {
       if (senderPhone != null && senderPhone.trim().isNotEmpty)
         'SPhone1': senderPhone.trim(),
       if (d.notes != null && d.notes!.trim().isNotEmpty) 'Notes': d.notes!.trim(),
+      if (clientId != null && clientId.isNotEmpty) 'client_id': clientId,
     });
 
     final payload = env.payload;

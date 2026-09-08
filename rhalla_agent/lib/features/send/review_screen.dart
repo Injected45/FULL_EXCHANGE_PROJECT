@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -42,6 +43,14 @@ class ReviewTransferScreen extends ConsumerStatefulWidget {
 class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
   /// أربع خانات: الخادم يولّد rand(1000, 9999)، و checkOtp يتحقق digits:4.
   static const _otpLength = 4;
+
+  /// مفتاحُ هذه المحاولة — ثابتٌ ما دامت الشّاشة قائمة.
+  ///
+  /// ⚠ في الحقل لا في النّداء: مفتاحٌ يُولّد عند كلّ
+  /// إرسال يجعل كلّ إعادةٍ طلباً جديداً — وهو عينُ ما
+  /// وُضع ليمنعَه.
+  final String _clientId = 'tx-${DateTime.now().microsecondsSinceEpoch}'
+      '-${Random().nextInt(0x7fffffff).toRadixString(36)}';
 
   /// مهلة إعادة الإرسال. صلاحية الرمز نفسه ثلاث دقائق (ExpeaerTime).
   static const _resendAfter = 60;
@@ -173,6 +182,9 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
       final created = await ref.read(sendRepositoryProvider).createInternal(
             d: widget.draft,
             accId: user?.accId ?? 0,
+            // ⚠ يُولّد مرّةً في `initState` لا هنا: مفتاحٌ جديد
+            // مع كلّ محاولةٍ يُبطل الحمايةَ من أصلِها.
+            clientId: _clientId,
           );
       if (!mounted) return;
       // الرصيد والعمليات تغيّرا على الخادم.

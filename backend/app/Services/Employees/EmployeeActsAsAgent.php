@@ -66,6 +66,62 @@ class EmployeeActsAsAgent
     }
 
     /**
+     * يحجز مفتاحَ الطلب قبل أي كتابةٍ مالية — البند: Idempotency.
+     *
+     * ⚠ **الحجزُ قبل التنفيذ لا بعده.** طلبان متسارعان (ضغطةٌ مكرّرة، أو
+     * شبكةٌ ضعيفة أعادت الإرسال) يمرّان معاً على أي فحصٍ بـ`EXISTS`، فتُكتب
+     * حوالتان ثم يشتكي الفهرس. والمالُ خرج مرّتين.
+     *
+     * فالحارسُ هو **القاعدة**: من نجح إدراجُه يملك حقّ التنفيذ، ومن اصطدم
+     * بالفهرس الفريد فطلبُه معالَجٌ أو قيد المعالجة.
+     *
+     * @return array{ok:true,claim_id:int}|array{ok:false,duplicate:true,transfer_number:?string}
+     */
+    public function claim(object $employee, string $clientId): array
+    {
+        try {
+            $id = DB::table('employee_transfer_claims')->insertGetId([
+                'employee_id' => (int) $employee->id,
+                'agent_id'    => (int) $employee->agent_id,
+                'client_id'   => mb_substr($clientId, 0, 64),
+                'status'      => 'PENDING',
+                'created_at'  => now(),
+            ]);
+
+            return ['ok' => true, 'claim_id' => (int) $id];
+        } catch (\Throwable) {
+            /*
+             * الاصطدامُ بالفهرس هو الحالةُ المقصودة لا خطأً عارضاً — ويُقرأ
+             * الصفُّ القائم ليُعاد للتطبيق ما انتهى إليه الطلبُ الأوّل.
+             */
+            $row = DB::table('employee_transfer_claims')
+                ->where('employee_id', $employee->id)
+                ->where('client_id', mb_substr($clientId, 0, 64))
+                ->first(['transfer_number', 'status']);
+
+            return [
+                'ok'              => false,
+                'duplicate'       => true,
+                'transfer_number' => $row->transfer_number ?? null,
+                'status'          => $row->status ?? 'PENDING',
+            ];
+        }
+    }
+
+    /** يختم الحجز بنتيجته — ولا يُخطئ: الحوالة وقعت، والوصفُ لا يُلغيها. */
+    public function closeClaim(int $claimId, ?string $transferNumber, bool $ok): void
+    {
+        try {
+            DB::table('employee_transfer_claims')->where('id', $claimId)->update([
+                'transfer_number' => $transferNumber,
+                'status'          => $ok ? 'DONE' : 'FAILED',
+                'completed_at'    => now(),
+            ]);
+        } catch (\Throwable) {
+        }
+    }
+
+    /**
      * تسجيل النسبة — بعد نجاح الكتابة الماليّة لا قبلها.
      *
      * ⚠ الترتيبُ مقصود: نسبةٌ تُكتب قبل نجاح الحوالة تُنشئ سجلاً لعمليةٍ لم

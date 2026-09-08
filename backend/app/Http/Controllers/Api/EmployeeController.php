@@ -163,6 +163,35 @@ class EmployeeController extends BaseController
 
         $actor = app(EmployeeActsAsAgent::class);
 
+        /*
+         * ⚠ الحجزُ قبل الكتابة الماليّة — ولا شيء قبله.
+         *
+         * ضغطةٌ مكرّرة، أو شبكةٌ ضعيفة أعادت الإرسال، تعني طلبين على المال.
+         * والحارسُ فهرسٌ فريد في القاعدة لا فحصٌ في الشيفرة: طلبان
+         * متسارعان يمرّان معاً على أي `EXISTS`.
+         *
+         * ومن جاء بمفتاحٍ معالَجٍ يُردّ عليه بنتيجة الطلب الأوّل — لا برسالة
+         * خطأ: الموظف ضغط مرّتين ونجحت واحدة، فالشاشةُ يجب أن تريه نجاحاً.
+         */
+        $clientId = trim((string) $request->input('client_id', ''));
+        $claimId = null;
+
+        if ($clientId !== '') {
+            $claim = $actor->claim($employee, $clientId);
+
+            if (!($claim['ok'] ?? false)) {
+                return $this->sendResponse([
+                    'duplicate'       => true,
+                    'transfer_number' => $claim['transfer_number'] ?? null,
+                    'status'          => $claim['status'] ?? 'PENDING',
+                ], ($claim['transfer_number'] ?? null) !== null
+                    ? 'هذه الحوالة أُنشئت بالفعل.'
+                    : 'الطلب قيد التنفيذ — لا تُعد الإرسال.');
+            }
+
+            $claimId = (int) $claim['claim_id'];
+        }
+
         /* ⚠ الاستجابة تُعاد كما هي: رسائلُ الرفض التي يراها الوكيل هي
            نفسُها التي يجب أن يراها الموظف — «رصيد غير كافٍ» و«يمكن
            المحاولة بعد دقيقة» وغيرُهما. وترجمتُها هنا تعني نصّين
@@ -203,6 +232,19 @@ class EmployeeController extends BaseController
                     'entity_type' => 'transfer',
                     'entity_id'   => (string) ($t['Code'] ?? ''),
                 ]);
+        }
+
+        /*
+         * ⚠ ويُختم الحجز بنتيجته — النجاحُ يحفظ رقم الحوالة فيُردّ به على
+         * أي تكرار، والفشلُ يُعلَّم `FAILED` فلا يبقى الطلبُ «قيد التنفيذ»
+         * إلى الأبد ويعجز الموظف عن إعادة المحاولة بمفتاحٍ جديد.
+         */
+        if ($claimId !== null) {
+            $actor->closeClaim(
+                $claimId,
+                $ok ? (string) (($payload['data']['transfer']['Code'] ?? '')) : null,
+                $ok,
+            );
         }
 
         return $response;

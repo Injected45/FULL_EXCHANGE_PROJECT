@@ -717,6 +717,35 @@ class _MovementRowState extends ConsumerState<MovementRow> {
                           T.plex(10, FontWeight.w400, color: R.inkA(.55))),
                 ),
               ],
+              /*
+               * من نفّذها — يظهر للحوالات التي أنشأها موظّفٌ وحدها.
+               *
+               * ⚠ ولا يظهر لما أنشأه الوكيل بنفسه: سطرٌ يقول «أنشأها:
+               * أنت» على كل صفٍّ ضجيجٌ يُخفي السطر الذي يهمّ. والغيابُ
+               * هنا معناه واحد لا التباس فيه — أنت.
+               *
+               * ⚠ وهو وصفٌ تشغيليّ لا ماليّ: الحوالة حوالةُ الوكيل من
+               * حسابه، وهذا السطر يقول من حرّك يده بها.
+               */
+              if (m.byEmployee && m.executedBy.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    Icon(Icons.badge_outlined, size: 10, color: R.inkA(.5)),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        m.createdByPosName.isEmpty
+                            ? 'أنشأها: ${m.executedBy}'
+                            : 'أنشأها: ${m.executedBy} · ${m.createdByPosName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: T.plex(10, FontWeight.w500, color: R.inkA(.62)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 3),
               // التاريخ يبقى محايداً: تلوينه يُذهب التدرّج ويجعل الصفّ صاخباً.
               Row(

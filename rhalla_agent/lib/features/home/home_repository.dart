@@ -36,6 +36,8 @@ class Movement {
     this.agentCoreType,
     this.coreConfirmType,
     this.executedBy = '',
+    this.createdByEmployeeId,
+    this.createdByPosName = '',
     this.isCommissionRow = false,
     this.commission,
   });
@@ -97,6 +99,18 @@ class Movement {
   /// المنظومة أو سبقت هذه الميزة لا منفّذ معروف لها، وملؤها بالوكيل
   /// تخميناً يضع اسمه على عملٍ قد لا يكون عمله. والكشف يطبع «—».
   final String executedBy;
+
+  /// معرّفُ الموظف الذي أنشأها — `null` تعني أن الوكيل أنشأها بنفسه.
+  ///
+  /// ⚠ الاسمُ في [executedBy] لا هنا: مصدرٌ واحد للاسم لا اثنان. وهذا
+  /// المعرّف للتصفية لا للعرض — «حوالات موظّفٍ بعينه».
+  final int? createdByEmployeeId;
+
+  /// نقطةُ البيع التي نُفّذت منها، إن كانت.
+  final String createdByPosName;
+
+  /// هل نفّذها موظّفٌ لا الوكيل؟
+  bool get byEmployee => createdByEmployeeId != null;
 
   /// 3 و4 «قيد الإلغاء» · 5 «ملغية» · 6 «ملغية مسلمة».
   ///
@@ -182,6 +196,8 @@ class Movement {
       agentCoreType: _intOrNull(j['AgentCoreType']),
       coreConfirmType: _intOrNull(j['CoreConfirmType']),
       executedBy: '${j['ExecutedBy'] ?? ''}'.trim(),
+      createdByEmployeeId: _intOrNull(j['CreatedByEmployeeId']),
+      createdByPosName: '${j['CreatedByPosName'] ?? ''}'.trim(),
       isCommissionRow: '${j['IsCommission'] ?? ''}' == '1',
       // غياب المفتاح = خادمٌ قديم لم يُحدَّث بعد ⇦ null «لم يصل»، لا 0.
       commission:
