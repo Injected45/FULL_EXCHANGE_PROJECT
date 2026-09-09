@@ -22,6 +22,9 @@ class ApiClient {
       baseUrl: kApiBase,
       connectTimeout: const Duration(seconds: 20),
       receiveTimeout: const Duration(seconds: 60),
+      // بلا مهلة إرسال، رفعُ مرفقٍ متعلّق (صورة/صوت) على شبكةٍ ضعيفة لا
+      // ينتهي أبداً فيبقى الطلبُ عالقاً.
+      sendTimeout: const Duration(seconds: 60),
       headers: {'Accept': 'application/json'},
       // نتولّى قراءة الحالة بأنفسنا — 404 ليست خطأً في هذا الـ API،
       // و 422 قد تحمل success:true.

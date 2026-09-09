@@ -177,7 +177,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
 
                 final visible = list.take(_shown).toList();
                 return RefreshIndicator(
-                  onRefresh: () async => ref.refresh(_provider.future),
+                  onRefresh: () => ref.refresh(_provider.future).then((_) {}, onError: (_) {}),
                   color: R.primary,
                   backgroundColor: Colors.white,
                   child: ListView.separated(
@@ -425,9 +425,10 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
               child: rows.isEmpty
                   ? const _NoOutgoing()
                   : RefreshIndicator(
-                      onRefresh: () async =>
-                          ref.refresh(statementProvider.future).then(
-                              (_) => ref.refresh(pendingOutgoingProvider.future)),
+                      onRefresh: () => ref
+                          .refresh(statementProvider.future)
+                          .then((_) => ref.refresh(pendingOutgoingProvider.future))
+                          .then((_) {}, onError: (_) {}),
                       color: R.primary,
                       backgroundColor: Colors.white,
                       child: ListView.separated(

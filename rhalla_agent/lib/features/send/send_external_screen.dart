@@ -199,6 +199,15 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
         _error = overLimit == null ? e.message : null;
       });
       if (overLimit != null) await showLimitExceededDialog(context, overLimit);
+    } catch (_) {
+      // خطأٌ غير متوقّع (لا ApiFailure): نفكّ التجميد كي لا تبقى الشاشةُ
+      // معلّقةً وزرُّ الرجوع مُعطّلاً. والرسالةُ تحذّر من إعادة الإرسال قبل
+      // التحقّق — فقد يكون المالُ خرج والفشلُ في قراءة الرد فقط.
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _error = 'تعذّر تأكيد نتيجة الحوالة. راجع قائمة الحوالات قبل إعادة المحاولة.';
+      });
     }
   }
 

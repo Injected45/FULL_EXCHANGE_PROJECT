@@ -3561,8 +3561,16 @@ try {
     if ($validator->fails()) {
         return $this->sendError('Validation Error.', $validator->errors(), 422);
     }
- 
-        DB::delete("DELETE FROM AddUserTransTb WHERE ID = ?", [$request->id ]);
+
+        // 🔒 لا يُحذف إلّا صفُّ صاحب الجلسة: كان الحذفُ بالـ ID وحده يسمح
+        // لأيّ وكيلٍ بحذف مفضّلةِ وكيلٍ آخر. القيدُ على ID_UESER_ACCID يمنعه؛
+        // وصفٌّ ليس له يمسّ صفراً بلا إفشاء وجوده.
+        $accId = Auth::user()->AccID;
+
+        DB::delete(
+            "DELETE FROM AddUserTransTb WHERE ID = ? AND ID_UESER_ACCID = ?",
+            [$request->id, $accId]
+        );
 
                return $this->sendResponse(  "success" , 'Success');
               }

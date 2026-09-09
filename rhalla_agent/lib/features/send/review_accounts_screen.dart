@@ -85,6 +85,23 @@ class _ReviewAccountsScreenState extends ConsumerState<ReviewAccountsScreen> {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ));
+    } catch (_) {
+      // خطأٌ غير متوقّع: نفكّ التجميد كي لا تبقى الشاشةُ معلّقةً وزرُّ الرجوع
+      // مُعطّلاً. والرسالةُ تحذّر من إعادة الإرسال قبل التحقّق.
+      if (!mounted) return;
+      setState(() => _sending = false);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(
+              'تعذّر تأكيد نتيجة التحويل. راجع كشف الحساب قبل إعادة المحاولة.',
+              style: T.plex(13, FontWeight.w500, color: Colors.white)),
+          backgroundColor: R.error,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ));
     }
   }
 

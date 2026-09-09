@@ -609,6 +609,10 @@ public function sendMessageWithCurl(Request $request)
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+    // مهلةٌ صريحة: بلا CURLOPT_TIMEOUT كان انتظارٌ بلا حدّ يُعلّق عاملَ PHP
+    // إن تأخّرت البوّابة — نظيرُها في OtpController و Watsaoserversfrom مضبوط.
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // ⛔ لمنع خطأ SSL
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
 

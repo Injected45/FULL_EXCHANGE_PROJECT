@@ -40,8 +40,9 @@ class StarredScreen extends ConsumerWidget {
                 if (items.isEmpty) return const _Empty();
 
                 return RefreshIndicator(
-                  onRefresh: () async =>
-                      ref.refresh(starredMessagesProvider.future),
+                  onRefresh: () => ref
+                      .refresh(starredMessagesProvider.future)
+                      .then((_) {}, onError: (_) {}),
                   color: R.primary,
                   backgroundColor: Colors.white,
                   child: ListView.separated(

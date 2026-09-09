@@ -142,7 +142,10 @@ class EmployeeCashboxService
             }
         }
         if (!empty($data['reference_id'])) {
+            // ‏agent_id ضمن المفتاح: رقمُ الحوالة قد يتكرّر بين وكيلين، فالتفرّدُ
+            // على الرقم وحده يُسقط قيدَ وكيلٍ لتشابهٍ عابرٍ للوكلاء (M10).
             $dup = DB::table('employee_cashbox_entries')
+                ->where('agent_id', $data['agent_id'])
                 ->where('reference_type', $data['reference_type'] ?? null)
                 ->where('reference_id', $data['reference_id'])
                 ->whereNull('reversal_of')
@@ -152,35 +155,82 @@ class EmployeeCashboxService
             }
         }
 
-        $id = DB::table('employee_cashbox_entries')->insertGetId([
-            'agent_id'         => $data['agent_id'],
-            'employee_id'      => $data['employee_id'],
-            'cashbox_id'       => $data['cashbox_id'],
-            'shift_id'         => $data['shift_id'] ?? null,
-            'point_of_sale_id' => $data['point_of_sale_id'] ?? null,
-            'transaction_type' => $data['transaction_type'],
-            'reference_type'   => $data['reference_type'] ?? null,
-            'reference_id'     => $data['reference_id'] ?? null,
-            'amount'           => $amount,
-            'direction'        => $direction,
-            'currency_code'    => $data['currency_code'] ?? 'LYD',
-            'notes'            => $data['notes'] ?? null,
-            'client_ref'       => $data['client_ref'] ?? null,
-            'device_hash'      => $data['device_hash'] ?? null,
-            'created_by'       => $data['created_by'] ?? null,
-            'created_at'       => now(),
-        ]);
+        /*
+         * كلُّ ما تحته في معاملةٍ واحدة كي يُمسَك قفلُ الوردية حتى الإدراج:
+         *
+         *  • M9 — لا تُكتب حركةٌ في ورديةٍ مُقفَلة: نقفل صفَّ الوردية (نفسُ
+         *    ترتيب closeShift فلا جمود) ونتأكّد أنها OPEN؛ وإلّا نُسند القيد
+         *    إلى قسمٍ مستقلّ (shift_id = NULL) فيظهر في الكشف ولا يُبتلَع في
+         *    ورديةٍ أُقفلت للتوّ ولا يُفقد.
+         *
+         *  • MD-05 — الفحصُ أعلاه «اقرأ ثمّ اكتب» وطلبان متزامنان يمرّان معاً.
+         *    الحارسُ الحقيقيّ فهرسا التفرّد؛ والخرقُ كان يتسرّب صامتاً فتسقط
+         *    الحركة وتُبلَّغ الوردية عن فائضٍ وهميّ. نلتقطه ونُعيد الصفّ القائم.
+         */
+        return DB::transaction(function () use ($data, $amount, $direction) {
+            $shiftId = $data['shift_id'] ?? null;
+            if ($shiftId !== null) {
+                $shift = DB::table('employee_shifts')
+                    ->where('id', $shiftId)->lockForUpdate()->first();
+                if (!$shift || $shift->status !== 'OPEN') {
+                    $shiftId = null;
+                }
+            }
 
-        $this->log->audit('CASHBOX_ENTRY', [
-            'agent_id'    => $data['agent_id'],
-            'employee_id' => $data['employee_id'],
-            'entity_type' => 'cashbox_entry',
-            'entity_id'   => (string) $id,
-            'new_value'   => ['amount' => $amount, 'direction' => $direction,
-                              'type' => $data['transaction_type']],
-        ]);
+            try {
+                $id = DB::table('employee_cashbox_entries')->insertGetId([
+                    'agent_id'         => $data['agent_id'],
+                    'employee_id'      => $data['employee_id'],
+                    'cashbox_id'       => $data['cashbox_id'],
+                    'shift_id'         => $shiftId,
+                    'point_of_sale_id' => $data['point_of_sale_id'] ?? null,
+                    'transaction_type' => $data['transaction_type'],
+                    'reference_type'   => $data['reference_type'] ?? null,
+                    'reference_id'     => $data['reference_id'] ?? null,
+                    'amount'           => $amount,
+                    'direction'        => $direction,
+                    'currency_code'    => $data['currency_code'] ?? 'LYD',
+                    'notes'            => $data['notes'] ?? null,
+                    'client_ref'       => $data['client_ref'] ?? null,
+                    'device_hash'      => $data['device_hash'] ?? null,
+                    'created_by'       => $data['created_by'] ?? null,
+                    'created_at'       => now(),
+                ]);
+            } catch (\Illuminate\Database\QueryException $e) {
+                // خرقُ تفرّدٍ (2601/2627) ⇦ الصفُّ كُتب في طلبٍ موازٍ. نُعيده
+                // تكراراً؛ وأيُّ خطأٍ آخر يُرمى كما هو.
+                $existing = null;
+                if (!empty($data['client_ref'])) {
+                    $existing = DB::table('employee_cashbox_entries')
+                        ->where('employee_id', $data['employee_id'])
+                        ->where('client_ref', $data['client_ref'])
+                        ->value('id');
+                }
+                if (!$existing && !empty($data['reference_id'])) {
+                    $existing = DB::table('employee_cashbox_entries')
+                        ->where('agent_id', $data['agent_id'])
+                        ->where('reference_type', $data['reference_type'] ?? null)
+                        ->where('reference_id', $data['reference_id'])
+                        ->whereNull('reversal_of')
+                        ->value('id');
+                }
+                if ($existing) {
+                    return ['id' => (int) $existing, 'duplicate' => true];
+                }
+                throw $e;
+            }
 
-        return ['id' => (int) $id, 'duplicate' => false];
+            $this->log->audit('CASHBOX_ENTRY', [
+                'agent_id'    => $data['agent_id'],
+                'employee_id' => $data['employee_id'],
+                'entity_type' => 'cashbox_entry',
+                'entity_id'   => (string) $id,
+                'new_value'   => ['amount' => $amount, 'direction' => $direction,
+                                  'type' => $data['transaction_type']],
+            ]);
+
+            return ['id' => (int) $id, 'duplicate' => false];
+        });
     }
 
     /**

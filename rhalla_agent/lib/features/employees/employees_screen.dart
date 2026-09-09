@@ -70,7 +70,7 @@ class EmployeesScreen extends ConsumerWidget {
                 onRetry: () => ref.invalidate(employeesProvider),
               ),
               data: (rows) => RefreshIndicator(
-                onRefresh: () async => ref.refresh(employeesProvider.future),
+                onRefresh: () => ref.refresh(employeesProvider.future).then((_) {}, onError: (_) {}),
                 color: R.primary,
                 backgroundColor: Colors.white,
                 child: ListView(

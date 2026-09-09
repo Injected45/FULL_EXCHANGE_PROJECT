@@ -448,11 +448,15 @@ class EmployeeActivationService
             ]);
         });
 
-        $this->sendOtp($phone, $otp);
+        // الطلبُ مقبولٌ والرمزُ مُنشأ (ok:true)، لكنّ الرسالةَ تصدُق عن الإرسال:
+        // إبلاغُ الموظف بالنجاح والبوّابةُ أخفقت يجعله ينتظر رمزاً لا يأتي.
+        $sent = $this->sendOtp($phone, $otp);
 
         return [
             'ok'            => true,
-            'message'       => 'أُرسل رمز التحقّق.',
+            'message'       => $sent
+                ? 'أُرسل رمز التحقّق.'
+                : 'تعذّر إرسال الرمز الآن. إن لم يصل خلال دقيقة أعد المحاولة.',
             'masked_phone'  => $this->maskPhone($phone),
             'activation_id' => (int) $record->code_id,
             // يُعرَض في شاشة المسح: من مسح رمزاً يطمئنّ أنّه رمزُه هو،
@@ -812,7 +816,8 @@ class EmployeeActivationService
      * وجهة التطوير تُحترم كما في `OtpController`: رقمٌ تجريبي ليبي قد لا يكون
      * على واتساب أصلاً، فيفشل التفعيل لسببٍ لا علاقة له بالكود.
      */
-    private function sendOtp(string $phone, string $otp): void
+    /** @return bool نجح الإرسالُ فعلاً؟ — كي لا يُبلَّغ الموظفُ بالنجاح كذباً. */
+    private function sendOtp(string $phone, string $otp): bool
     {
         /*
          * ⚠ إلى رقم الموظّف وحده، ولا وجهةَ بديلةً من الإعدادات.
@@ -852,6 +857,7 @@ class EmployeeActivationService
                         . mb_substr((string) ($res['message'] ?? '?'), 0, 200), [
                         'phone' => $phone,
                     ]);
+                return false;
             }
         } catch (\Throwable $e) {
             $this->log->security('OTP_SEND_FAILED',
@@ -859,8 +865,10 @@ class EmployeeActivationService
                     . mb_substr($e->getMessage(), 0, 200), [
                     'phone' => $phone,
                 ]);
+            return false;
         }
 
         // ⚠ ولا يُكتب الرمزُ نفسُه في أي سجلّ — الفشلُ يُسجّل لا محتواه.
+        return true;
     }
 }

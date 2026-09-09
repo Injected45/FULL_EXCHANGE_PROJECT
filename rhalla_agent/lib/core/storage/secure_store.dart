@@ -54,16 +54,30 @@ class SecureStore {
   ///
   /// ولذلك [writeEmployeeToken] تمحو رمز الوكيل، و[writeToken] تمحو رمز
   /// الموظف — لا تتعايشان في التخزين أصلاً.
-  Future<String?> readToken() async =>
-      (await _s.read(key: _kEmployeeToken)) ?? (await _s.read(key: _kToken));
+  // ذاكرةٌ وسيطة للرمز الفعّال: كان يُقرأ مرّتين من Keystore في كلّ طلب HTTP
+  // (~٣٨ فكَّ تشفير/دقيقة في الخمول). تُبطَل عند أيّ كتابةٍ أو محوٍ للرمز.
+  String? _tokenCache;
+  bool _tokenCached = false;
+
+  Future<String?> readToken() async {
+    if (_tokenCached) return _tokenCache;
+    final v = (await _s.read(key: _kEmployeeToken)) ?? (await _s.read(key: _kToken));
+    _tokenCache = v;
+    _tokenCached = true;
+    return v;
+  }
 
   Future<void> writeToken(String v) async {
+    _tokenCached = false;
     await _s.delete(key: _kEmployeeToken);
     await _s.delete(key: _kEmployee);
     await _s.write(key: _kToken, value: v);
   }
 
-  Future<void> clearToken() => _s.delete(key: _kToken);
+  Future<void> clearToken() {
+    _tokenCached = false;
+    return _s.delete(key: _kToken);
+  }
 
   /* ── جلسة الموظف ─────────────────────────────────────────────── */
 
@@ -73,6 +87,7 @@ class SecureStore {
   Future<String?> readEmployeeToken() => _s.read(key: _kEmployeeToken);
 
   Future<void> writeEmployeeToken(String v) async {
+    _tokenCached = false;
     await _s.delete(key: _kToken);
     await _s.delete(key: _kUser);
     await _s.write(key: _kEmployeeToken, value: v);
@@ -96,6 +111,7 @@ class SecureStore {
   /// معرّف الجهاز يبقى دائماً: الخادم يربط به التفعيل، وتغييره يفقد الموظف
   /// جهازه المعتمد ويحتاج كوداً جديداً بلا سبب.
   Future<void> clearEmployee() async {
+    _tokenCached = false;
     await _s.delete(key: _kEmployeeToken);
     await _s.delete(key: _kEmployee);
   }
@@ -233,6 +249,7 @@ class SecureStore {
       _s.write(key: _kBiometricUnlock, value: on ? '1' : '0');
 
   Future<void> signOut() async {
+    _tokenCached = false;
     await _s.delete(key: _kToken);
     await _s.delete(key: _kUser);
     // ⚠ وطابعُ المغادرة يُمحى: الخروجُ يُنهي الجلسة، فقفلُ خمولٍ فوق

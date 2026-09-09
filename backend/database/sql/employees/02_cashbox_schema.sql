@@ -162,9 +162,11 @@ BEGIN
         ON dbo.employee_cashbox_entries (employee_id, client_ref)
         WHERE client_ref IS NOT NULL;
 
-    /* حركةٌ واحدة لكل عملية مرجعية: تسليم الحوالة نفسها لا يُسجَّل مرتين. */
+    /* حركةٌ واحدة لكل عملية مرجعية **لكل وكيل**: التسليمُ نفسُه لا يُسجَّل
+       مرتين. و agent_id ضمن المفتاح لأن رقمَ الحوالة قد يتكرّر بين وكيلين،
+       فالتفرّدُ العالميّ كان يُسقط قيدَ وكيلٍ لتشابهٍ عابرٍ للوكلاء (M10). */
     CREATE UNIQUE INDEX UX_entry_reference
-        ON dbo.employee_cashbox_entries (reference_type, reference_id)
+        ON dbo.employee_cashbox_entries (agent_id, reference_type, reference_id)
         WHERE reference_id IS NOT NULL AND reversal_of IS NULL;
 
     CREATE INDEX IX_entry_cashbox ON dbo.employee_cashbox_entries (cashbox_id, created_at);

@@ -35,8 +35,9 @@ class EmployeeDevicesScreen extends ConsumerWidget {
                 onRetry: () => ref.invalidate(employeeDevicesProvider),
               ),
               data: (rows) => RefreshIndicator(
-                onRefresh: () async =>
-                    ref.refresh(employeeDevicesProvider.future),
+                onRefresh: () => ref
+                    .refresh(employeeDevicesProvider.future)
+                    .then((_) {}, onError: (_) {}),
                 color: R.primary,
                 backgroundColor: Colors.white,
                 child: rows.isEmpty

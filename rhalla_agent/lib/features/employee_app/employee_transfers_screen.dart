@@ -94,8 +94,13 @@ class _EmployeeTransfersScreenState
     super.dispose();
   }
 
+  bool _polling = false;
+
   Future<void> _load({bool silent = false}) async {
     if (!mounted) return;
+    // حارسُ «طلبٌ جارٍ»: نبضةٌ صامتةٌ فوق أخرى تجعل ردّاً قديماً يدهس أحدث.
+    if (silent && _polling) return;
+    _polling = true;
     if (!silent) setState(() { _loading = true; _error = null; });
     try {
       final env = await ref.read(apiClientProvider).get(
@@ -126,6 +131,8 @@ class _EmployeeTransfersScreenState
       if (mounted && !silent) {
         setState(() { _error = 'تعذّر الاتصال بالخادم.'; _loading = false; });
       }
+    } finally {
+      _polling = false;
     }
   }
 

@@ -52,7 +52,7 @@ class ChatThreadsScreen extends ConsumerWidget {
                 onRetry: () => ref.invalidate(chatThreadsProvider),
               ),
               data: (items) => RefreshIndicator(
-                onRefresh: () async => ref.refresh(chatThreadsProvider.future),
+                onRefresh: () => ref.refresh(chatThreadsProvider.future).then((_) {}, onError: (_) {}),
                 color: R.primary,
                 backgroundColor: Colors.white,
                 child: ListView.separated(
