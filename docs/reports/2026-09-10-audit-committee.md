@@ -44,9 +44,34 @@ CRITICAL **10** · HIGH **~28** · MEDIUM **~30** · LOW/INFO **~15**.
 | 11 | **`checkOtp` يُعيد صفَّ الرمز كاملاً** (CodeOtp نصّاً) و`senotpGroupFr` يُعيد نصَّ الرسالة (هاتف+قيمة) — أُسقطا؛ العميل يتجاهلهما أصلاً | `OtpController.php` | Privacy P-07 · P-26 |
 | 12 | **PII في `laravel.log`** — `$request->all()` كاملاً و`$e->getTrace()` (وسائط الدوال). أُسقط الأول، والثاني صار `getTraceAsString()` | `depositController.php` | Privacy P-08 |
 
-**بند لم يُطبَّق بعدُ ويجب أن يُودَع:** ملفّات `android/.../res/xml/` (منع HTTP، منع النسخ)
-و`store_compliance_test.dart` **غير متعقَّبة في git** — نسخةٌ مستنسخة قد تشحن HTTP صامتاً
-(Play A-04 · Sec INFO-2). تُضمّ في أوّل إيداع.
+أُودِع في `10/09-02`. وملفّات `android/.../res/xml/` و`store_compliance_test.dart`
+غير المتعقَّبة سابقاً **أُودعت الآن** ضمنه.
+
+### الدفعة الثانية — إصلاحات حرجة بإذن المالك (`10/09-03`)
+
+`flutter analyze` نظيف · **225 اختباراً خضراء** · `php -l` نظيف · **لا تغيير في مخطّط قاعدة البيانات**.
+
+| البند | الإصلاح | الملفّات |
+|---|---|---|
+| **C-01** (CRITICAL) | `device/reActivate` كان يُصدر رمزاً لأي حساب بلا مصادقة → حارسٌ بسرٍّ مشترك (`hash_equals`، مقروءٌ عبر `config` آمناً من `config:cache`) + `throttle:10,1`. والطرفُ المكتبيّ يُرسل `xtoken` من `RhallaConfig.ini` | `AuthController.php` · `config/services.php` · `routes/api.php` · `MD_SECRETS.vb` · `FRM_Retuns…vb` · `RhallaConfig.ini.template` |
+| **C-02** (CRITICAL · ماليّ) | `transInsert` يكتب `TransFrom` من **حساب الجلسة** لا من جسم الطلب — كلُّ الفحوص كانت على الجلسة. الحوالةُ الخارجية فُحصت: سليمةٌ أصلاً (`AccFrom = $user->AccID`) | `depositController.php` |
+| **C-04** (CRITICAL) | `throttle` على `otp/send` (5/د) و`otp/checkOtp`/`otp/login`/`login`/`register` (10/د). ومخزنُ الكاش صار ملفّياً آمناً (كان `database` بلا جدول = معطّل) — يُصلح M16 كذلك | `routes/api.php` · `config/cache.php` |
+| **H-05** (CRITICAL · ماليّ) | تنفيذُ الموافقة بحجزٍ ذرّيّ: `UPDATE … WHERE status='APPROVED' AND transfer_number IS NULL` → `EXECUTING`؛ الخاسرُ لا ينفّذ. مع استرجاعٍ عند استثناء. لا قيدَ CHECK على العمود فلا تغييرَ مخطّط | `EmployeeController.php` |
+| **ACC-03 / H2 / M7** (ماليّ) | حارسُ `if (_sending) return;` في الحوالة الخارجية والتحويل بين الحسابات — «مالٌ لا يُسترجع» | `send_external_screen.dart` · `review_accounts_screen.dart` |
+| **ACC-01** (ماليّ) | حارسُ طيران `_posting` على حركة الخزينة اليدوية + توليدُ المفتاح مرّةً | `employee_home_screen.dart` |
+
+**⚠ نشرٌ منسّق مطلوب لـ C-01:** الخادمُ يرفض `reActivate` بلا `xtoken`. فقبل/مع نشر الخادم:
+(1) اضبط `API_X_TOKEN` في `RhallaConfig.ini` = `CUSTOM_X_TOKEN` في `backend/.env`،
+(2) أعِد بناءَ المكتبيّ ووزّعه، (3) انشر الاثنين معاً. وإلّا تعطّلت إعادةُ التفعيل حتى يُحدَّث المكتبيّ.
+
+**⚠ لـ C-04:** تأكّد أنّ `CACHE_DRIVER=file` (أو `CACHE_STORE=file`) في `backend/.env` الإنتاج
+(موجودٌ فعلاً) — التقييدُ يكتب عدّاداته في مخزن الكاش الملفّيّ لا في قاعدة الإنتاج.
+
+**جرد قاعدة البيانات لهذا الانعقاد:** لا جداولَ ولا أعمدةَ ولا فهارسَ جديدة؛ ولا سكربت
+نقلٍ مطلوب. `EXECUTING` قيمةُ بياناتٍ على عمود `VARCHAR(20)` قائمٍ بلا قيد CHECK.
+
+**بقيت من الأمنيّة الحرجة بيد المالك:** `P-15` حذفٌ بلا ملكية · `MD-05/M9/M10` سباقُ
+حركة الخزينة وحالةُ الوردية والفهرسُ العابر للوكلاء (دفتر — الخطّ الأحمر).
 
 ---
 
