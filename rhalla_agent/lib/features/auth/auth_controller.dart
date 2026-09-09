@@ -105,6 +105,15 @@ class AuthController extends StateNotifier<AuthState> {
     if (!mounted) return;
     state = AuthState(status: AuthStatus.signedOut, onboarded: state.onboarded);
   }
+
+  /// حذفُ الحساب من داخل التطبيق (شرطٌ في المتجرين لتطبيقٍ يُنشئ حساباً).
+  /// يرمي [ApiFailure] عند فشل الخادم لتعرضه الشاشة؛ وعند النجاح يُخرج
+  /// الوكيلَ كأيّ تسجيل خروج.
+  Future<void> deleteAccount() async {
+    await _repo.deleteAccount();
+    if (!mounted) return;
+    state = AuthState(status: AuthStatus.signedOut, onboarded: state.onboarded);
+  }
 }
 
 final authControllerProvider =

@@ -23,9 +23,10 @@ class Code_OtpTB extends Model
         parent::boot();
 
         static::creating(function ($model) {
-            // توليد OTP عشوائي 4 أرقام
+            // توليد OTP عشوائي 4 أرقام — بمولّدٍ آمنٍ تشفيرياً لا rand()
+            // (‏rand مبنيٌّ على Mt19937 قابلِ التنبّؤ برصد مخرجاتٍ كافية).
             if (empty($model->CodeOtp)) {
-                $model->CodeOtp = rand(1000, 9999);
+                $model->CodeOtp = random_int(1000, 9999);
             }
 
             // تعيين القيم الافتراضية

@@ -234,8 +234,8 @@ class BrandingRepository {
     if (nameEn != null) body['company_name_en'] = nameEn;
     if (themeKey != null) body['theme_key'] = themeKey;
 
-    final env = await _api.raw.put('/company/branding', data: body);
-    return _fromRaw(env.data);
+    final env = await _api.put('/company/branding', body: body);
+    return Branding.fromJson(env.row ?? const {});
   }
 
   Future<Branding> uploadLogo(String filePath) async {
@@ -251,14 +251,6 @@ class BrandingRepository {
     return Branding.fromJson(env.row ?? const {});
   }
 
-  /// الـ PUT يمرّ عبر `dio` مباشرةً لأن [ApiClient] لا يكشف PUT؛ والغلاف
-  /// يُقرأ هنا يدوياً بنفس شكل الخادم.
-  Branding _fromRaw(dynamic data) {
-    if (data is Map && data['data'] is Map) {
-      return Branding.fromJson((data['data'] as Map).cast<String, dynamic>());
-    }
-    return Branding.fallback;
-  }
 }
 
 final brandingRepositoryProvider = Provider<BrandingRepository>(

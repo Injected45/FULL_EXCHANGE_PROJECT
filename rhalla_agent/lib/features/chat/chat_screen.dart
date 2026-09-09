@@ -47,7 +47,8 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen>
+    with WidgetsBindingObserver {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _inputFocus = FocusNode();
@@ -96,6 +97,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
     _schedule();
     // إغلاق لوحة الإيموجي حين تُفتح لوحة المفاتيح: اللوحتان معاً تأكلان
@@ -106,7 +108,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // ⚠ النبضُ يتوقّف في الخلفية: لا شاشةَ تُقرأ، وإبقاؤه يستنزف البطارية
+    // والشبكة ويُخاطر بـANR — كما توقف الهيكلُ وقائمةُ الموظف. وعند العودة
+    // نبضةٌ فورية لا انتظارُ الدورة الكاملة.
+    if (state == AppLifecycleState.resumed) {
+      _poll();
+      _schedule();
+    } else if (state == AppLifecycleState.paused) {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     // مؤقّتان آخران يعيشان مع هذه الشاشة: إخفاء شارة التاريخ، ونبضة عدّاد
     // التسجيل. مؤقّتٌ ينجو من الهدم يستدعي `setState` على شاشةٍ ذهبت.

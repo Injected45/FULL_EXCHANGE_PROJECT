@@ -39,7 +39,11 @@ class SecureStore {
 
   final _s = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
-    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+    // ⚠ `first_unlock_this_device`: البند لا يُنسخ ولا يُستعاد على iPhone آخر
+    // — توأمُ `allowBackup="false"` على أندرويد. رمزُ الجلسة ومُعرّفُ الجهاز
+    // المربوط يجب ألّا يهاجرا، وإلّا انتُقض ربطُ الجهاز نفسُه.
+    iOptions: IOSOptions(
+        accessibility: KeychainAccessibility.first_unlock_this_device),
   );
 
   /// رمز الجلسة الفعّالة — رمز الوكيل أو رمز الموظف.

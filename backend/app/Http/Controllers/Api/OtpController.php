@@ -225,11 +225,13 @@ class OtpController extends BaseController
             );
         }
     
+        // ⚠ لا يُعاد جسمُ استجابة بوّابة الواتساب إلى المتصل: مسارٌ عامّ بلا
+        // توثيق، وبعضُ البوّابات تُصدِّر نصَّ الرسالة (وفيه الرمز) — تسريبٌ
+        // يتخطّى المصادقة. يكفي المعرّفُ ووقتُ الانتهاء.
         return $this->sendResponse(
             [
                 'id' => $otp->ID,
                 'expires_at' => $otp->ExpeaerTime,
-                'whatsapp_response' => $whatsappResponse,
             ],
             'تم إرسال رمز التحقق بنجاح'
         );
@@ -281,10 +283,10 @@ class OtpController extends BaseController
                 'ISActive' => 1
             ]);
     
+        // لا يُعاد صفُّ الرمز (يحمل CodeOtp نصّاً): العميلُ لا يقرأ إلّا النجاح.
         return response()->json([
             'message' => 'تمت المطابقة بنجاح',
             'status' => true,
-            'data' => $otp,
         ], 200);
     }
 
@@ -364,11 +366,10 @@ class OtpController extends BaseController
             $message
         );
     
+        // لا يُعاد نصُّ الرسالة (يحمل الهاتفَ والقيمة) ولا جسمُ البوّابة.
         return response()->json([
             'success' => true,
             'message' => 'تم إرسال الرسالة بنجاح',
-            'data' => $message,
-            'whatsapp' => $whatsappResponse
         ]);
     }
   

@@ -43,14 +43,74 @@ android {
         }
     }
 
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     *  ⚠⚠ HTTP الصريح: مُطفأٌ افتراضاً، ولا يصل إلى متجرٍ أبداً
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * خادمُ الإنتاج بلا TLS اليوم، فبناءٌ صارمٌ لا يصله. والحلُّ شهادةٌ على
+     * الخادم لا تخفيفٌ هنا — لكنّ التجربةَ على هاتفٍ حقيقيّ تحتاج جسراً.
+     *
+     * فالجسرُ **يُطلب صراحةً**:
+     *
+     *     flutter build apk --release -PallowCleartext=true ...
+     *
+     * وبدونه يُبنى التطبيق بـ`network_security_strict` — TLS إلزاميّ.
+     *
+     * ⚠ ولماذا الافتراضيُّ هو الآمن: استثناءٌ افتراضيّ يُنسى، ويُشحن. وهذا
+     * وقع فعلاً — بُنيت نسخُ إصدارٍ لا تصل إلى الخادم أصلاً، ثم أُضيف
+     * استثناءٌ دائم لإصلاحها. فالخطأُ يقع في الاتجاهين، والافتراضيُّ الآمن
+     * يجعل الخطأ **مرئياً** (لا يتّصل) بدل أن يكون صامتاً (يشحن مكشوفاً).
+     */
+    val allowCleartext = (project.findProperty("allowCleartext") as String?) == "true"
+
     defaultConfig {
         applicationId = "com.rhalla.rhalla_agent"
+
+        manifestPlaceholders["netSecConfig"] =
+            if (allowCleartext) "network_security_config" else "network_security_strict"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    /*
+     * ⚠⚠ **حارسُ المتجر**: حزمةُ Play (`bundleRelease`) لا تُبنى وHTTP مفتوح.
+     *
+     * Google Play يُنبّه على cleartext في المراجعة، وApple تمنعه بـATS ولا
+     * تقبل استثناءه عادةً لتطبيقٍ ماليّ. والاعتمادُ على التذكّر عند الرفع
+     * ليس حراسة — من يبني الحزمة بعد شهرٍ لن يتذكّر راية بناء.
+     *
+     * ويُفحص اسمُ المهمّة لا نوعُ البناء: `assembleRelease` (APK للتجربة على
+     * هاتفٍ حقيقيّ) يبقى مسموحاً بالراية، و`bundleRelease` لا.
+     */
+    gradle.taskGraph.whenReady {
+        /*
+         * ⚠ يُطابَق اسمُ مهمّة الحزمة **بالضبط**: `bundleRelease` وأخواتُها.
+         *
+         * وكان الشرطُ «يحوي bundle» فمنع بناءَ الـAPK نفسِه — لأن
+         * `assembleRelease` يُشغّل `bundleReleaseResources` و
+         * `bundleReleaseAssets` في طريقه. حارسٌ يمنع ما لم يُوضع له
+         * يُعطَّل بعد يومين.
+         */
+        val bundling = allTasks.any {
+            Regex("^bundle(Debug|Profile|Release)$").matches(it.name)
+        }
+        if (allowCleartext && bundling) {
+            throw GradleException(
+                "\n" +
+                "════════════════════════════════════════════════════════════\n" +
+                " ⛔ حزمةُ المتجر لا تُبنى مع -PallowCleartext=true\n" +
+                "════════════════════════════════════════════════════════════\n" +
+                " الاستثناءُ للتجربة على هاتفٍ حقيقيّ فقط (assembleRelease).\n" +
+                " وحزمةُ Play يجب أن تُبنى بـTLS إلزاميّ — أي بلا الراية.\n" +
+                " والشرطُ الحقيقيّ: شهادةُ TLS على الخادم، ثم API_BASE بـhttps.\n" +
+                "════════════════════════════════════════════════════════════\n"
+            )
+        }
     }
 
     buildTypes {

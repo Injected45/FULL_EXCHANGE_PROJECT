@@ -153,6 +153,12 @@ class _VoiceBubbleState extends State<VoiceBubble> {
         final p = AudioPlayer();
         // الترويسة تُمرَّر: المرفقات خلف `auth:sanctum`.
         _dur = await p.setUrl(widget.url, headers: widget.headers) ?? Duration.zero;
+        // إن هُدمت الفقاعةُ أثناء التحميل فـ`_player` ما زال null، ولن تُهدمه
+        // `dispose`؛ نتخلّص منه هنا كي لا يتسرّب المشغّل.
+        if (!mounted) {
+          await p.dispose();
+          return;
+        }
         _posSub = p.positionStream.listen((d) {
           if (mounted) setState(() => _pos = d);
         });

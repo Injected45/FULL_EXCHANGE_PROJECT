@@ -328,7 +328,7 @@ class EmployeesRepository {
     if (pointsOfSale != null) body['points_of_sale'] = pointsOfSale;
     if (notes != null) body['notes'] = notes;
 
-    await _api.raw.put('/employees/$id', data: body);
+    await _api.put('/employees/$id', body: body);
   }
 
   Future<void> setStatus({required int id, required String status}) =>
@@ -361,8 +361,8 @@ class EmployeesRepository {
     required int id,
     required List<String> permissions,
   }) async {
-    await _api.raw.put('/employees/$id/permissions',
-        data: {'permissions': permissions});
+    await _api.put('/employees/$id/permissions',
+        body: {'permissions': permissions});
   }
 
   /// حذفُ الموظف — **بشرط ألّا يكون له أثرٌ ماليّ**.

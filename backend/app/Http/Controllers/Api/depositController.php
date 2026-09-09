@@ -312,7 +312,18 @@ public function CommtionRetview_get(Request $request)
                     'message' => "المخول غير موجود"
                 ], 404);
             }
-    
+
+            // 🔒 فحصُ الملكية: نقطةُ البيع يجب أن تكون في فرع صاحب الجلسة.
+            // القراءةُ مقيّدةٌ بالفرع (getByBranch) والكتابةُ كانت مفتوحة —
+            // فوكيلٌ يمرّر ID نقطةِ شركةٍ أخرى كان يُعيد كتابة رقم دخولها.
+            // 404 لا 403 كي لا يُفشى وجودُ الصفّ.
+            if ((string) $authorizedUser->BranchID !== (string) $ueser->BrancchID) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "المخول غير موجود"
+                ], 404);
+            }
+
             // ✅ Validation
             $request->validate([
                 'ID' => 'required|integer|exists:AuthorizedUsers,ID',
@@ -1191,10 +1202,11 @@ public function Update_for_InternalEx_Taxi(Request $request)
         ], 409);
 
     } catch (\Throwable $th) {
+        // لا يُسجَّل $request->all() كاملاً: يحمل هاتفَ المستفيد واسمَه في
+        // نصٍّ صريح داخل laravel.log. تكفي الرسالةُ ومعرّفُ المستخدم.
         Log::error('حدث خطأ أثناء تحديث InternalEx', [
             'error'   => $th->getMessage(),
             'user_id' => Auth::id(),
-            'input'   => $request->all()
         ]);
 
         return response()->json([
@@ -3434,10 +3446,12 @@ public function transInsertExternal(Request $request)
   } catch (\Exception $e)
    {
         DB::rollBack();
+        // getTraceAsString لا getTrace: الأخيرُ يُفرِغ وسائطَ الدوال (وفيها
+        // الهاتفُ والقيمة) في السجلّ نصّاً صريحاً.
         \Log::error('خطأ أثناء تنفيذ transInsertExternal: ' . $e->getMessage(), [
             'line'  => $e->getLine(),
             'file'  => $e->getFile(),
-            'trace' => $e->getTrace()
+            'trace' => $e->getTraceAsString(),
         ]);
 
         return $this->sendError('خطأ في تنفيذ العملية', [

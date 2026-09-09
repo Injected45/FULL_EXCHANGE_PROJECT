@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format/fmt.dart';
+import '../../core/net/api_envelope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
@@ -125,7 +126,7 @@ class AccountScreen extends ConsumerWidget {
                     label: 'حذف الحساب',
                     danger: true,
                     last: true,
-                    onTap: () => _confirmDelete(context),
+                    onTap: () => _confirmDelete(context, ref),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -159,8 +160,9 @@ class AccountScreen extends ConsumerWidget {
     if (ok == true) await ref.read(authControllerProvider.notifier).signOut();
   }
 
-  Future<void> _confirmDelete(BuildContext context) async {
-    await _ask(
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await _ask(
       context,
       title: 'حذف الحساب',
       // الخادم يحذف حذفاً ناعماً: Reg='NO' و deleted_at — لا يُزال الصف.
@@ -169,6 +171,29 @@ class AccountScreen extends ConsumerWidget {
       confirm: 'حذف الحساب',
       danger: true,
     );
+    if (ok != true) return;
+    try {
+      await ref.read(authControllerProvider.notifier).deleteAccount();
+      // عند النجاح يتحوّل الراوتر إلى شاشة الدخول تلقائياً (الحالة signedOut).
+    } on ApiFailure catch (e) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(e.message,
+              style: T.plex(13, FontWeight.w500, color: Colors.white)),
+          backgroundColor: R.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+    } catch (_) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('تعذّر حذف الحساب — تحقّق من الاتصال وأعد المحاولة.',
+              style: T.plex(13, FontWeight.w500, color: Colors.white)),
+          backgroundColor: R.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
   }
 
   Future<bool?> _ask(

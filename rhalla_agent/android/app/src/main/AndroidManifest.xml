@@ -29,9 +29,34 @@
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
 
+    <!-- ⚠⚠ استثناءُ HTTP مؤقّت — يُحذف قبل الرفع إلى المتجرين.
+         خادمُ الإنتاج بلا TLS، وtargetSdk 36 يحجب HTTP تلقائياً، فبناءُ
+         الإصدار كان لا يفتح مقبساً أصلاً: «تعذّر الاتصال بالخادم» على
+         شبكةٍ سليمة. والاستثناءُ مقصورٌ على عنوانٍ واحد — انظر الملف. -->
+    <!-- ⚠⚠ لا يُنسخ من هذا التطبيق شيء — لا سحابةً ولا إلى هاتفٍ آخر.
+
+         ما يُخزَّن كلُّه حسّاس: رمزُ الجلسة، ومعرّفُ الجهاز المربوط،
+         وصلاحياتُ الموظف. والنسخُ التلقائيّ يرفعه إلى Google Drive ويُتيح
+         استعادتَه على **هاتفٍ آخر** — وذلك ينقض ربطَ الجهاز الذي يقوم
+         عليه أمنُ الحسابين.
+
+         ⚠ وقد سبّب عطلاً حقيقياً: مفتاحُ Keystore لا يُنسخ، فتُستعاد
+         تفضيلاتٌ مشفَّرة إلى جهازٍ لا يملك مفتاحَها فتُخفق القراءة — وهو
+         ما جمّد التطبيق على شاشة البداية (9 سبتمبر 2026).
+
+         والملفّان يبقيان دفاعاً ثانياً لمن يُعيد allowBackup يوماً.
+
+         ⚠⚠ وإعدادُ الشبكة **متغيّر**، وافتراضيُّه الصارم: netSecConfig
+         تُملأ من Gradle بـnetwork_security_strict (TLS إلزاميّ)، ولا
+         تصير الاستثناءَ إلّا بـallowCleartext=true صراحةً. وحارسٌ في
+         build.gradle.kts يرفض بناءَ حزمةِ متجرٍ وهو مُفعَّل. -->
     <application
         android:label="الرحالة | الوكيل"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:networkSecurityConfig="@xml/${netSecConfig}"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

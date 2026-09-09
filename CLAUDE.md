@@ -15,6 +15,7 @@ That fixes the role of each existing directory:
 
 - **[docs/agent-api.md](docs/agent-api.md)** — the API contract, derived by reading the backend source. Roles, auth flow, every endpoint the agent app needs, and the response-envelope traps.
 - **[docs/design-system.md](docs/design-system.md)** — tokens, typography, components, RTL and numeral rules, extracted from the Claude Design project.
+- **[docs/audit-committee.md](docs/audit-committee.md)** — «لجنة فحص تطبيق الصرافة», the owner's standing audit charter (10 Sep 2026). **When he writes that phrase and nothing else, it is an order to run the whole thing** — twelve scopes (Apple · Play · security · privacy · accounting *audit only* · code review · performance · stability tests · supply chain · secrets · threat model · release gate) against the newest code and the newest store/OWASP/NIST rules, ending in one report and one verdict. Inspect · Test · Harden · Optimize · Fix · Retest — never Rewrite. A financial defect is recorded as CRITICAL and **never fixed without his explicit approval**.
 
 ### Decisions taken
 
@@ -73,7 +74,7 @@ So **never hand anyone `app-release.apk`**. `--split-per-abi` gives arm64 at **2
 
 **Do not subset the bundled fonts to save that 1.16 MB.** Beneficiary names, city names and status labels all arrive from the database, so any Arabic glyph can appear; a subset that fits today's data renders tofu on tomorrow's.
 
-**Transport is still HTTP, and that is the remaining launch blocker.** `http://102.214.165.242:8080` is unreachable from a release build on either platform: Android blocks cleartext by default at this `targetSdk` (the `network_security_config` exception is debug-scoped), and iOS blocks it via ATS. The fix is a TLS certificate on the server — **not** `usesCleartextTraffic` and **not** an ATS exception, both of which would ship an exchange app that transmits balances and transfer codes in the clear.
+**Transport is still HTTP, and that is the remaining launch blocker.** Cleartext is now **off by default** and a store bundle cannot be built with it on — see «Store readiness» below. A test APK for a real phone is built with `-PallowCleartext=true`; everything else needs a TLS certificate on the server. `http://102.214.165.242:8080` is unreachable from a release build on either platform: Android blocks cleartext by default at this `targetSdk` (the `network_security_config` exception is debug-scoped), and iOS blocks it via ATS. The fix is a TLS certificate on the server — **not** `usesCleartextTraffic` and **not** an ATS exception, both of which would ship an exchange app that transmits balances and transfer codes in the clear.
 
 Stack: **Riverpod + go_router + dio + flutter_secure_storage**, hand-written models, **no build_runner**. Codegen was deliberately skipped: several endpoints return raw SQL result sets whose columns are not knowable from the backend source, so tolerant hand-parsing beats generated strict models.
 
@@ -196,6 +197,82 @@ The tiles are now built into a `List<Widget>` and the banner is `tiles.isEmpty &
 The two permission pairs that produced a blank screen now each get a tile that says what is missing («تحتاج صلاحية … — راجع وكيلك») instead of rendering nothing. And gaps moved out of the tiles: the create tile used to carry a trailing gap conditional on the *next* tile's permission, which left a floating gap whenever that next one was denied.
 
 `test/employee_home_permissions_test.dart` (9 tests) walks every catalog key one at a time and asserts the banner and a tile are never on screen together — it was run against the old computation first and failed on `DELIVER_TRANSFER`, which is the only reason to trust it. Seven report/favourite/close-shift keys are deliberately listed as reachable only from inside another tile; for those the banner is the truth.
+### Store readiness — what was fixed, and the one thing code cannot fix (10 Sep 2026)
+
+Owner's instruction: the app goes to Google Play and the App Store; close anything either would reject, cleartext first.
+
+#### ⚠ The root problem is not in this repository
+
+`http://102.214.165.242:8080` is a **bare IP with no TLS**. No amount of app-side work fixes that, and a public CA will not issue a certificate for a bare IP. The path is: point a name at the server (the domain already exists — `wa.rhalla.online` runs on it), get a certificate for that name, then build with `--dart-define=API_BASE=https://…`. Everything below makes the app correct *for* that moment and safe until it arrives.
+
+#### Cleartext is now off by default and cannot reach a store
+
+`AndroidManifest.xml` no longer names a network config directly — it carries `@xml/${netSecConfig}`, filled by Gradle:
+
+- **default** → `network_security_strict.xml`: `cleartextTrafficPermitted="false"`, no exceptions at all.
+- **`-PallowCleartext=true`** → `network_security_config.xml`: cleartext for the single production IP, everything else still TLS.
+
+**Why the default is the safe one:** an exception that is on by default gets forgotten and shipped. Both mistakes have already happened here — release APKs were built that could not reach the server at all, and then a permanent exception was added to fix them. With a safe default the mistake is *visible* (the app cannot connect) instead of *silent* (it ships unencrypted).
+
+And **`gradle.taskGraph.whenReady` throws if `bundleRelease` runs with the flag on** — Play's artefact is the AAB, so the store path is closed by construction rather than by remembering. ⚠ The first version matched any task containing "bundle" and blocked APK builds too, because `assembleRelease` runs `bundleReleaseResources` on its way; it now matches `^bundle(Debug|Profile|Release)$` exactly. A guard that blocks what it was not aimed at gets disabled within days.
+
+`android:usesCleartextTraffic="true"` was never used: it opens every host, so a mistyped address or a third-party redirect would travel unencrypted too.
+
+#### ⚠ Backup was uploading session tokens to Google Drive
+
+`android:allowBackup` defaults to **true**. Everything this app stores is sensitive — the agent's session token, the employee's session token, the bound device id, the employee's cached permissions — and auto-backup put all of it in the user's Drive, restorable **onto a different phone**. That contradicts the device binding both account types rest on.
+
+Now `allowBackup="false"`, plus `data_extraction_rules.xml` (Android 12+) and `backup_rules.xml` (below) excluding every domain — kept as a second line for whoever re-enables the flag one day.
+
+**This also explains a real crash.** The secure store is encrypted with an Android Keystore key, and **the key is never backed up**. A restore put an encrypted preferences file on a device without its key, `read` threw, and the app froze on the splash screen (9 Sep 2026). The code guards now handle the symptom; this removes the cause.
+
+#### iOS would have crashed on first use and been rejected
+
+`Info.plist` had `NSCameraUsageDescription` and `NSFaceIDUsageDescription` — but the app also records voice notes (`voice_note.dart` → `record`) and picks images (`image_picker`, used in chat and the branding screen). **iOS terminates the app the instant a permission is used without its usage string**, and App Review rejects the build. Added `NSMicrophoneUsageDescription` and `NSPhotoLibraryUsageDescription`, both saying *why* rather than *what* — Apple rejects one-word strings.
+
+Also added `ITSAppUsesNonExemptEncryption = false`: Apple asks at every upload, and the answer is genuinely "no" — the only encryption in use is the system's own TLS, which is exempt. `NSAppTransportSecurity` is still **absent on purpose**; an ATS exception for an app carrying balances is rarely accepted.
+
+#### Measured, not assumed
+
+- **16 KB page alignment** (a Play requirement for apps targeting Android 15+): every packaged `.so` read with `llvm-readelf` — Flutter's own at `0x10000`, the plugin libraries (MLKit barcode, dart JNI, camera utils) at `0x4000`. All pass.
+- **The AAB builds and is signed** — 74.6 MB before Play's per-device split.
+- The shipped APK's manifest and its network config were read back out of the APK with `aapt2 dump xmltree`, not trusted from source.
+- Permissions requested: `INTERNET`, `CAMERA`, `RECORD_AUDIO`, `USE_BIOMETRIC` (+ `USE_FINGERPRINT`, injected by `local_auth` and required for API 24–27 — removing it would break biometrics on Android 7 and 8). Nothing that triggers a Play declaration form.
+
+#### `test/store_compliance_test.dart` (10 checks) keeps it true
+
+It reads the manifest, `Info.plist` and `build.gradle.kts` as text on every `flutter test`. ⚠ **These conditions break silently** — a new plugin adds a permission with no usage string, someone re-enables backup, a flag is left on — and none of it shows in `flutter analyze` or in a run. It shows up in a rejection email weeks later.
+
+It also asserts the absence of what must not appear: `usesCleartextTraffic="true"`, `NSAppTransportSecurity`, and nine permissions that open a special Play review (`READ_SMS`, `QUERY_ALL_PACKAGES`, `MANAGE_EXTERNAL_STORAGE`, …). Verified by breaking `allowBackup` deliberately: the suite failed on that check and passed again when restored.
+
+#### What is still required before submission, and is not code
+
+1. **A TLS certificate** — a hostname for the API, then `API_BASE=https://…`. Nothing else on this list matters until this is done.
+2. **A published privacy policy URL**, plus Play's Data Safety form and Apple's privacy nutrition labels — both must match what the app actually collects (phone number, device id, transfer data).
+3. **iOS needs a Mac** (or a cloud runner) to build; `ios/Podfile` is still generated on first Mac build.
+
+### ⚠⚠ Release APKs could not open a socket at all (9 Sep 2026)
+
+An employee's device reported «تعذّر الاتصال بالخادم» after scanning the QR *and* after typing the code, on a healthy network. It was not the QR, not the code, not the server.
+
+**Three measurements settled it:**
+
+| Fact | Value |
+|---|---|
+| `targetSdkVersion` in the merged release manifest | **36** — Android blocks cleartext HTTP by default from API 28 |
+| `networkSecurityConfig` / `usesCleartextTraffic` in the **release** manifest | **absent** — the allowance lived only in `src/debug/`, and only for `10.0.2.2` / `localhost` / `192.168.1.10` |
+| The server | **alive on HTTP** (0.26 s), and **HTTPS does not open a socket** |
+
+So every release APK built against `http://102.214.165.242:8080` was incapable of reaching it — the failure is at the socket, before any request. The app's message was truthful; the build was not usable. **This file had already named it the launch blocker, and release APKs were handed over anyway.**
+
+**The bridge, and it is a bridge.** `android/app/src/main/res/xml/network_security_config.xml` permits cleartext **for that one IP literal**, with `base-config cleartextTrafficPermitted="false"` so everything else stays TLS-only. `android:usesCleartextTraffic="true"` was deliberately *not* used — it opens every host, so a mistyped address or a third-party redirect would travel unencrypted too.
+
+⚠ **What it costs, plainly:** balances, transfer numbers and verification codes cross the network unencrypted, readable by anyone sharing it. And with the app now headed for Google Play and the App Store, this is a submission problem as well: Play flags cleartext in review and Apple's ATS refuses it without a written justification that a financial app rarely gets.
+
+**Removing it is one line in the manifest plus one file** — and that is the point of scoping it this way rather than flipping a flag. The real prerequisite for submission is a TLS certificate on the server, not an edit here.
+
+Verified the only way that means anything: `aapt2 dump xmltree` on the built APK shows `networkSecurityConfig` present in the packaged manifest, not merely in the source tree.
+
 ### ⚠⚠ The sovereign approval gate — nothing reaches the agent before Rhalla approves it
 
 Owner's standing rule, restated on 9 Sep 2026 after he found it broken: *«عند تنفيذ حوالة من الرحالة لا تصل إلى الوكيل ولا يراها في التطبيق ولا يصل إليه أيُّ إشعارٍ أو رسالة إلّا بعد أن تُعتمد من إدارة الرحالة».*
