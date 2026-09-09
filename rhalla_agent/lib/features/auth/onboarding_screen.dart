@@ -124,7 +124,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           Text('حوالة جديدة · 1,250.000',
                               style: T.kufi(12, FontWeight.w600, color: Colors.white)),
                           const SizedBox(height: 6),
-                          Text('بانتظار التسليم',
+                          Text('غير مسلَّمة',
                               style: T.plex(10.5, FontWeight.w400,
                                   color: R.whiteA(.8))),
                         ],

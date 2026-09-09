@@ -108,7 +108,7 @@ class _DeliveryReceiptScreenState extends ConsumerState<DeliveryReceiptScreen>
                           ? 'ملغاة'
                           : t.isDelivered
                               ? 'تم التسليم'
-                              : 'بانتظار التسليم',
+                              : 'غير مسلَّمة',
                       statusColor: t.isCancelled
                           ? R.error
                           : t.isDelivered

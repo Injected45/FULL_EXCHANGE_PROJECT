@@ -38,6 +38,26 @@ class _FakeStore extends SecureStore {
   Future<void> writeBiometricUnlock(bool on) async => _bio = on;
 }
 
+/// مُخزِّنٌ يُخفق في كل قراءة — كما يُخفق التخزينُ الآمن على جهازٍ
+/// مفتاحُه تالفٌ أو لم يُهيَّأ بعد.
+class _BrokenStore extends SecureStore {
+  @override
+  Future<DateTime?> readBackgroundedAt() async => throw Exception('تخزين');
+
+  @override
+  Future<void> writeBackgroundedAt(DateTime at) async =>
+      throw Exception('تخزين');
+
+  @override
+  Future<void> clearBackgroundedAt() async => throw Exception('تخزين');
+
+  @override
+  Future<bool> readBiometricUnlock() async => throw Exception('تخزين');
+
+  @override
+  Future<String?> readToken() async => throw Exception('تخزين');
+}
+
 /// مصادقةٌ حيويّة مزيّفة — تُعيد ما يُملى عليها.
 class _FakeAuth implements LocalAuthentication {
   _FakeAuth({this.supported = true, this.kinds = const [BiometricType.fingerprint]});
@@ -92,6 +112,49 @@ void main() {
   });
 
   tearDown(() => c.dispose());
+
+  group('⚠⚠ يفشل مفتوحاً لا مغلقاً', () {
+    /*
+     * بلاغُ المالك على جهازٍ حقيقيّ (9 سبتمبر 2026): «ثبّتُّ التطبيق ولم
+     * تحضر الواجهة الرئيسية… والتطبيق جامدٌ في مكانه».
+     *
+     * السبب: التخزينُ الآمن أخفق، فماتت دالّةُ الإقلاع صامتةً وبقيت
+     * الحالةُ `unknown` — وكانت تستر الشاشة. فلم تظهر شاشةُ الدخول أبداً.
+     */
+    test('المجهولُ لا يستر الشاشة — وإلّا تجمّد التطبيق', () {
+      expect(const AppLockState().phase, LockPhase.unknown);
+      expect(const AppLockState().shouldHide, isFalse,
+          reason: 'قفلٌ لا يعرف حالَه يجب أن يُفسح الطريق');
+    });
+
+    test('والمقفولُ وحدَه يُستر', () {
+      expect(const AppLockState(phase: LockPhase.locked).shouldHide, isTrue);
+      expect(const AppLockState(phase: LockPhase.open).shouldHide, isFalse);
+    });
+
+    test('⚠ وتخزينٌ يُخفق لا يمنع الإقلاع', () async {
+      final broken = _BrokenStore();
+      final ctl = AppLockController(broken, _FakeAuth());
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      expect(ctl.state.phase, LockPhase.open,
+          reason: 'الإقلاعُ ينتهي مفتوحاً مهما أخفقت القراءة');
+      expect(ctl.state.shouldHide, isFalse);
+      ctl.dispose();
+    });
+
+    test('⚠ وتخزينٌ يُخفق عند العودة لا يقفل', () async {
+      final broken = _BrokenStore();
+      final ctl = AppLockController(broken, _FakeAuth());
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      ctl.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      expect(ctl.state.isLocked, isFalse);
+      ctl.dispose();
+    });
+  });
 
   group('الإقلاع', () {
     test('يُقلع مفتوحاً — لا شاشةَ بصمةٍ فوق شاشة دخول', () async {
@@ -273,19 +336,6 @@ void main() {
     test('يقفل بلا انتظار الخمس دقائق', () async {
       await c.lockNow();
       expect(c.state.isLocked, isTrue);
-    });
-  });
-
-  group('⚠ ما يُعرض قبل أن يُعرف الحال', () {
-    test('يُستر في `unknown` — لا تُومض الأرصدة ثم تُخفى', () {
-      const s = AppLockState();
-      expect(s.phase, LockPhase.unknown);
-      expect(s.shouldHide, isTrue);
-    });
-
-    test('ويُعرض في `open` وحدَها', () {
-      expect(const AppLockState(phase: LockPhase.open).shouldHide, isFalse);
-      expect(const AppLockState(phase: LockPhase.locked).shouldHide, isTrue);
     });
   });
 

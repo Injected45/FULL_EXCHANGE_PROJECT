@@ -49,7 +49,7 @@ class EmployeeOwnReportsScreen extends ConsumerWidget {
       ),
       const ReportDef(
         key: 'REPORT_PENDING_TRANSFERS',
-        title: 'بانتظار التسليم',
+        title: 'غير مسلَّمة',
         subtitle: 'واردٌ لم يُسلَّم بعد',
         icon: Icons.pending_actions_rounded,
         path: '/device/employee/reports/pending',

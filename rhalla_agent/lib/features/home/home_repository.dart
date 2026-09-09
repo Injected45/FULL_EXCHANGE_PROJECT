@@ -133,7 +133,7 @@ class Movement {
   String get agentBadge {
     if (isCancelledByCore) return 'ملغاة';
     if (agentStatus == 'DELIVERED') return 'تم التسليم';
-    if (agentStatus == 'PENDING_DELIVERY') return 'بانتظار التسليم';
+    if (agentStatus == 'PENDING_DELIVERY') return 'غير مسلَّمة';
     return '';
   }
 

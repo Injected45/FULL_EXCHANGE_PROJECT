@@ -166,7 +166,7 @@ class _Dashboard extends StatelessWidget {
           Row(
             children: [
               Expanded(child: _Stat(
-                label: 'بانتظار التسليم',
+                label: 'غير مسلَّمة',
                 value: '${_i('pending_transfers')}',
                 icon: Icons.schedule_rounded,
               )),

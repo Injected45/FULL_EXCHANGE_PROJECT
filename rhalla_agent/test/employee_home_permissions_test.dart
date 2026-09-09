@@ -166,6 +166,16 @@ Future<void> _mount(WidgetTester t, List<String> permissions,
     await t.pump();
   }
   await t.pump(const Duration(milliseconds: 50));
+
+  /*
+   * ⚠ يُصرَّف مؤقّتُ حارسِ الإقلاع.
+   *
+   * `AuthController._bootstrap` يلفّ قراءاتِه بمهلةٍ ثمانِ ثوانٍ حتى لا
+   * يتجمّد التطبيق على شاشة البداية إن تعلّق التخزين. والمؤقّتُ في زمن
+   * الاختبار المزيّف لا يمضي وحدَه، فيبقى معلّقاً عند التفكيك ويُسقط
+   * الفحصَ بـ«Pending timers» — لسببٍ لا علاقةَ له بما يُفحص.
+   */
+  await t.pump(const Duration(seconds: 9));
 }
 
 void main() {

@@ -154,7 +154,7 @@ class _Summary extends StatelessWidget {
                 _Line('نقدٌ خرج منها', Fmt.money(Fmt.num_(d['cashbox_out']))),
                 _Line('صافي الخزينة', Fmt.money(Fmt.num_(d['cashbox_net'])),
                     bold: true),
-                _Line('بانتظار التسليم',
+                _Line('غير مسلَّمة',
                     '${Fmt.count(int.tryParse('${d['pending_count'] ?? 0}') ?? 0)} · ${Fmt.money(Fmt.num_(d['pending_total']))}'),
               ],
             ),

@@ -240,7 +240,9 @@ class _Tabs extends StatelessWidget {
         children: [
           for (final t in tabs) ...[
             if (t != tabs.first) const SizedBox(width: 8),
+            // ⚠ العرضُ بحسب الكلمة — الشرحُ عند نظيره في تبويبات الوكيل.
             Expanded(
+              flex: _weight(t, counts),
               child: GestureDetector(
                 onTap: () => onPick(t),
                 child: AnimatedContainer(
@@ -268,8 +270,15 @@ class _Tabs extends StatelessWidget {
         ],
       );
 
+  /// وزنُ التبويب = طولُ ما يُعرض فيه، بحدٍّ أدنى يسع عدّادَه.
+  int _weight(IncomingTab t, Map<String, int> counts) {
+    final c = counts[t.wire];
+    final shown = _label(t).length + (c == null ? 0 : ' ($c)'.length);
+    return shown < 9 ? 9 : shown;
+  }
+
   String _label(IncomingTab t) => switch (t) {
-        IncomingTab.pending => 'بانتظار التسليم',
+        IncomingTab.pending => 'غير مسلَّمة',
         IncomingTab.delivered => 'تم التسليم',
         IncomingTab.cancelled => 'الملغاة',
       };
@@ -486,7 +495,7 @@ class _Empty extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             switch (tab) {
-              IncomingTab.pending => 'لا توجد حوالات بانتظار التسليم',
+              IncomingTab.pending => 'لا توجد حوالات غير مسلَّمة',
               IncomingTab.delivered => 'لم تُسلَّم حوالات بعد',
               IncomingTab.cancelled => 'لا توجد حوالات ملغاة',
             },

@@ -572,21 +572,44 @@ class _Tabs extends StatelessWidget {
           border: Border.all(color: R.whiteA(.9)),
           borderRadius: BorderRadius.circular(R.rActions),
         ),
+        /*
+         * ⚠ **عرضُ كل تبويبٍ بحسب كلمته لا أثلاثاً متساوية.**
+         *
+         * أمرُ المالك (9 سبتمبر 2026): «ملغاة» كانت تأخذ حقلاً بحجم «تم
+         * التسليم»، فتسبح كلمةٌ قصيرة في فراغٍ واسع بينما تتزاحم الأطول
+         * وتُقصّ حروفُها بالنقاط الثلاث.
+         *
+         * والوزنُ من طول النصّ المعروض — الكلمةُ مع عدّادها — لا من قياسٍ
+         * بـ`TextPainter`: القياسُ يحتاج سياقاً ويُعاد عند كل بناء، والفرقُ
+         * بينه وبين عدّ الحروف لا يُرى في خطٍّ واحدٍ ومقاسٍ واحد.
+         *
+         * ⚠ وحدٌّ أدنى للوزن: التبويبُ الأقصر يحتاج مكاناً لأيقونته وعدّاده
+         * مهما قصرت كلمتُه، وبلا الحدّ يضيق حتى تُقصّ الكلمةُ القصيرةُ نفسُها.
+         */
         child: Row(
           children: [
             Expanded(
-                child: _tab('بانتظار التسليم', 0, Icons.schedule_rounded,
+                flex: _weight('غير مسلَّمة', pendingCount),
+                child: _tab('غير مسلَّمة', 0, Icons.schedule_rounded,
                     pendingCount)),
             const SizedBox(width: 5),
             Expanded(
+                flex: _weight('تم التسليم', deliveredCount),
                 child:
                     _tab('تم التسليم', 1, Icons.check_rounded, deliveredCount)),
             const SizedBox(width: 5),
             Expanded(
+                flex: _weight('الملغاة', cancelledCount),
                 child: _tab('الملغاة', 2, Icons.block_rounded, cancelledCount)),
           ],
         ),
       );
+
+  /// وزنُ التبويب = طولُ ما يُعرض فيه، بحدٍّ أدنى يسع الأيقونةَ والعدّاد.
+  static int _weight(String label, int count) {
+    final shown = label.length + '($count)'.length;
+    return shown < 11 ? 11 : shown;
+  }
 
   Widget _tab(String label, int i, IconData icon, int count) {
     final on = i == index;

@@ -39,7 +39,9 @@ const kIdleLock = Duration(minutes: 5);
 
 /// حالةُ القفل.
 enum LockPhase {
-  /// لم يُقرأ بعد ما إذا كان يجب القفل — لا تُعرض بيانات في هذه اللحظة.
+  /// لم يُقرأ بعد حالُ القفل.
+  ///
+  /// ⚠ **ولا تُستر بها الشاشة** — انظر [AppLockState.shouldHide].
   unknown,
 
   /// مفتوح.
@@ -77,9 +79,26 @@ class AppLockState {
 
   bool get isLocked => phase == LockPhase.locked;
 
-  /// ⚠ الواجهةُ تُحجب في `unknown` أيضاً: أوّلُ إطارٍ يُبنى قبل أن يُقرأ
-  /// وقتُ المغادرة، وعرضُ الأرصدة فيه ثم إخفاؤها ومضةٌ تكشف ما نستره.
-  bool get shouldHide => phase != LockPhase.open;
+  /*
+   * ⚠⚠ **يُستر المقفولُ وحدَه — لا المجهول.**
+   *
+   * كان يستر `unknown` أيضاً، منعاً لومضةِ أرصدةٍ في أوّل إطار. وكان
+   * ذلك **عطلاً قاتلاً**: أخفقت قراءةُ التخزين الآمن على جهازٍ حقيقيّ
+   * فماتت دالّةُ الإقلاع، فبقيت الحالةُ `unknown` — **فتجمّد التطبيق
+   * على شاشةٍ ساترة ولم تظهر شاشةُ الدخول أبداً**. (بلاغُ المالك،
+   * 9 سبتمبر 2026، على جهازٍ حقيقيّ.)
+   *
+   * والقاعدةُ التي تمنع تكرارَه: **القفلُ يفشل مفتوحاً لا مغلقاً**.
+   * قفلٌ لا يعرف حالَه يجب أن يُفسح الطريق؛ فهو سترُ راحةٍ لا حارسُ
+   * مصادقة — والمصادقةُ الحقيقية في الخادم وفي الجلسة، وهي قائمةٌ
+   * سواءٌ استُر الشاشةُ أم لا.
+   *
+   * ⚠ ولا تضيع الومضةُ التي خِيف منها: الإقلاعُ **لا يقفل أصلاً**
+   * (يمحو طابعَ المغادرة)، فلا شيءَ يُستر في أوّل إطار. والسترُ عند
+   * العودة من الخلفية يقع مع `inactive` في `LockGate` قبل أن يلتقط
+   * النظامُ معاينتَه.
+   */
+  bool get shouldHide => phase == LockPhase.locked;
 
   AppLockState copyWith({
     LockPhase? phase,
@@ -115,8 +134,26 @@ class AppLockController extends StateNotifier<AppLockState>
   /* ═══════════════════════ الإقلاع والدورة ═══════════════════════ */
 
   Future<void> _boot() async {
-    final available = await _probeBiometrics();
-    final enabled = await _store.readBiometricUnlock();
+    /*
+     * ⚠⚠ **كلُّ ما هنا محروسٌ، والنهايةُ مفتوحةٌ مهما جرى.**
+     *
+     * `readBiometricUnlock` و`clearBackgroundedAt` تنفذان إلى التخزين
+     * الآمن، وهو يُخفق على أجهزةٍ حقيقيّة (مفتاحٌ تالف، أو تخزينٌ لم
+     * يُهيَّأ بعد على تثبيتٍ جديد). وكانتا بلا حارس، فماتت الدالّةُ
+     * صامتةً وبقي التطبيق مستوراً إلى الأبد.
+     *
+     * والاستثناءُ هنا **لا يُعرض ولا يُسجَّل خطأً**: الإقلاعُ لا يقفل
+     * أصلاً، فتعذُّرُ قراءةِ تفضيلٍ لا يعني للمستخدم شيئاً يفعله.
+     */
+    var available = false;
+    var enabled = false;
+
+    try {
+      available = await _probeBiometrics();
+      enabled = await _store.readBiometricUnlock();
+    } catch (_) {
+      // بلا بصمةٍ وبلا تفضيل — والقفلُ يبقى عاملاً بالوقت.
+    }
 
     /*
      * ⚠ **الإقلاعُ ليس عودةً من الخلفية.**
@@ -127,7 +164,15 @@ class AppLockController extends StateNotifier<AppLockState>
      *
      * والطابعُ يُمحى عند الإقلاع حتى لا يُقفل بغيابٍ سبق إغلاق التطبيق.
      */
-    await _store.clearBackgroundedAt();
+    try {
+      await _store.clearBackgroundedAt();
+    } catch (_) {
+      /*
+       * ⚠ وطابعٌ عالقٌ لا يُجمّد شيئاً: أسوأُ أثرِه قفلٌ عند العودة
+       * الأولى من الخلفية، وله بصمةٌ أو خروجٌ يفتحه. أمّا موتُ الدالّة
+       * هنا فكان يُجمّد التطبيق كلَّه.
+       */
+    }
 
     if (!mounted) return;
     state = state.copyWith(
@@ -166,7 +211,13 @@ class AppLockController extends StateNotifier<AppLockState>
   }
 
   Future<void> _onReturn() async {
-    final left = await _store.readBackgroundedAt();
+    // ⚠ وقراءةٌ تُخفق تعني «لا قفل» لا «قفلٌ إلى الأبد» — يفشل مفتوحاً.
+    DateTime? left;
+    try {
+      left = await _store.readBackgroundedAt();
+    } catch (_) {
+      return;
+    }
     if (left == null) return;
 
     await _store.clearBackgroundedAt();

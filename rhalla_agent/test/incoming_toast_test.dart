@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rhalla_agent/core/net/api_client.dart';
@@ -29,6 +30,28 @@ class _Fake extends IncomingAlertsController {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  /*
+   * ⚠ يُجاب نداءُ التخزين الآمن بلا شيء.
+   *
+   * `AuthController._bootstrap` يُنشأ تلقائياً في هذه الشجرة، ويلفّ
+   * قراءاتِه بمهلةٍ حتى لا يتجمّد التطبيق على شاشة البداية إن تعلّق
+   * التخزين (وقع على جهازٍ حقيقيّ، 9 سبتمبر 2026).
+   *
+   * وبلا مُجيبٍ للقناة لا يُجاب النداءُ في زمن الاختبار المزيّف أبداً،
+   * فيبقى الحارسُ معلّقاً ويُسقط الفحصَ بـ«Pending timers» — لسببٍ لا
+   * علاقةَ له بالشريط المنسدل. والإجابةُ بلا شيء تعني «لا جلسة»، وهي
+   * الحالةُ الصحيحة لاختبارٍ لا يُسجّل دخولاً.
+   */
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+      (_) async => null,
+    );
+  });
+
   late _Fake fake;
 
   Future<void> mount(WidgetTester tester) async {
@@ -45,6 +68,16 @@ void main() {
         ),
       ),
     );
+
+    /*
+     * ⚠ يُصرَّف مؤقّتُ حارسِ الإقلاع.
+     *
+     * `AuthController._bootstrap` يلفّ قراءاتِه بمهلةٍ حتى لا يتجمّد
+     * التطبيق على شاشة البداية إن تعلّق التخزين — وهو ما وقع على جهازٍ
+     * حقيقيّ. ونداءُ الإضافة لا يُجاب في زمن الاختبار المزيّف، فيبقى
+     * المؤقّت معلّقاً عند التفكيك ويُسقط الفحصَ بلا علاقةٍ بما يُفحص.
+     */
+    await tester.pump(const Duration(seconds: 9));
   }
 
   testWidgets('لا شيء قبل وصول شيء', (tester) async {

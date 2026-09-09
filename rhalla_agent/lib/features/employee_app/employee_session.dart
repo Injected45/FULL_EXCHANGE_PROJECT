@@ -129,7 +129,24 @@ class EmployeeAuthController extends StateNotifier<EmployeeAuthState> {
   /// الرمز وحده لا يكفي: يُسأل الخادم عن صحّته وعن الصلاحيات الحالية. رمزٌ
   /// أُلغي من لوحة الإدارة يجب أن يسقط هنا لا أن يبقى الموظف «داخلاً».
   Future<void> _restore() async {
-    final token = await _store.readEmployeeToken();
+    /*
+     * ⚠⚠ **يُحسَم دائماً** — الشرحُ الكامل في `AuthController._bootstrap`.
+     *
+     * الراوتر يحبس المستخدم في `/splash` ما دامت **إحدى** الحالتين
+     * `unknown`. فاستثناءٌ في قراءة رمز الموظف يُجمّد التطبيق على شاشة
+     * البداية — ولو كانت جلسةُ الوكيل قد حُسمت.
+     *
+     * وهذه القراءةُ كانت **خارج** أيّ `try` — أوّلُ سطرٍ في الدالّة.
+     */
+    String? token;
+    try {
+      token = await _store
+          .readEmployeeToken()
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      token = null;
+    }
+
     if (token == null || token.isEmpty) {
       if (mounted) state = const EmployeeAuthState(status: EmpSessionStatus.signedOut);
       return;
@@ -153,7 +170,13 @@ class EmployeeAuthController extends StateNotifier<EmployeeAuthState> {
       // ⚠ وخادمٌ لا يُجاب عند الإقلاع لا يعني جلسةً منتهية: تُقرأ الجلسة
       // المحفوظة ويبقى الموظف داخلاً. ومحوُها هنا كان يعني أن فتح
       // التطبيق بلا شبكة يُلغي تفعيلَه.
-      final saved = await _store.readEmployee();
+      // ⚠ والاحتياطُ محروسٌ كذلك: قراءةٌ تُخفق تعني «خارج» لا تعليقاً.
+      Map<String, dynamic>? saved;
+      try {
+        saved = await _store.readEmployee();
+      } catch (_) {
+        saved = null;
+      }
       if (!mounted) return;
       state = saved == null
           ? const EmployeeAuthState(status: EmpSessionStatus.signedOut)
@@ -161,7 +184,13 @@ class EmployeeAuthController extends StateNotifier<EmployeeAuthState> {
               status: EmpSessionStatus.signedIn,
               profile: EmployeeProfile.fromJson(saved));
     } catch (_) {
-      final saved = await _store.readEmployee();
+      // ⚠ والاحتياطُ محروسٌ كذلك: قراءةٌ تُخفق تعني «خارج» لا تعليقاً.
+      Map<String, dynamic>? saved;
+      try {
+        saved = await _store.readEmployee();
+      } catch (_) {
+        saved = null;
+      }
       if (!mounted) return;
       state = saved == null
           ? const EmployeeAuthState(status: EmpSessionStatus.signedOut)
