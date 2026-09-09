@@ -11,6 +11,7 @@ import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import '../security/otp_paste.dart';
 import 'auth_controller.dart';
 import 'auth_repository.dart';
 
@@ -69,6 +70,20 @@ class _OtpScreenState extends ConsumerState<OtpScreen> with HardwareDigits {
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  /// يملأ الرمزَ كاملاً — من اللصق — ثم يتحقّق كما لو أُدخل رقماً رقماً.
+  ///
+  /// ⚠ **المسارُ نفسُه لا مسارٌ ثانٍ**: الرمزُ يُرسَل إلى `_verify` التي
+  /// يستعملها الإدخالُ اليدويّ، فالخادمُ وحدَه يقرّر — ولا يوجد طريقٌ
+  /// يفتح التطبيقَ بمطابقةٍ محلّية.
+  void _fillCode(String code) {
+    if (_verifying || _succeeded) return;
+    setState(() {
+      _code = code;
+      _error = null;
+    });
+    _verify();
   }
 
   void _push(String d) {
@@ -266,6 +281,18 @@ class _OtpScreenState extends ConsumerState<OtpScreen> with HardwareDigits {
           const Spacer(),
 
           NumericKeypad(onDigit: _push, onDelete: _pop),
+
+          /*
+           * ⚠ **بديلُ AutoFill** — انظر `otp_paste.dart` للسبب كاملاً.
+           *
+           * الاقتراحُ النظاميّ يظهر فوق كيبورد النظام، وهذه الشاشة بلا
+           * حقلِ نصّ عمداً. والنظامُ لا يقرأ رسائل واتساب أصلاً — يقرأ
+           * SMS. فيُختصر ما يفعله الوكيل فعلاً: ينسخ ثمّ يلصق بلمسة.
+           */
+          PasteOtpButton(
+            enabled: !_verifying && !_succeeded,
+            onCode: _fillCode,
+          ),
         ],
       ),
     );

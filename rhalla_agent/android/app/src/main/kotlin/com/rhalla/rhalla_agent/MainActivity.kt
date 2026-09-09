@@ -2,7 +2,7 @@ package com.rhalla.rhalla_agent
 
 import android.media.RingtoneManager
 import android.provider.Settings
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -16,7 +16,15 @@ import io.flutter.plugin.common.MethodChannel
  * ANDROID_ID يبقى عبر إعادة التثبيت ولا يتغيّر إلا بإعادة ضبط المصنع.
  * وهو مُقيَّد بتوقيع التطبيق والمستخدم منذ Android 8، فلا يُشارَك بين التطبيقات.
  */
-class MainActivity : FlutterActivity() {
+/*
+ * ⚠ `FlutterFragmentActivity` لا `FlutterActivity`.
+ *
+ * `BiometricPrompt` — وهو ما يستعمله `local_auth` — يشترط نشاطاً من نوع
+ * `FragmentActivity`. ومع `FlutterActivity` يُخفق نداءُ البصمة في وقت
+ * التشغيل برسالةٍ عن `FragmentActivity`، **ولا يظهر ذلك في التحليل ولا
+ * في البناء** — بل عند أوّل محاولةِ فتحٍ بالبصمة في يد المستخدم.
+ */
+class MainActivity : FlutterFragmentActivity() {
 
     private val channel = "com.rhalla.rhalla_agent/device"
 

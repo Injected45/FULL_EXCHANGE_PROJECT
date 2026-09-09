@@ -12,6 +12,7 @@ import '../../ui/widgets/glass.dart';
 import '../branding/brand_mark.dart';
 import '../branding/branding_controller.dart';
 import '../chat/chat_screen.dart';
+import 'employee_ledger_view.dart';
 import 'employee_session.dart';
 
 /// واجهة الموظف — **مبنيّة من صلاحياته وحدها**.
@@ -47,12 +48,191 @@ class _EmployeeHomeScreenState extends ConsumerState<EmployeeHomeScreen> {
     final canCloseShift  = p.can('CLOSE_SHIFT');
     final hasShift       = p.openShift != null;
 
-    // «بلا صلاحيات» حالةٌ حقيقية لا خطأ: الموظف يُنشأ فارغاً ثم يُمنح.
-    final nothingGranted = !canSeeIncoming &&
-        !canCreate &&
-        !canCashbox &&
-        !canStartShift &&
-        !canCloseShift;
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     *  بلاطاتُ الشاشة — كلُّ واحدةٍ خلف صلاحيتها
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * تُبنى قائمةً هنا لا مباشرةً في الشجرة، لسببٍ واحد: **حتى يُعرَف هل
+     * تُوجد بلاطةٌ واحدة أصلاً**. انظر التعليق عند عرضها.
+     *
+     * ⚠ والإخفاءُ تجميلٌ لا حماية: الخادم يردّ 403 على كل نداء ويُسجّله
+     * أمنياً. لكنّ بلاطةً تُفتح فتُخفق تُعلّم الموظف أنّ التطبيق معطوب.
+     *
+     * ⚠ ولا فواصلَ داخل القائمة: تُوضع عند العرض بين كل اثنتين. وفاصلٌ
+     * مشروطٌ داخل بلاطةٍ — كما كان في «إنشاء حوالة» — يترك فراغاً معلّقاً
+     * حين تكون تاليتُه ممنوعة.
+     */
+    final tiles = <Widget>[
+      /*
+       * إنشاءُ حوالة — أوّلاً لأنه العملُ الذي يقف له الزبون.
+       *
+       * ⚠ ويفتح **شاشة الوكيل نفسَها** (`/send/internal`): أمرُ المالك أن
+       * الموظف واجهةٌ من وكيل لا كيانٌ ثانٍ، فنموذجُ الحوالة واحدٌ للاثنين.
+       * والمستودعُ وحده يبدّل المسار إلى نظيره تحت `device/employee/`.
+       */
+      if (canCreate)
+        _Tile(
+          icon: Icons.north_east_rounded,
+          title: 'إنشاء حوالة',
+          subtitle: 'حوالة محلية باسم الوكيل',
+          onTap: () => context.push('/send/internal'),
+        ),
+
+      if (canSeeIncoming)
+        _Tile(
+          icon: Icons.call_received_rounded,
+          title: 'الحوالات الواردة',
+          subtitle: p.can('DELIVER_TRANSFER')
+              ? 'اعرض وسجّل التسليم'
+              : 'عرض فقط',
+          onTap: () => context.push('/employee/transfers'),
+        ),
+
+      /*
+       * ⚠ **بلاطةُ التسليم وحدَه** — لمن مُنح التسليم بلا العرض.
+       *
+       * وهي حالةٌ يقع فيها الوكيل: يمنح «تسجيل تسليم حوالة» ظنّاً أنها
+       * تكفي، فلا يرى الموظفُ شيئاً — لأن بلاطة الوارد تشترط العرض.
+       * فتُعرض هنا بلاطةٌ تقول ما ينقصه بدل شاشةٍ فارغة.
+       */
+      if (!canSeeIncoming && p.can('DELIVER_TRANSFER'))
+        _Tile(
+          icon: Icons.call_received_rounded,
+          title: 'الحوالات الواردة',
+          subtitle: 'تحتاج صلاحية «عرض الحوالات الواردة» — راجع وكيلك',
+          onTap: () => context.push('/employee/transfers'),
+        ),
+
+      // ⚠ «طلباتي» تظهر لمن يُنشئ الحوالات وحدَه: من لا يُنشئ لا طلباتِ له.
+      // ونتيجةُ الطلب تُقرأ هنا لا تُسأل من الوكيل — والموظفُ واقفٌ أمام
+      // زبونٍ ينتظر.
+      if (canCreate)
+        _Tile(
+          icon: Icons.fact_check_outlined,
+          title: 'طلباتي',
+          subtitle: 'الحوالات التي تنتظر موافقة الوكيل',
+          onTap: () => context.push('/employee/approvals'),
+        ),
+
+      if (p.can('VIEW_POS_TRANSFERS'))
+        _Tile(
+          icon: Icons.storefront_outlined,
+          title: 'حوالات نقطة بيعي',
+          subtitle: 'عملي على نقطة البيع الحالية',
+          onTap: () => context.push('/employee/pos-transfers'),
+        ),
+
+      if (p.can('SEARCH_TRANSFER'))
+        _Tile(
+          icon: Icons.search_rounded,
+          title: 'بحث برقم الحوالة',
+          subtitle: 'ابحث عن حوالة بعينها',
+          onTap: () => context.push('/employee/search'),
+        ),
+
+      // ⚠ «التقارير» بوّابةٌ لها مفتاحها، وكلُّ تقريرٍ داخلها له مفتاحُه —
+      // فوكيلٌ يُري موظّفَه تقريراً واحداً دون سائرها يستطيع ذلك.
+      if (p.can('REPORTS_VIEW'))
+        _Tile(
+          icon: Icons.insert_chart_outlined_rounded,
+          title: 'التقارير',
+          subtitle: 'حوالات اليوم والمسلَّمة والخزينة',
+          onTap: () => context.push('/employee/reports'),
+        ),
+
+      /*
+       * ⚠ العنوانُ والوصفُ يتبعان ما مُنح فعلاً.
+       *
+       * «رصيد الوكيل والملخّص اليومي» كان يُعرض لمن مُنح الملخّصَ وحدَه —
+       * فيفتح البلاطة يبحث عن رصيدٍ لن يجده، ثم يسأل وكيله عنه. والبلاطةُ
+       * لا تَعِد بما لا تُعطي.
+       */
+      if (p.can('VIEW_AGENT_TOTAL_BALANCE') || p.can('VIEW_FINANCIAL_SUMMARY'))
+        _Tile(
+          icon: Icons.account_balance_wallet_outlined,
+          title: p.can('VIEW_AGENT_TOTAL_BALANCE')
+              ? 'الأرصدة'
+              : 'الملخّص المالي',
+          subtitle: p.can('VIEW_AGENT_TOTAL_BALANCE')
+              ? (p.can('VIEW_FINANCIAL_SUMMARY')
+                  ? 'رصيد الوكيل والملخّص اليومي'
+                  : 'رصيد الوكيل')
+              : 'ملخّص يومك',
+          onTap: () => context.push('/employee/balances'),
+        ),
+
+      if (p.can('VIEW_FAVORITES'))
+        _Tile(
+          icon: Icons.people_outline_rounded,
+          title: 'المستفيدون',
+          subtitle: p.can('MANAGE_FAVORITES')
+              ? 'المفضّلة — عرضٌ وإدارة'
+              : 'المفضّلة — عرض فقط',
+          onTap: () => context.push('/employee/favorites'),
+        ),
+
+      // كشفُ حوالاته — تحت صلاحية عرض حوالاته نفسِها.
+      if (p.can('VIEW_OWN_TRANSFERS'))
+        _Tile(
+          icon: Icons.receipt_long_outlined,
+          title: 'كشف حوالاتي',
+          subtitle: 'ما قبضتُ وما سلَّمتُ والصافي',
+          onTap: () => context.push('/employee/statement'),
+        ),
+
+      if (canCashbox)
+        _Tile(
+          icon: Icons.savings_outlined,
+          title: 'خزينتي',
+          // ⚠ «كشف الحركة» يُذكَر في الحالتين: هو متاحٌ بلا وردية أيضاً —
+          // وموظفٌ بين ورديّتين يريد جردَ ما مضى، لا أن يُقال له «ابدأ
+          // وردية» وكأنّ ماضيه اختفى.
+          subtitle: hasShift
+              ? 'حركات الوردية والنقد المتوقّع · كشف الحركة'
+              : 'كشف حركة خزينتك — وابدأ وردية للتسجيل',
+          onTap: () => context.push('/employee/cashbox'),
+        ),
+
+      /*
+       * ⚠ **تسجيلُ حركةِ خزينةٍ بلا عرضِها** — بلاطةٌ ثانية لحالةٍ حقيقية.
+       *
+       * `CASHBOX_ENTRY` تُمنح مستقلّةً عن `VIEW_OWN_CASHBOX`، وشاشةُ الخزينة
+       * تُفتح بالثانية. فمن مُنح التسجيلَ وحدَه كان لا يرى شيئاً البتّة.
+       */
+      if (!canCashbox && p.can('CASHBOX_ENTRY'))
+        _Tile(
+          icon: Icons.savings_outlined,
+          title: 'خزينتي',
+          subtitle: 'تحتاج صلاحية «عرض خزينته» — راجع وكيلك',
+          onTap: () => context.push('/employee/cashbox'),
+        ),
+
+      // مراسلة الوكيل — صلاحيةٌ تُمنح كسائرها، فلا تظهر لمن لم يمنحه وكيلُه
+      // إيّاها. والخادم يرفضها كذلك: إخفاء البطاقة تجميل، والحارس في الوسيط.
+      if (p.can('CHAT_WITH_AGENT'))
+        _Tile(
+          icon: Icons.chat_bubble_outline_rounded,
+          title: 'مراسلة الوكيل',
+          subtitle: 'اسأل أو أبلغ عن أمرٍ في العمل',
+          onTap: () => Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute(
+              builder: (_) => const ChatScreen(
+                title: 'الوكيل',
+                asEmployee: true,
+              ),
+            ),
+          ),
+        ),
+    ];
+
+    /*
+     * «بلا صلاحيات» حالةٌ حقيقية لا خطأ: الموظف يُنشأ فارغاً ثم يُمنح.
+     *
+     * ⚠ وتُقاس على **ما تعرضه الشاشة فعلاً** لا على قائمة مفاتيح: بطاقةُ
+     * الوردية عملٌ كسائره، فمن مُنح «بدء وردية» وحدَها ليس بلا صلاحيات.
+     */
+    final nothingGranted = tiles.isEmpty && !canStartShift && !hasShift;
 
     return Screen(
       child: RefreshIndicator(
@@ -93,149 +273,26 @@ class _EmployeeHomeScreenState extends ConsumerState<EmployeeHomeScreen> {
                   if (nothingGranted) const _NoPermissions(),
 
                   /*
-                   * إنشاءُ حوالة — أوّلاً لأنه العملُ الذي يقف له الزبون.
+                   * ⚠ **«بلا صلاحيات» تُشتقّ من البلاطات نفسِها — لا من قائمة.**
                    *
-                   * ⚠ ويفتح **شاشة الوكيل نفسَها** (`/send/internal`): أمرُ
-                   * المالك أن الموظف واجهةٌ من وكيل لا كيانٌ ثانٍ، فنموذجُ
-                   * الحوالة واحدٌ للاثنين. والمستودعُ وحده يبدّل المسار إلى
-                   * نظيره تحت `device/employee/`.
+                   * كانت تُحسب من خمسة مفاتيح مكتوبةً بأسمائها، والشاشةُ تعرض
+                   * ثلاثَ عشرةَ بلاطة. فنتج عن ذلك خللان يخالفان القاعدة:
+                   *
+                   *   • موظفٌ مُنح «البحث برقم الحوالة» وحدَها — أو المفضّلة أو
+                   *     الدردشة أو التقارير — كان يرى لافتة «لم تُمنح أي صلاحية»
+                   *     **فوق بلاطةٍ تعمل**. فيظنّ الوكيل أن المنح أخفق.
+                   *
+                   *   • وموظفٌ مُنح «تسجيل التسليم» بلا «عرض الحوالات الواردة»
+                   *     كان يرى شاشةً فارغة بلا لافتةٍ تشرح — لأن بلاطة الوارد
+                   *     تشترط العرض.
+                   *
+                   * فالبلاطاتُ تُبنى قائمةً أولاً، ثم تُسأل: أفارغةٌ هي؟ وبذلك
+                   * تُحسب بلاطةٌ تُضاف غداً وحدَها، ولا تُنسى في قائمةٍ ثانية.
                    */
-                  if (canCreate) ...[
-                    _Tile(
-                      icon: Icons.north_east_rounded,
-                      title: 'إنشاء حوالة',
-                      subtitle: 'حوالة محلية باسم الوكيل',
-                      onTap: () => context.push('/send/internal'),
-                    ),
-                    if (canSeeIncoming) const SizedBox(height: R.gapRow),
-                  ],
 
-                  if (canSeeIncoming)
-                    _Tile(
-                      icon: Icons.call_received_rounded,
-                      title: 'الحوالات الواردة',
-                      subtitle: p.can('DELIVER_TRANSFER')
-                          ? 'اعرض وسجّل التسليم'
-                          : 'عرض فقط',
-                      onTap: () => context.push('/employee/transfers'),
-                    ),
-
-                  // ⚠ «طلباتي» تظهر لمن يُنشئ الحوالات وحدَه: من لا
-                  // يُنشئ لا طلباتِ له. ونتيجةُ الطلب تُقرأ هنا لا تُسأل
-                  // من الوكيل — والموظفُ واقفٌ أمام زبونٍ ينتظر.
-                  if (canCreate) ...[
-                    const SizedBox(height: R.gapRow),
-                    _Tile(
-                      icon: Icons.fact_check_outlined,
-                      title: 'طلباتي',
-                      subtitle: 'الحوالات التي تنتظر موافقة الوكيل',
-                      onTap: () => context.push('/employee/approvals'),
-                    ),
-                  ],
-
-                  /*
-                   * ⚠ كلُّ بلاطةٍ خلف صلاحيتها — ولا تظهر لمن لم
-                   * يُمنحها. والإخفاءُ تجميل: الخادم يردّ 403 على كلّ
-                   * نداء. لكنّ بلاطةً تُفتح فتُخفق تُعلّم الموظف أنّ
-                   * التطبيق معطوب، فلا تُعرض أصلاً.
-                   */
-                  if (p.can('VIEW_POS_TRANSFERS')) ...[
-                    const SizedBox(height: R.gapRow),
-                    _Tile(
-                      icon: Icons.storefront_outlined,
-                      title: 'حوالات نقطة بيعي',
-                      subtitle: 'عملي على نقطة البيع الحالية',
-                      onTap: () => context.push('/employee/pos-transfers'),
-                    ),
-                  ],
-
-                  if (p.can('SEARCH_TRANSFER')) ...[
-                    const SizedBox(height: R.gapRow),
-                    _Tile(
-                      icon: Icons.search_rounded,
-                      title: 'بحث برقم الحوالة',
-                      subtitle: 'ابحث عن حوالة بعينها',
-                      onTap: () => context.push('/employee/search'),
-                    ),
-                  ],
-
-                  // ⚠ «التقارير» بوّابةٌ لها مفتاحها، وكلُّ تقريرٍ
-                  // داخلها له مفتاحُه — فوكيلٌ يُري موظّفَه تقريراً
-                  // واحداً دون سائرها يستطيع ذلك.
-                  if (p.can('REPORTS_VIEW')) ...[
-                    const SizedBox(height: R.gapRow),
-                    _Tile(
-                      icon: Icons.insert_chart_outlined_rounded,
-                      title: 'التقارير',
-                      subtitle: 'حوالات اليوم والمسلَّمة والخزينة',
-                      onTap: () => context.push('/employee/reports'),
-                    ),
-                  ],
-
-                  if (p.can('VIEW_AGENT_TOTAL_BALANCE') ||
-                      p.can('VIEW_FINANCIAL_SUMMARY')) ...[
-                    const SizedBox(height: R.gapRow),
-                    _Tile(
-                      icon: Icons.account_balance_wallet_outlined,
-                      title: 'الأرصدة',
-                      subtitle: 'رصيد الوكيل والملخّص اليومي',
-                      onTap: () => context.push('/employee/balances'),
-                    ),
-                  ],
-
-                  if (p.can('VIEW_FAVORITES')) ...[
-                    const SizedBox(height: R.gapRow),
-                    _Tile(
-                      icon: Icons.people_outline_rounded,
-                      title: 'المستفيدون',
-                      subtitle: p.can('MANAGE_FAVORITES')
-                          ? 'المفضّلة — عرضٌ وإدارة'
-                          : 'المفضّلة — عرض فقط',
-                      onTap: () => context.push('/employee/favorites'),
-                    ),
-                  ],
-
-                  // كشفُ حوالاته — تحت صلاحية عرض حوالاته نفسِها.
-                  if (p.can('VIEW_OWN_TRANSFERS')) ...[
-                    const SizedBox(height: R.gapRow),
-                    _Tile(
-                      icon: Icons.receipt_long_outlined,
-                      title: 'كشف حوالاتي',
-                      subtitle: 'ما قبضتُ وما سلَّمتُ والصافي',
-                      onTap: () => context.push('/employee/statement'),
-                    ),
-                  ],
-
-                  if (canCashbox) ...[
-                    const SizedBox(height: R.gapRow),
-                    _Tile(
-                      icon: Icons.savings_outlined,
-                      title: 'خزينتي',
-                      subtitle: hasShift
-                          ? 'حركات الوردية والنقد المتوقّع'
-                          : 'ابدأ وردية لتسجيل الحركات',
-                      onTap: () => context.push('/employee/cashbox'),
-                    ),
-                  ],
-
-                  // مراسلة الوكيل — صلاحيةٌ تُمنح كسائرها، فلا تظهر لمن لم
-                  // يمنحه وكيلُه إيّاها. والخادم يرفضها كذلك: إخفاء البطاقة
-                  // تجميل، والحارس في الوسيط.
-                  if (p.can('CHAT_WITH_AGENT')) ...[
-                    const SizedBox(height: R.gapRow),
-                    _Tile(
-                      icon: Icons.chat_bubble_outline_rounded,
-                      title: 'مراسلة الوكيل',
-                      subtitle: 'اسأل أو أبلغ عن أمرٍ في العمل',
-                      onTap: () => Navigator.of(context, rootNavigator: true).push(
-                        MaterialPageRoute(
-                          builder: (_) => const ChatScreen(
-                            title: 'الوكيل',
-                            asEmployee: true,
-                          ),
-                        ),
-                      ),
-                    ),
+                  for (var i = 0; i < tiles.length; i++) ...[
+                    if (i > 0) const SizedBox(height: R.gapRow),
+                    tiles[i],
                   ],
 
                   const SizedBox(height: 24),
@@ -579,6 +636,18 @@ class EmployeeCashboxScreen extends ConsumerStatefulWidget {
 }
 
 class _EmployeeCashboxScreenState extends ConsumerState<EmployeeCashboxScreen> {
+  /*
+   * تبويبان لا شاشتان.
+   *
+   * «الوردية» تجيب «ماذا معي الآن ومن أين جاء؟»، و«كشف الحركة» يجيب
+   * «ماذا جرى في خزينتي ومتى؟» — وهو سؤالُ الجرد. والثاني لا يُغني عن
+   * الأول: الموظف يسجّل نقداً وارداً وصادراً من الوردية، وكشفٌ للقراءة
+   * لا يُسجَّل منه شيء.
+   *
+   * ⚠ ولا شيءَ حُذف من «الوردية»: ما كان معروضاً فيها باقٍ كما هو.
+   */
+  bool _onLedger = false;
+
   Map<String, dynamic>? _data;
   bool _loading = true;
   String? _error;
@@ -617,6 +686,18 @@ class _EmployeeCashboxScreenState extends ConsumerState<EmployeeCashboxScreen> {
       child: Column(
         children: [
           RhallaAppBar(title: 'خزينتي', onBack: () => context.pop()),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(R.padScreen, 12, R.padScreen, 0),
+            child: _Segments(
+              onLedger: _onLedger,
+              onPick: (v) => setState(() => _onLedger = v),
+            ),
+          ),
+
+          if (_onLedger)
+            const Expanded(child: EmployeeLedgerView())
+          else
           Expanded(
             child: _loading
                 ? Center(child: CircularProgressIndicator(color: R.primary))
@@ -1111,3 +1192,50 @@ final custodyProvider = FutureProvider.autoDispose<Custody>((ref) async {
   final env = await ref.watch(apiClientProvider).get('/device/employee/custody');
   return Custody.fromJson(env.row ?? const {});
 });
+
+/// تبويبا «خزينتي»: الوردية · كشف الحركة.
+///
+/// ⚠ اثنان لا ثلاثة، ولا قائمةٌ منسدلة: الموظف يسأل سؤالين لا أكثر — «ماذا
+/// معي الآن؟» و«ماذا جرى؟» — وكلُّ تبويبٍ ثالثٍ يجعله يبحث عن أيّهما يريد.
+class _Segments extends StatelessWidget {
+  const _Segments({required this.onLedger, required this.onPick});
+
+  final bool onLedger;
+  final ValueChanged<bool> onPick;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(child: _one('الوردية', Icons.point_of_sale_rounded, false)),
+          const SizedBox(width: 8),
+          Expanded(child: _one('كشف الحركة', Icons.receipt_long_rounded, true)),
+        ],
+      );
+
+  Widget _one(String label, IconData icon, bool ledger) {
+    final on = onLedger == ledger;
+    return GestureDetector(
+      onTap: () => onPick(ledger),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 11),
+        decoration: BoxDecoration(
+          gradient: on ? R.primaryGradient : null,
+          color: on ? null : R.whiteA(.66),
+          border: Border.all(color: on ? Colors.transparent : R.inkA(.08)),
+          borderRadius: BorderRadius.circular(R.rPill),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 15, color: on ? Colors.white : R.inkA(.55)),
+            const SizedBox(width: 6),
+            Text(label,
+                style: T.plex(12, FontWeight.w600,
+                    color: on ? Colors.white : R.inkA(.6))),
+          ],
+        ),
+      ),
+    );
+  }
+}

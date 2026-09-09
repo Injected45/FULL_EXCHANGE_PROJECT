@@ -25,7 +25,14 @@ sort($enforced);
 $live = EmployeePermissions::LIVE;
 sort($live);
 
-$missingRoute = array_values(array_diff($live, $enforced));
+/*
+ * ⚠ مفاتيحُ بوّابةِ الواجهة تُستثنى — غيابُ المسار فيها مقصودٌ لا سهو.
+ *
+ * والاستثناءُ يُقرأ من `EmployeePermissions::UI_ONLY` لا يُكتب هنا:
+ * قائمتان تفترقان يوماً ما، فيمرّ سهوٌ حقيقيّ لأن الفحصَ يستثنيه.
+ */
+$missingRoute = array_values(array_diff($live, $enforced,
+    \App\Services\Employees\EmployeePermissions::UI_ONLY));
 $missingLive  = array_values(array_diff($enforced, $live));
 
 echo 'مفاتيح تفرضها المسارات (' . count($enforced) . '): ' . implode('، ', $enforced) . PHP_EOL;

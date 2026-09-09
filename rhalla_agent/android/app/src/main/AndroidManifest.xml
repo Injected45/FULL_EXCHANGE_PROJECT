@@ -18,6 +18,12 @@
          طريقاً كاملاً لا بديلاً ناقصاً. -->
     <uses-permission android:name="android.permission.CAMERA"/>
 
+    <!-- المصادقة الحيويّة لقفل التطبيق بعد الخمول.
+         ⚠ `USE_BIOMETRIC` وحدَه (API 28+) — و`USE_FINGERPRINT` مهجورٌ
+         ولا يُضاف: Play يُنبّه على الأذونات المهجورة في المراجعة.
+         ولا تُخزَّن بياناتٌ حيويّة: النظامُ يُعيد نجاحاً أو فشلاً. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+
     <!-- والكاميرا ليست شرطاً لتشغيل التطبيق — كالميكروفون تماماً:
          بدون هذا يُخفي Google Play التطبيق عن كل جهازٍ بلا كاميرا. -->
     <uses-feature android:name="android.hardware.camera" android:required="false"/>

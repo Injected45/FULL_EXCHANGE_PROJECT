@@ -457,6 +457,22 @@ public function updatePassword(Request $request)
         return $this->sendError('خطأ في التحقق من البيانات.', $validator->errors(), 422);
     }
 
+    /*
+     * ⚠ **لا يُغيَّر إلّا ما يخصّ صاحب الجلسة.**
+     *
+     * المسارُ صار خلف `auth:sanctum` (9 سبتمبر 2026)، لكنّ ذلك وحدَه لا
+     * يكفي: الهاتفُ يأتي في جسم الطلب، فوكيلٌ داخلٌ كان يستطيع تعيين
+     * كلمةِ مرورٍ لوكيلٍ آخر بمجرّد إرسال رقمه.
+     *
+     * والرسالةُ 403 لا 404: من دخل بجلسةٍ صحيحة ثمّ حاول رقماً ليس رقمه
+     * لا يُخفى عنه شيء — وإخفاءُ وجود الحساب هنا لا يشتري أمناً.
+     */
+    $me = $request->user();
+    if (!$me || (string) $me->phone !== (string) $request->phone) {
+        return $this->sendError(
+            'لا يمكن تغيير كلمة مرور حسابٍ آخر.', 'NotOwner', 403);
+    }
+
     // ✅ التحقق من وجود المستخدم
     $user = DB::table('users')->where('phone', $request->phone)->first();
 

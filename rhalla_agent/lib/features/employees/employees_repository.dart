@@ -200,6 +200,8 @@ class PermissionItem {
     required this.key,
     required this.label,
     required this.live,
+    required this.sensitive,
+    required this.why,
   });
 
   final String key;
@@ -219,10 +221,31 @@ class PermissionItem {
   /// «غير مفعّل» حينئذٍ أسوأ من عدم الوسم.
   final bool live;
 
+  /// **لا تُمنح مع مجموعتها** — تُختار بيدها ويُسأل الوكيل قبل تشغيلها.
+  ///
+  /// ⚠ لم تُوضَع لتسرُّبٍ في الخادم: كلُّ مسارِ رصيدٍ يردّ 403 بلا صلاحيته،
+  /// وقد فُحص. وُضعت لأن **«تحديد الكل»** على مجموعة التقارير كان يمنح رصيدَ
+  /// الوكيل معها — والوكيل يضغطها ليُعطي تقاريرَ اليوم، فيُسلّم رصيدَه في
+  /// الضغطة نفسها بلا أن يلاحظ.
+  ///
+  /// والعَلَمُ من الخادم لا من قائمةٍ هنا: القاعدةُ أنّ **لا مفتاحَ صلاحيةٍ
+  /// يُكتب في ملفّ Dart**، فمفتاحٌ يُوسَم غداً يسري بلا إصدارٍ جديد.
+  ///
+  /// ⚠ والافتراضُ `false` عند غيابها — عكسَ [live]: خادمٌ قديم لا يُرسلها،
+  /// ووسمُ كلِّ شيءٍ حسّاساً حينئذٍ يمنع «تحديد الكل» من فعل أيّ شيء.
+  final bool sensitive;
+
+  /// ماذا سيرى الموظف بالضبط — يُعرض في سؤال التأكيد.
+  ///
+  /// «تحذير» مجرَّدٌ يُقرأ روتيناً، وجملةٌ تسمّي ما سيُكشَف تُقرأ قراراً.
+  final String? why;
+
   static PermissionItem fromJson(Map<String, dynamic> j) => PermissionItem(
         key: '${j['key'] ?? ''}',
         label: '${j['label'] ?? ''}',
         live: j['live'] == null || j['live'] == true || j['live'] == 1,
+        sensitive: j['sensitive'] == true || j['sensitive'] == 1,
+        why: (j['why'] as Object?)?.toString(),
       );
 }
 

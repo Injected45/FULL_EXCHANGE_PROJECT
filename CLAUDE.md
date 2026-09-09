@@ -136,7 +136,7 @@ Fifteen tables (`backend/database/sql/employees/`), and these are the decisions 
 2. **The employee is not a row in `users`,** and activation issues no Sanctum token. `employee_sessions` is a separate table behind a separate middleware — the surest way to keep an employee session from ever becoming an admin one.
 3. **Attribution never touches `InternalEx`.** `transfer_attributions` records who created or delivered a transfer, from which POS and device, beside the core ledger rather than inside it.
    **Two employees delivering the same transfer at the same instant cannot both win.** What guarantees it is the `where('status', PENDING)` inside `markDelivered`'s own `UPDATE`, not the `first()` above it: concurrent requests serialize on the row lock and the loser re-evaluates the predicate against the committed value, so it affects zero rows. Measured with three simultaneous processes on one row — one `changed => true`, one `transfer_status_history` row. Everything with a financial or reporting effect (the attribution, the cashbox `TRANSFER_DELIVERY` entry, the audit record) sits inside `if ($result['changed'])` in `EmployeeController::deliver`, so the losers write nothing. The loser's response re-reads the row rather than returning the stale pre-update copy — otherwise it says "already delivered" while carrying `PENDING_DELIVERY`, and the delivery button stays live in that employee's app for a transfer that was already paid.
-4. **Permissions are granted rows, never columns.** No row means denied. A feature added tomorrow appears in the server-side catalog (`EmployeePermissions::CATALOG`) already denied to everyone, with no migration and no app release — which is why no permission name is written in any Dart file.
+4. **Permissions are granted rows, never columns.** No row means denied. A feature added tomorrow appears in the server-side catalog (`EmployeePermissions::CATALOG`) already denied to everyone, with no migration and no app release — which is why no permission name is written in any Dart file. **Two of them can never be granted by a bulk tap** — see below.
 5. **A code used on a second device is burned, not just refused.** Status becomes `COMPROMISED`, sessions and devices drop, and the code no longer works even on the original device. Painful on purpose: the alternative leaves a leaked code valid.
 6. **Failure messages are uniform** ("رقم الهاتف أو كود التفعيل غير صحيح") so they cannot be used to discover which numbers are registered. The one exception is `COMPROMISED`, because the real employee must know why their code stopped.
 7. **An unused code dies after ten minutes** (`CODE_TTL_MINUTES`, owner's order 8 Sep 2026: «يمنع ترك صلاحية المفتاح مفتوحة»). Three details in that: it is **burned in the database**, not merely refused — a code that is rejected today but stays `ACTIVE` is a live key waiting for the rejection to be "fixed"; it applies to `ACTIVE` only, since a `USED` code has already bound a device and re-activating that same device is a legitimate path; and the message says plainly that it expired, breaking the uniform-message rule on purpose, because whoever reached that point already proved they hold a valid code for that number, and telling them "wrong number or code" sends them to retry nine more times. The agent's sheet says the ten minutes out loud for the same reason — a rule nobody was told about reads as a broken app.
@@ -151,6 +151,174 @@ Three things about that line are the point of it:
 - **The sign flips the sentence, not just the number.** Positive means cash he holds and owes; negative means he paid out more than he took in and the agent owes *him* — real whenever an employee starts a shift with no float and delivers transfers from his own money. The value is rendered absolute and the text carries the direction, because a bare minus sign reads as a shortage in his custody when he is in fact the creditor.
 - **With no open shift it shows nothing at all — not zero.** Zero reads as "nothing owed", which is a different statement from "hasn't started", and the difference between them is a full day's work.
 
+### The employee's cashbox statement, and delivery as a shared entity (9 Sep 2026)
+
+`GET device/employee/cashbox/ledger` (behind `VIEW_OWN_CASHBOX`, read-only, scoped to the session's employee — **no parameter accepts an employee id**, so one employee's statement is unreachable from another's token). `EmployeeCashboxLedger` computes it; nothing is stored. 59 checks in `tests/manual/employee_cashbox_ledger_acceptance.php`, ending in the usual financial-invariant snapshot.
+
+**The running balance restarts at every shift, and that is the accounting, not a limitation.** `opening_cash` is a column on the shift, not an entry — `expectedCash` reads it and adds the shift's entries. So summing every shift's opening plus every entry produces a number that means nothing. The deeper reason is that **a shift is a settlement cycle**: it closes by counting the cash and handing it over, and the next opens with a float the employee declares — not with what the last one ended at. A balance continuing across that boundary asserts a continuity that does not exist. The statement is therefore sections, one per shift: a synthetic opening row, the movements, and for a closed shift a closing row carrying expected / counted / difference **read from `employee_shift_closings`, not recomputed** (an entry added after the close would otherwise produce a different difference today than the one recorded that night).
+
+Four more things in it:
+
+- **The opening and closing rows are synthetic and never written.** Writing the opening as an entry would count it twice — once as an entry, once from the shift column.
+- **The opening is not summed into `in`.** The equation is `opening + in − out`; folding it into `in` double-counts it in the displayed total.
+- **A reversed entry is shown, struck through, and not counted.** `expectedCash` excludes both the reversed original and the reversal, so the statement must exclude the same pair or its balance would disagree with the shift close. It stays visible because correction is by reversal, not deletion.
+- **An entry with `shift_id = NULL` gets its own section rather than being dropped.** Dropping it would make the statement's total disagree with the table's — the one thing a stocktake must never do.
+
+**Type names come from the server (`EmployeeCashboxLedger::TYPES`), not the app.** A type added tomorrow shows its Arabic name with no app release. The app had no case for `TRANSFER_CREATED` — the most common IN movement — and rendered it as «حركة».
+
+**A silent accounting hole was found and closed here.** `UX_entry_reference` is unique on `(reference_type, reference_id)`, and both the create path and the delivery path wrote `INTERNAL_TRANSFER`. A transfer an employee **created** and later **delivered** — ordinary when the destination point of sale belongs to the same agent — collided on the second entry, and `addEntry` returns `['duplicate' => true]` **without inserting and without throwing**. The OUT entry vanished silently, the employee's custody overstated by the transfer amount, and the shift close reported a phantom **surplus**. Creation now writes `INTERNAL_TRANSFER_CREATED`; the index guards one entry per *action*, which is what it was for. Rows written before the fix are left exactly as they are — a movement is never edited or deleted.
+
+**Delivery was already atomic and stays so.** The guarantee is the `where('status', PENDING)` inside `markDelivered`'s own `UPDATE`, and it was verified again the only way that means anything: **four genuinely parallel HTTP requests from two employees against one transfer** (`curl_multi`, not a loop — a sequential loop proves idempotency and nothing about concurrency). Exactly one `changed`, one attribution, one cashbox entry, one history row. What was added:
+
+- **`transfer_status_history.changed_by_employee_id`.** `changed_by` carries the *agent* id on both paths, because the employee acts as a face of the agent — so the transition row itself could not tell an agent's delivery from an employee's. The identity was recoverable from `transfer_attributions` and `audit_logs`, but whoever reads a transfer's history reads this table, not three joined on timestamp.
+- **The audit row now carries old and new status**, so one row answers the whole compliance question: who moved what, from which state to which.
+- **«تم تسليم هذه الحوالة مسبقاً» is said only to whoever was actually beaten.** A repeat after a dropped connection is the *same* request retried; telling that employee the delivery failed when it succeeded is how someone pays twice. The two are distinguished by reading `transfer_attributions` — same employee ⇒ silent success, someone else ⇒ the message. Both return 200 with the fresh row, because the requested state *is* achieved and an error status leaves stale lists on screen.
+
+**«بانتظار التسليم» is behind `DELIVER_TRANSFER`, not `VIEW_INCOMING_TRANSFERS`** (owner, 9 Sep 2026). It is a work queue, not a view: showing it to someone who cannot act on it makes them tell a beneficiary "your transfer is here" and then fail. «تم التسليم» and «الملغاة» stay with the view permission. Enforced in the controller — including the no-parameter default, or dropping the parameter would walk straight past the guard.
+
+**The employee's incoming list polls every 30 s** (the bell's own cadence), stops when backgrounded, refreshes on resume, and shows no spinner on a pulse. Without it a transfer a colleague delivered stays on screen until someone pulls to refresh — and the server would refuse the second delivery, correctly, but the employee is standing in front of a customer and may have paid from the drawer already.
+
+### "Opens with nothing, and every grant shows" — verified, and half of it was broken
+
+Owner's question (9 Sep 2026). The first half held; the second did not.
+
+**Nothing is granted at creation, and that is now proven through the agent's own endpoint** rather than by inserting a row: `POST employees` creates with `status = PENDING_ACTIVATION` and zero permission rows, `employee/me` returns `permissions: []` (an empty array, not a missing key), and each of the twelve route-guarded keys returns 403 before its grant and opens after it. `tests/manual/employee_default_deny_check.php`, 12 checks.
+
+Two things that suite got wrong first, and both would have made it pass while proving nothing: a forged session on a `PENDING_ACTIVATION` employee returns 401 on everything, and the "did the door open?" rule was `status != 403` — which counted every one of those 401s as an opened door. The rule is now "not 401 and not 403", because 422 *is* proof the gate was passed (`SEARCH_TRANSFER` rejects a dummy transfer number after the middleware, correctly).
+
+**The second half was broken: `nothingGranted` was computed from five hand-listed permissions while the screen renders thirteen tiles.** So:
+
+- An employee granted only `SEARCH_TRANSFER` — or favourites, chat, reports, POS transfers, own transfers, or the balances pair — saw «لم تُمنح صلاحيات بعد» **above a working tile**. The agent, being told the employee sees nothing, would conclude the grant had failed.
+- An employee granted only `DELIVER_TRANSFER` saw a blank screen with no banner at all, because the incoming tile requires `VIEW_INCOMING_TRANSFERS`. Same for `CASHBOX_ENTRY` without `VIEW_OWN_CASHBOX`.
+
+The tiles are now built into a `List<Widget>` and the banner is `tiles.isEmpty && !canStartShift && !hasShift` — derived from what the screen actually offers, so a tile added tomorrow counts itself instead of being forgotten in a second list. The shift card counts as work, so `START_SHIFT` alone is not "no permissions".
+
+The two permission pairs that produced a blank screen now each get a tile that says what is missing («تحتاج صلاحية … — راجع وكيلك») instead of rendering nothing. And gaps moved out of the tiles: the create tile used to carry a trailing gap conditional on the *next* tile's permission, which left a floating gap whenever that next one was denied.
+
+`test/employee_home_permissions_test.dart` (9 tests) walks every catalog key one at a time and asserts the banner and a tile are never on screen together — it was run against the old computation first and failed on `DELIVER_TRANSFER`, which is the only reason to trust it. Seven report/favourite/close-shift keys are deliberately listed as reachable only from inside another tile; for those the banner is the truth.
+### ⚠⚠ The sovereign approval gate — nothing reaches the agent before Rhalla approves it
+
+Owner's standing rule, restated on 9 Sep 2026 after he found it broken: *«عند تنفيذ حوالة من الرحالة لا تصل إلى الوكيل ولا يراها في التطبيق ولا يصل إليه أيُّ إشعارٍ أو رسالة إلّا بعد أن تُعتمد من إدارة الرحالة».*
+
+**Why it came apart, and it is the lesson, not the bug.** `syncFromCore` ingests `ConfirmType = 2` and nothing else, so the rule looked guarded at the door. It was not: **approval is withdrawn after arrival**, `refreshCoreState` updates the number on the existing row and does not hide it, and every reader asked "is it *not cancelled*?" (`CORE_CANCELLED = [3,4,5,6]`) — so state `0`, *not approved*, sailed through all of them.
+
+It leaked in **seven** places: the list (delivered / cancelled / no-tab branches), the counts, **the alerts bell**, the employee's pending report, the agent's summary, the employee transfer views, and the home-screen badge. Guarding the entrance is not guarding the thing; **every read path is a gate**.
+
+`AgentIncomingTransfersService::onlyApproved()` is now the single place that knows what may be seen, and every reader passes through it:
+
+- **`CORE_VISIBLE = [2, 3, 4, 5, 6]` is an allow-list, deliberately.** Approved, plus cancelled-after-approval (the agent must learn it was cancelled). A deny-list would silently admit every new state the core system invents later — a door nobody opened.
+- **`null` is admitted on purpose**: a row whose state has not been refreshed yet. It cannot have entered unapproved (sync requires 2), and excluding it would empty the screen on a first run before sync completes.
+- **The gate sits on the base query, not on the branches.** A branch added tomorrow inherits it instead of waiting for someone to remember.
+- **`markDelivered` refuses too** (`not_approved`, surfaced in both delivery paths as «هذه الحوالة غير معتمدة في المنظومة — لا يجوز تسليمها»). Hiding it from a tab is cosmetic: the screen may have been open since before the withdrawal, and the request can come from outside the app.
+
+The seventh place — the two subqueries in `depositController` that label a row of the agent's own statement — was examined and **left alone**: an unapproved transfer produces no `ExchangeAccData` movement at all (verified: `InternalEx` held 2 unapproved rows while `ExchangeAccData` was empty), so there is no row to label, and editing that large financial statement query buys nothing against real risk.
+
+**`tests/manual/approval_gate_check.php` (14 checks) guards it in two layers**, because a behavioural test only covers the ports that exist today:
+
+1. **Behavioural** — it creates a genuinely unapproved row and asks every port whether it can see it: four tabs, search by number, the counters, **the bell**, the employee report, and delivery. Then it approves the row and confirms it appears immediately (the gate is not a blanket ban), then withdraws approval and confirms it disappears again — the exact case that broke.
+2. **Structural** — it scans `app/` and `tests/manual/` for any file touching `agent_incoming_transfers` without going through `onlyApproved`, and fails naming the file. Exemptions are listed **by name with a written reason**, never by silence. So a port added next month and written the old way fails this check instead of waiting for an agent to pay out cash on a transfer the system does not recognise.
+
+Proven by reintroducing the old predicate: the check failed on five ports at once, then passed again when restored.
+
+⚠ **The pre-existing `agent_incoming_acceptance` check was measuring the wrong thing** and had been failing (`leaked=1`). It counted unapproved rows *present in the table*, which catches a sync leak and nothing else — and a row whose approval was withdrawn legitimately stays (approval can return; deleting it erases its history). It now measures what it can honestly prove: that **sync introduces no new** unapproved row, with visibility and deliverability covered by the two checks added beside it.
+
+### Readiness audit (9 Sep 2026) — three real defects found and fixed
+
+The owner asked for a full readiness pass over both apps. Everything was green before it started, which is exactly why the pass was worth doing: both defects were in paths no test covered.
+
+**⚠ 1. `device/update/password` was still a public account-takeover route.** Knowing a phone number and a device id was enough to set a new password with no OTP and no session, and `device/login` then accepts it — full control of a financial account. This file and `auth_repository.dart:151` had *named* it a hole since `otp/login` was added, and the route stayed open anyway; nothing in the project calls it (not the agent app, not the desktop app, not the support SPA).
+
+Closed in two layers, because either alone is insufficient: the route now requires `auth:sanctum`, **and** the handler rejects a phone that is not the session owner's — the phone arrives in the request body, so a signed-in agent could otherwise have reset another agent's password. `tests/manual/auth_surface_check.php` (10 checks) holds both shut and also guards the routes that must stay open (`otp/send`, `employee/activation/request`) against being closed by mistake, since closing those blocks every login.
+
+**⚠ 2. The idle lock fired with no session behind it.** An agent sitting on the phone/OTP screen — or an employee on the activation screen — who backgrounded the app for six minutes came back to «التطبيق مقفل» over a login screen. Tapping «فتح بالبصمة» led to the same login screen; a device with no biometrics offered only «الدخول بالتحقّق من جديد», to someone who had not logged in. `AppLockController` now reads `SecureStore.readToken()` (which returns the employee *or* agent token, so one guard covers both modes) and does not lock without one. `lockNow()` carries the same guard and became async for it.
+
+**⚠ 3. An un-approved transfer stayed deliverable.** `syncFromCore` ingests `ConfirmType = 2` and nothing else, so the ledger only ever receives approved transfers — but **neither the display nor the delivery path re-applied that rule**. The pending filter asked "is it not cancelled?" (`CORE_CANCELLED = [3,4,5,6]`), so a transfer whose approval was **withdrawn in the core system after it arrived** kept sitting in «بانتظار التسليم», and `markDelivered` would record a delivery for it. The agent pays out cash for a transfer the system no longer recognises.
+
+`CORE_APPROVED = 2` now gates both: the pending tab shows only `core_confirm_type = 2` (or `null`, meaning never refreshed — excluding null would empty the tab on a first run before sync), and `markDelivered` returns `not_approved` for anything else, surfaced in both delivery paths as «هذه الحوالة غير معتمدة في المنظومة — لا يجوز تسليمها».
+
+The existing suite caught it — `agent_incoming_acceptance` had been failing on «غير المعتمدة لا تصل إلى الوكيل» (`leaked=1`). ⚠ **But that check only measured whether the row exists in the table**, which catches a sync leak and nothing else; the row in question was old residue, and deleting it plus re-running sync confirmed sync does not recreate it. The check now also asserts the two things that actually protect the agent — that such a row is **not shown** in the pending tab and that `markDelivered` **refuses** it. 13 → 16 checks.
+
+**Two new checks that no existing suite performed:**
+
+- `tests/manual/app_routes_wiring_check.php` extracts every `/device/*`, `/agent/*`, `/employees*` path written as a string literal in `rhalla_agent/lib` and matches it against Laravel's route table — 99 paths, all registered. **A typo in a path string is invisible to `flutter analyze` and to every test**, because it is a string, not a symbol; it surfaces as a 404 in an agent's hands. The same file also asserts no employee route lacks a session guard and no financial route is open without authentication (`forgien/exchange/deposit/store` is excluded **by name** — it is a customer account-opening request that writes to a request queue, not a ledger).
+- A route-middleware sweep confirmed the only unguarded employee routes are the three activation endpoints, which cannot have a session by definition and are guarded by rate limiting and code/OTP verification instead.
+
+**What the audit could not verify, and why:** the employee UI against a live session on the emulator. That needs an activation code plus an OTP delivered to a real WhatsApp number, and sending real messages to the owner's staff to satisfy a test is not something to do unasked. The employee surface is covered instead by the HTTP acceptance suites, which forge sessions for throwaway employees and delete them.
+
+### App lock after idle, and why OTP AutoFill cannot apply here (9 Sep 2026)
+
+Owner asked for faster verification and an idle lock. **The app is going to Google Play and the App Store** (his instruction, same day), so every part of this was measured against both stores.
+
+#### What was already there — and was not rebuilt
+
+Auto-verify on the fourth digit already existed on **both** OTP screens (`otp_screen.dart:89`, `employee_activation_screen.dart:89`). Nothing was added for it.
+
+#### ⚠ OS AutoFill genuinely cannot present on these screens
+
+`AutofillHints.oneTimeCode` (and iOS `textContentType: .oneTimeCode`) renders **above the system keyboard** and needs a focused real text field. Neither OTP screen has one: they are display boxes plus a drawn keypad, and that is a written decision — `employee_activation_screen.dart:64` says «الشاشة لا تحوي `TextField` للرمز أصلاً، فلا كيبورد نظام يفتح لها». Adding a hidden field to summon AutoFill would open the system keyboard over the drawn keypad, to surface a suggestion that **would not appear anyway**: the OS reads *SMS* for one-time codes, not WhatsApp.
+
+And reading WhatsApp is not something to engineer around — no Accessibility Service, no Notification Listener, no `READ_SMS`. Each is a Play rejection and an App Review rejection.
+
+So the friction was removed where it actually is: **«لصق الرمز المنسوخ»** (`otp_paste.dart`). `extractOtp` takes the message as copied («رمز التحقق الخاص بك هو: 4821»), not a bare number, and refuses to guess — a phone number in the clipboard (`0922015243`) yields nothing rather than `0922`, which would burn an attempt, and two candidate 4-digit runs yield nothing. The clipboard is read **only on an explicit tap**: iOS shows its own paste prompt and Android 12+ toasts, and a silent read on screen-open produces that toast for no reason the user can connect to anything. Both screens route the pasted code into the same `_verify` the keypad uses — the server remains the only thing that decides.
+
+#### The lock itself
+
+`app_lock.dart` + `lock_gate.dart`, mounted above the `Navigator` in `main.dart` so it covers whatever was on screen. 26 tests in `test/app_lock_test.dart`.
+
+- **⚠ Idle is measured from a stored UTC timestamp, never an in-memory timer.** A timer stops when the OS suspends the app, so the user returns after an hour having aged the timer by seconds — and the lock never fires. The stored stamp also means closing the app does not evade it. UTC because a phone clock is set by hand and moves with the timezone.
+- **⚠ `inactive` does not record a departure; `paused` / `detached` / `hidden` do.** `inactive` fires for every system surface that covers the app — permission dialogs, the share sheet, an incoming call, **and the biometric prompt itself**. Recording it there makes a successful biometric unlock re-lock the app at the moment it succeeds.
+- **The stamp is written once**: `paused` then `detached` arrive in sequence, and letting the second overwrite would shorten every measured absence.
+- **It is a lock, not a logout.** The session stays, the widget tree stays mounted (so a half-filled transfer form survives), and the router does not move. The fallback for a device with no biometrics is a real sign-out plus the full verification flow — anything lighter would make the lock decorative.
+- **⚠ The veil also covers `unknown`,** the first frame before the stamp has been read. Otherwise balances paint and then hide — a flash that shows exactly what the lock exists to hide.
+- **The App Switcher veil keys on `inactive`** — the opposite of the lock, deliberately — because that is when the OS takes the preview snapshot. A fully blank Android preview needs `FLAG_SECURE`, which also disables the screenshots an agent may need for support, so it was left as the owner's call rather than imposed.
+- **No biometric data is stored or ever reaches the app.** `local_auth` over `BiometricPrompt` / `LocalAuthentication` returns success or failure and nothing else. `USE_BIOMETRIC` only, not the deprecated `USE_FINGERPRINT` (Play flags deprecated permissions in review), and `NSFaceIDUsageDescription` is mandatory — without it iOS terminates the app on the first call and Apple rejects the build.
+- **`MainActivity` is now `FlutterFragmentActivity`.** `BiometricPrompt` requires a `FragmentActivity`; with `FlutterActivity` the failure appears **only at the first unlock attempt in a user's hand** — not in analyze, not in the build.
+- **The class is `AppLockState`, not `LockState`** — Flutter exports its own `LockState` from `shortcuts.dart`, and the short name breaks every file that imports both.
+- APK cost: arm64 28.94 → 29.4 MB.
+
+#### ⚠ One Tap verification is designed and blocked on TLS — nothing was shipped for it
+
+The intended path — a link in the WhatsApp message that opens the app and completes verification with a single-use, short-lived, attempt-bound token verified server-side — is **blocked by transport, not by effort**:
+
+1. The gateway is send-text only (`send-text` on `wa.rhalla.online`). That part is fine: WhatsApp linkifies a URL in the message body.
+2. **But WhatsApp only linkifies `http(s)://`, and this backend has no HTTPS** (`http://102.214.165.242:8080`). A custom scheme (`rhalla://`) is not linkified at all, and any other installed app can claim it.
+3. **Android App Links and iOS Universal Links both require HTTPS** plus a hosted `assetlinks.json` / apple-app-site-association to be verified. Without verification there is no secure binding between the link and this app.
+
+Shipping it over HTTP would put a single-use authentication token in a cleartext URL that also lands in WhatsApp history and browser history. That is the same cleartext problem this file already names as the launch blocker, and it is **a store blocker on its own**: Apple's ATS and Android's default cleartext policy both refuse it, and neither `usesCleartextTraffic` nor an ATS exception is an acceptable answer for an app that carries balances and transfer codes.
+
+So One Tap waits on the TLS certificate that store submission needs regardless. No table, endpoint or deep-link scheme was added for it — an unused auth path is a liability, not progress.
+
+### Scan-to-find a transfer: built, then stopped at the owner's own decision (9 Sep 2026)
+
+`lib/features/transfers/transfer_qr.dart` (+18 tests) and the now-parameterised scanner exist and are green; **nothing user-facing ships**, because completing the loop would have reversed a decision the code records explicitly.
+
+The idea: the collection code goes on the receipt as text plus a QR, and the receiving agent or employee scans it instead of having the customer read a code aloud. Both dependencies are already bundled (`qr_flutter`, and `mobile_scanner` at 7 MB used only for employee activation), so it costs nothing to ship and needs no backend change — a scan just fills the existing search.
+
+**Then `success_screen.dart:28` turned up: `ولا رمز حوالة فيها — أزاله المالك صراحةً`.** The absence of a code on that receipt is the owner's explicit removal, not an oversight, and a collection code on a printed money document is exactly the kind of thing an owner removes for fraud reasons. It was reverted rather than argued with.
+
+The question left for the owner is a real distinction, not a re-ask: `CreatedTransfer` carries **two** codes — `code` (`Code`, the internal system key, e.g. `11261-54-13`) and `mobileCode` (`Code_For_mobules`, e.g. `542613`), whose own doc calls it «الرمز الذي يُعطى للمستفيد» and which `shareCode` exposes. `send_accounts_screen.dart:573` already displays `shareCode` on the account-transfer receipt, so showing it is not banned app-wide. Whether the removal covered the beneficiary's code as well as the internal one is his to say.
+
+What was kept, because it is inert and breaks nothing: the payload module with its tests, and `EmployeeQrScanScreen` generalised to take `accept` / `title` / `hint` / `note` / `fallbackHint` (defaults identical to the activation behaviour, so that path is byte-for-byte unchanged). What was **not** kept: the QR and code on the receipt, the code in the share text, and the scan buttons on both incoming-transfer screens — a scan button with no QR to read is a button that opens and does nothing, which is the failure this codebase already refuses elsewhere.
+
+### The agent's balance is never granted by a bulk tap (9 Sep 2026)
+
+Owner's instruction: the agent's balance must not appear in the employee app except by a permission the agent grants deliberately.
+
+**The balance was never leaking.** That was checked before changing anything: a session granted *every* permission except the three financial ones was pointed at every employee route, and `balance`, `summary` and `reports/agent-balance` all returned 403 while no other endpoint's body contained the number. `tests/manual/employee_sensitive_permissions_check.php` (19 checks) keeps that true.
+
+**What was actually wrong is «تحديد الكل».** The reports group contains `REPORT_AGENT_BALANCE`, so one tap meant to hand over the daily and delivered reports handed over the agent's balance with them — and the agent had no reason to look. Same for the balances group.
+
+So `EmployeePermissions::SENSITIVE` lists the two keys that expose that number, and:
+
+- **«تحديد الكل» skips them; «إلغاء الكل» clears them.** Deliberately asymmetric — the risk is in granting, and a revoke that quietly skipped one would leave the balance exposed while the agent believed he had closed the door.
+- **Switching one on asks first, switching it off does not.** A confirmation on the way out teaches the agent to tap through the one that matters.
+- **The question names what will be exposed** («سيرى الموظف رصيد وكالتك الكلّي») rather than "are you sure?". The sentence comes from the server (`SENSITIVE_WHY`), like the flag itself — no permission name and no warning text is written in any Dart file, so marking another key tomorrow needs no app release.
+- **The group's all/none button is computed over the non-sensitive items only.** Measured against the whole group it would never flip to «إلغاء الكل» in a group containing a sensitive key: the agent taps, everything grantable is granted, the label does not change, and he taps again thinking the screen is broken.
+- **`VIEW_FINANCIAL_SUMMARY` is deliberately *not* marked**, even though it sits in the balances group — `EmployeeReports::summary` returns today's count and total, the cashbox in/out/net and the pending count, and no agent balance. A flag that is not true where it claims to be teaches the agent to ignore the flag.
+
+The employee's «الأرصدة» tile now takes its title and subtitle from what was actually granted; it used to promise «رصيد الوكيل» to an employee holding only the summary permission, who would open it, find no balance, and go ask the agent for it.
+
+Unrelated but found while running the suites: `employee_permissions_wiring_check` had been failing on `REPORTS_VIEW`, which is `LIVE` with no route enforcing it — correct, because it only opens the reports section in the app while each report inside is guarded on its own route. It is now declared in `EmployeePermissions::UI_ONLY` and the check reads that list, so the rule states the truth instead of failing permanently — a check that always fails is a check nobody reads.
 **`CREATE_TRANSFER` is now wired — under the owner's explicit authorisation of 8 Sep 2026**, which came with the shape of the thing attached: «الموظف ينفذ الحوالة وكأنه الوكيل، عبارة عن واجهة من وكيل وليس مستقلاً استقلالية تامة». So the employee is a *face* of the agent, not a second party.
 
 That single sentence decides the architecture, and `EmployeeActsAsAgent` implements it literally: the employee's request is executed **as the agent** (`Auth::setUser($agent)` inside a try, restored in a `finally`), through the same `InternalExchange` the agent's own app calls. Verified byte-for-byte on a real transfer — `AccFrom`, `uesrID`, `SenderName` and `SPhone1` are identical to an agent-created row, and **no column in `InternalEx` mentions the employee at all**. Who actually typed it lives beside the ledger in `transfer_attributions`, never inside it.

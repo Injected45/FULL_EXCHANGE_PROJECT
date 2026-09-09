@@ -130,11 +130,17 @@ class AgentIncomingTransfersController extends BaseController
         //
         // 200 سقفٌ لا ترشيح: الجرس يعني الجديد، والأقدم من مئتَي حوالة
         // ليس جديداً بحال. وبلا سقف تكبر الحمولة بلا حدّ مع عمر الحساب.
-        $ids = DB::table('agent_incoming_transfers')
-            ->where('agent_id', (int) $user->id)
-            // ما محي أصله من المنظومة لا يُعدّ على الجرس كما لا يُعرض في
-            // القائمة — انظر `AgentIncomingTransfersService::reconcileMissing`.
-            ->whereNull('core_missing_at')
+        /*
+         * ⚠⚠ **البوّابة السيادية على الجرس أيضاً.**
+         *
+         * أمرُ المالك: «ولا يصل إليه أيُّ إشعارٍ أو رسالة إلّا بعد أن
+         * تُعتمد». والجرسُ يرنّ ويُنزل شريطاً — فرنّةٌ لحوالةٍ غيرِ معتمدة
+         * إفشاءٌ لوجودها، ولو لم تُعرض في أيّ قائمة.
+         */
+        $ids = AgentIncomingTransfersService::onlyApproved(
+                DB::table('agent_incoming_transfers')
+                    ->where('agent_id', (int) $user->id)
+            )
             ->where('status', AgentIncomingTransfersService::PENDING)
             ->where(function ($w) {
                 $w->whereNull('core_confirm_type')
@@ -189,6 +195,17 @@ class AgentIncomingTransfersController extends BaseController
                 [],
                 404
             );
+        }
+
+        /*
+         * ⚠ سُحب اعتمادُها في المنظومة بعد أن وصلت — انظر الحارسَ في
+         * `markDelivered`. ورسالةٌ تقول ذلك صراحةً تمنع الوكيلَ من الدفع
+         * بينما يظنّ العطبَ في التطبيق.
+         */
+        if (!empty($result['not_approved'])) {
+            return $this->sendError(
+                'هذه الحوالة غير معتمدة في المنظومة — لا يجوز تسليمها.',
+                ['core_status' => $result['row']->core_status_label ?? null], 409);
         }
 
         if (!empty($result['cancelled'])) {

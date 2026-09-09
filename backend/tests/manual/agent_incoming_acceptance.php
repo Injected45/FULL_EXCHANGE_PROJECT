@@ -45,14 +45,54 @@ $snapshot = function () {
 $before = $snapshot();
 
 /* ---------- 1) المزامنة لا تجلب غير المعتمد ---------- */
+
+/*
+ * ⚠ يُقاس ما **تُدخله المزامنة**، لا ما في الجدول.
+ *
+ * صفٌّ دخل معتمداً ثمّ سُحب اعتمادُه يبقى في الجدول عمداً — قد يُعاد
+ * اعتمادُه، وحذفُه يمحو تاريخَه. والحمايةُ أنه **لا يُرى ولا يُسلَّم**،
+ * وذلك ما يفحصه ما بعده. أمّا هذا فيحرس البابَ: ألّا تُدخل المزامنةُ
+ * غيرَ المعتمد أصلاً.
+ */
+$unapproved = DB::table('InternalEx')->where('ConfirmType', 0)->pluck('Code');
+$beforeSync = DB::table('agent_incoming_transfers')
+    ->where('agent_id', $agentId)->whereIn('transfer_number', $unapproved)
+    ->pluck('transfer_number')->all();
+
 $svc->syncFromCore($agentId, $branchId, $userType);
 
-$unapproved = DB::table('InternalEx')->where('ConfirmType', 0)->pluck('Code');
-$leaked = DB::table('agent_incoming_transfers')
-    ->where('agent_id', $agentId)
-    ->whereIn('transfer_number', $unapproved)
-    ->count();
-$check('غير المعتمدة لا تصل إلى الوكيل', $leaked === 0, "leaked=$leaked");
+$afterSync = DB::table('agent_incoming_transfers')
+    ->where('agent_id', $agentId)->whereIn('transfer_number', $unapproved)
+    ->pluck('transfer_number')->all();
+$leaked = count(array_diff($afterSync, $beforeSync));
+$check('غير المعتمدة لا تُدخلها المزامنة', $leaked === 0,
+    "أُدخل=$leaked · موجودٌ سلفاً=" . count($beforeSync));
+
+/* ⚠ **والأهمّ: لا تُعرض ولا تُسلَّم** — لا مجرّد ألّا تُدخَل.
+ *
+ * الفحصُ فوقه يقيس وجودَ الصفّ، وذلك يمسك تسريبَ المزامنة وحدَه. لكنّ
+ * الحوالة تدخل معتمدةً ثمّ **يُسحب اعتمادُها في المنظومة**، فيبقى الصفُّ
+ * ويتحدّث رقمُه — وكان يُعرض في «بانتظار التسليم» ويُسجَّل تسليمُه.
+ * فالمقياسُ الحقيقيّ ما يراه الوكيل ويستطيع فعلَه. */
+$pending = collect($svc->list($agentId, 'PENDING_DELIVERY', null, 1, 200)['items'])
+    ->pluck('transfer_number');
+$shownUnapproved = $pending->intersect($unapproved)->count();
+$check('⚠ ولا تُعرض في «بانتظار التسليم»', $shownUnapproved === 0,
+    "معروضة=$shownUnapproved");
+
+/* وتسليمُها يُرفض ولو نُودي المسارُ مباشرةً. */
+$probe = DB::table('agent_incoming_transfers')->where('agent_id', $agentId)
+    ->whereNotNull('core_confirm_type')
+    ->where('core_confirm_type', '<>', 2)
+    ->whereNotIn('core_confirm_type', [3,4,5,6])
+    ->where('status', 'PENDING_DELIVERY')->first();
+if ($probe) {
+    $res = $svc->markDelivered($agentId, (int) $probe->id, $agentId, []);
+    $check('⚠ وتسليمُها مرفوضٌ من الخدمة نفسِها',
+        empty($res['changed']) && !empty($res['not_approved']));
+} else {
+    $check('⚠ وتسليمُها مرفوض (لا حالةَ اختبارٍ متاحة)', true, 'تُخطّي');
+}
 
 /* ---------- 2) عزل الوكلاء ---------- */
 $other = DB::table('agent_incoming_transfers')->where('agent_id', '<>', $agentId)->count();

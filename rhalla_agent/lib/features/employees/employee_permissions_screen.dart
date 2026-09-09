@@ -92,16 +92,8 @@ class _EmployeePermissionsScreenState
                     _GroupCard(
                       group: g,
                       granted: _granted,
-                      onToggle: (key) => setState(() {
-                        _granted.contains(key)
-                            ? _granted.remove(key)
-                            : _granted.add(key);
-                      }),
-                      onAll: (on) => setState(() {
-                        for (final i in g.items) {
-                          on ? _granted.add(i.key) : _granted.remove(i.key);
-                        }
-                      }),
+                      onToggle: _toggle,
+                      onAll: (on) => _all(g, on),
                     ),
                     const SizedBox(height: R.gapCard),
                   ],
@@ -119,6 +111,67 @@ class _EmployeePermissionsScreenState
         ],
       ),
     );
+  }
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   *  ⚠ الصلاحيةُ الحسّاسة لا تُمنح مع مجموعتها
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * أمرُ المالك (9 سبتمبر 2026): رصيدُ الوكيل لا يظهر للموظف إلّا بصلاحيةٍ
+   * يسمح بها الوكيل.
+   *
+   * ولم تكن المشكلةُ تسرُّباً — فُحص كلُّ مسارٍ للموظف بجلسةٍ مُنحت كلَّ شيءٍ
+   * إلّا الماليّ، فردَّ كلُّ مسارِ رصيدٍ 403 ولا نقطةَ أخرى تحمل الرقم.
+   * المشكلةُ أنّ **«تحديد الكل»** على مجموعة التقارير كان يمنح «تقرير رصيد
+   * الوكيل» معها: الوكيل يضغطها ليُعطي تقاريرَ اليوم والمسلَّمة، فيُسلّم
+   * رصيدَه في الضغطة نفسها بلا أن يلاحظ. وكذلك مجموعة الأرصدة.
+   *
+   * ── ثلاثةُ قراراتٍ فيها ────────────────────────────────────────────────
+   *
+   * 1. **«تحديد الكل» لا يمنحها، و«إلغاء الكل» يُلغيها.** غيرُ متناظرٍ عمداً:
+   *    الخطرُ في المنح لا في السحب، وسحبٌ لا يكتمل يُبقي رصيداً مكشوفاً
+   *    والوكيلُ يظنّ أنه أغلق الباب.
+   *
+   * 2. **التشغيلُ يسأل، والإطفاءُ لا يسأل.** سؤالٌ عند الإغلاق يجعل الوكيل
+   *    يضغط «نعم» بلا قراءة، فيتعلّم تجاهلَ السؤال حين يهمّ.
+   *
+   * 3. **والسؤالُ يسمّي ما سيُكشَف** («سيرى الموظف رصيد وكالتك الكلّي») لا
+   *    «هل أنت متأكد؟». والنصُّ من الخادم: لا اسمَ صلاحيةٍ ولا جملةَ تحذيرٍ
+   *    مكتوبةٌ في هذا الملف.
+   */
+  Future<void> _toggle(PermissionItem item) async {
+    final on = _granted.contains(item.key);
+
+    if (on) {
+      setState(() => _granted.remove(item.key));
+      return;
+    }
+
+    if (item.sensitive) {
+      final ok = await showModalBottomSheet<bool>(
+        context: context,
+        useRootNavigator: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _ConfirmSensitive(item: item),
+      );
+      if (ok != true || !mounted) return;
+    }
+
+    setState(() => _granted.add(item.key));
+  }
+
+  void _all(PermissionGroup g, bool on) {
+    setState(() {
+      for (final i in g.items) {
+        if (on) {
+          // ⚠ الحسّاسةُ تُستثنى من المنح الجماعيّ — انظر أعلاه.
+          if (!i.sensitive) _granted.add(i.key);
+        } else {
+          _granted.remove(i.key);
+        }
+      }
+    });
   }
 
   Future<void> _save() async {
@@ -163,13 +216,24 @@ class _GroupCard extends StatelessWidget {
 
   final PermissionGroup group;
   final Set<String> granted;
-  final ValueChanged<String> onToggle;
+  final ValueChanged<PermissionItem> onToggle;
   final ValueChanged<bool> onAll;
 
   @override
   Widget build(BuildContext context) {
     final count = group.items.where((i) => granted.contains(i.key)).length;
-    final all = count == group.items.length && count > 0;
+
+    /*
+     * ⚠ «الكل» يُقاس على ما **يجوز** منحُه جماعياً لا على المجموعة كلِّها.
+     *
+     * ولو قِيس على الكلّ لَما ظهرت «إلغاء الكل» أبداً في مجموعةٍ فيها
+     * حسّاسة: الوكيل يضغط «تحديد الكل» فيُمنح كلُّ ما يجوز، ويبقى الزرُّ
+     * يقول «تحديد الكل» — فيضغطه ثانيةً وثالثة ولا يتغيّر شيء، فيظنّ
+     * الشاشةَ معطوبة.
+     */
+    final bulk = group.items.where((i) => !i.sensitive).toList();
+    final all = bulk.isNotEmpty &&
+        bulk.every((i) => granted.contains(i.key));
 
     return GlassCard(
       child: Column(
@@ -196,8 +260,9 @@ class _GroupCard extends StatelessWidget {
             _PermRow(
               label: item.label,
               live: item.live,
+              sensitive: item.sensitive,
               on: granted.contains(item.key),
-              onTap: () => onToggle(item.key),
+              onTap: () => onToggle(item),
             ),
         ],
       ),
@@ -209,12 +274,14 @@ class _PermRow extends StatelessWidget {
   const _PermRow({
     required this.label,
     required this.live,
+    required this.sensitive,
     required this.on,
     required this.onTap,
   });
 
   final String label;
   final bool live;
+  final bool sensitive;
   final bool on;
   final VoidCallback onTap;
 
@@ -265,6 +332,37 @@ class _PermRow extends StatelessWidget {
                   child: Text('لم تُفعَّل بعد',
                       style: T.plex(10.5, FontWeight.w600, color: R.warnInk)),
                 ),
+
+              /*
+               * ⚠ وسمُ الحسّاسة — ليمنع سؤالاً لا جواباً له.
+               *
+               * وكيلٌ يضغط «تحديد الكل» ثم يرى بنداً غيرَ معلَّم يظنّ الشاشةَ
+               * معطوبة. والوسمُ يقول له إنّ استثناءه مقصود، وإنّ منحَه
+               * بيده إن أراد.
+               */
+              if (sensitive) ...[
+                if (!live) const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: R.error.withValues(alpha: .08),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: R.error.withValues(alpha: .3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.lock_outline_rounded,
+                          size: 11, color: R.errorText),
+                      const SizedBox(width: 3),
+                      Text('تُمنح يدوياً',
+                          style: T.plex(10.5, FontWeight.w600,
+                              color: R.errorText)),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -291,6 +389,90 @@ class _Failed extends StatelessWidget {
                     color: R.inkA(.65), height: 1.7)),
             const SizedBox(height: 18),
             GlassButton(label: 'إعادة المحاولة', onPressed: onRetry),
+          ],
+        ),
+      );
+}
+
+/// سؤالُ التأكيد قبل منح صلاحيةٍ حسّاسة.
+///
+/// ⚠ **يسمّي ما سيُكشَف، ونصُّه من الخادم.** «هل أنت متأكد؟» يُقرأ روتيناً
+/// ويُضغط بلا نظر؛ و«سيرى الموظف رصيد وكالتك الكلّي» يُقرأ قراراً. ولا جملةَ
+/// تحذيرٍ ولا اسمَ صلاحيةٍ مكتوبٌ في هذا الملف — الكتالوج كلُّه من الخادم.
+class _ConfirmSensitive extends StatelessWidget {
+  const _ConfirmSensitive({required this.item});
+
+  final PermissionItem item;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.fromLTRB(22, 22, 22, 26),
+        decoration: BoxDecoration(
+          color: R.whiteA(.96),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(R.rNav)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: R.inkA(.16),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: R.error.withValues(alpha: .08),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.visibility_outlined,
+                      size: 22, color: R.error),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.label, style: T.kufi(16, FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      Text(
+                        // الافتراضيُّ لخادمٍ لا يُرسل السبب — عامٌّ لكنه صادق.
+                        item.why ?? 'صلاحية تكشف معلومة مالية عن وكالتك.',
+                        style: T.plex(12.5, FontWeight.w400,
+                            color: R.inkA(.6), height: 1.55),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            const WarnBanner(
+              text: 'هذه الصلاحية لا تُمنح مع «تحديد الكل» — تُمنح بيدك وحدك. '
+                  'وتستطيع سحبها في أي وقت، فتُغلق فوراً.',
+            ),
+            const SizedBox(height: 18),
+            PrimaryButton(
+              label: 'أمنحها',
+              onPressed: () => Navigator.of(context).pop(true),
+            ),
+            const SizedBox(height: 10),
+            SecondaryButton(
+              label: 'إلغاء',
+              onPressed: () => Navigator.of(context).pop(false),
+            ),
           ],
         ),
       );

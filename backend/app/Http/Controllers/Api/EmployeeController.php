@@ -11,6 +11,7 @@ use App\Services\Employees\EmployeeLimitPolicy;
 use App\Services\Employees\EmployeeReports;
 use App\Services\Employees\EmployeeApprovalExecutor;
 use App\Services\Employees\EmployeeTransferViews;
+use App\Services\Employees\EmployeeCashboxLedger;
 use App\Services\Employees\EmployeeCashboxService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,7 @@ class EmployeeController extends BaseController
     public function __construct(
         private AgentIncomingTransfersService $transfers,
         private EmployeeCashboxService $cashbox,
+        private EmployeeCashboxLedger $ledger,
         private EmployeeAuditLogger $log,
     ) {
     }
@@ -149,8 +151,17 @@ class EmployeeController extends BaseController
                     'cashbox_id'       => $shift->cashbox_id,
                     'shift_id'         => $shift->id,
                     'point_of_sale_id' => $session->active_pos_id ?? null,
+                    /* ⚠ نوعٌ مرجعيّ يخصّ الإنشاء وحدَه — لا `INTERNAL_TRANSFER`.
+                     *
+                     * الفهرسُ `UX_entry_reference` فريدٌ على (النوع، الرقم)،
+                     * فلو تشارك الإنشاءُ والتسليمُ نوعاً واحداً لَاصطدم قيدُ
+                     * تسليمِ حوالةٍ أنشأها الموظف نفسُه — وهو أمرٌ عاديّ حين
+                     * تكون نقطةُ الوصول تابعةً للوكيل ذاته — فتُعيد `addEntry`
+                     * «تكرار» بلا إدراج، فيسقط قيدُ الخروج صامتاً وتزيد عهدةُ
+                     * الموظف بقيمة الحوالة. انظر 19_cashbox_ledger.sql.
+                     */
                     'transaction_type' => 'TRANSFER_CREATED',
-                    'reference_type'   => 'INTERNAL_TRANSFER',
+                    'reference_type'   => 'INTERNAL_TRANSFER_CREATED',
                     'reference_id'     => $result['transfer_number'],
                     'amount'           => (float) $req->amount,
                     'direction'        => EmployeeCashboxService::IN,
@@ -262,7 +273,7 @@ class EmployeeController extends BaseController
     /** GET employee/transfers/incoming — يتطلّب VIEW_INCOMING_TRANSFERS */
     public function incoming(Request $request)
     {
-        [$employee, , ] = $this->ctx($request);
+        [$employee, , $permissions] = $this->ctx($request);
 
         // المزامنة تتمّ باسم الوكيل: الحوالات تصل إليه لا إلى الموظف.
         try {
@@ -283,6 +294,36 @@ class EmployeeController extends BaseController
             AgentIncomingTransfersService::CANCELLED_TAB,
         ], true)) {
             return $this->sendError('حالة غير معروفة.', [], 422);
+        }
+
+        /*
+         * ⚠ **قائمةُ الانتظار خلف صلاحية التسليم — أمر المالك، 9 سبتمبر 2026.**
+         *
+         * `VIEW_INCOMING_TRANSFERS` تفتح الدفتر، و«بانتظار التسليم» ليست
+         * عرضاً بل **قائمةَ عمل**: من لا يسلّم لا شأن له بها، وعرضُها عليه
+         * يجعله يقول للمستفيد «حوالتُك عندي» ثم لا يستطيع تسليمها.
+         *
+         * وتبقى «تم التسليم» و«الملغاة» له: تلك استعلامٌ لا عمل، وهي ما
+         * مُنح الصلاحيةَ من أجله.
+         *
+         * ⚠ والحارسُ هنا لا في الواجهة وحدَها: إخفاءُ التبويب تجميل،
+         * ونداءُ المسار مباشرةً بالمعامل نفسِه كان يُعيد القائمة كاملة.
+         */
+        $canDeliver = in_array('DELIVER_TRANSFER', $permissions, true);
+
+        if (!$canDeliver && $status === AgentIncomingTransfersService::PENDING) {
+            return $this->sendError(
+                'لا تملك صلاحية تسليم الحوالات الواردة.', [], 403);
+        }
+
+        /*
+         * ولا حالةَ مطلوبة ⇦ الافتراضيُّ يتبع الصلاحية.
+         *
+         * تركُه بلا حالة كان سيُعيد الدفترَ كلَّه، والمعلَّقُ فيه — فيصير
+         * الحارسُ أعلاه بلا معنى: يكفي حذفُ المعامل لتجاوزه.
+         */
+        if ($status === null && !$canDeliver) {
+            $status = AgentIncomingTransfersService::DELIVERED;
         }
 
         $perPage = max(1, min((int) $request->query('per_page', 20), 100));
@@ -537,8 +578,10 @@ class EmployeeController extends BaseController
                         'cashbox_id'       => $shift->cashbox_id,
                         'shift_id'         => $shift->id,
                         'point_of_sale_id' => $session->active_pos_id ?? null,
+                        /* ⚠ نوعٌ مرجعيّ يخصّ الإنشاء وحدَه — الشرحُ عند
+                         * نظيره في مسار الموافقة أعلاه. */
                         'transaction_type' => 'TRANSFER_CREATED',
-                        'reference_type'   => 'INTERNAL_TRANSFER',
+                        'reference_type'   => 'INTERNAL_TRANSFER_CREATED',
                         'reference_id'     => (string) ($t['Code'] ?? ''),
                         'amount'           => (float) ($t['OverallVal']
                             ?? $request->input('amount', 0)),
@@ -667,6 +710,28 @@ class EmployeeController extends BaseController
         );
     }
 
+    /**
+     * GET device/employee/cashbox/ledger — كشفُ حركة خزينته للجرد.
+     *
+     * ⚠ **مقيَّدٌ بـ`employee_id` من الجلسة لا من الطلب**: كلُّ موظفٍ يرى
+     * كشفَه هو. ولا معامل في هذا النداء يقبل معرّفَ موظف — فلا سبيلَ إلى
+     * كشفِ زميلٍ ولو عُرف رقمُه.
+     *
+     * ⚠ وقراءةٌ خالصة: لا يكتب صفّاً واحداً.
+     */
+    public function cashboxLedger(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            $this->ledger->ledger($employee, [
+                'from' => $request->query('from'),
+                'to'   => $request->query('to'),
+                'type' => $request->query('type'),
+            ]),
+            'تم'
+        );
+    }
     /**
      * GET employee/custody — ما في عهدته الآن، سطرٌ واحد.
      *
@@ -948,9 +1013,19 @@ class EmployeeController extends BaseController
         [$employee, $session, ] = $this->ctx($request);
         $trace = $this->trace($request, $employee, $session);
 
+        /*
+         * ⚠ المنفِّذُ الماليّ هو الوكيل (`userId = agent_id`) — الموظف واجهةٌ
+         * منه لا كيانٌ ثانٍ، وذلك ما يجعل كشفَ الوكيل يبقى كما هو حرفاً
+         * بحرف. وهويةُ الموظف تمرّ في الأثر فتُسجَّل بلا أن تدخل الدفتر.
+         */
         $result = $this->transfers->markDelivered(
             (int) $employee->agent_id, $id, (int) $employee->agent_id,
-            ['ip' => $request->ip(), 'device' => $session->device_hash]
+            [
+                'ip'          => $request->ip(),
+                'device'      => $session->device_hash,
+                'session'     => (string) $session->id,
+                'employee_id' => (int) $employee->id,
+            ]
         );
 
         if ($result['row'] === null) {
@@ -960,6 +1035,17 @@ class EmployeeController extends BaseController
         if (!empty($result['missing'])) {
             return $this->sendError('هذه الحوالة لم تعد موجودة في المنظومة.', [], 404);
         }
+        /*
+         * ⚠ سُحب اعتمادُها في المنظومة بعد أن وصلت — انظر الحارسَ في
+         * `markDelivered`. ورسالةٌ تقول ذلك صراحةً تمنع الوكيلَ من الدفع
+         * بينما يظنّ العطبَ في التطبيق.
+         */
+        if (!empty($result['not_approved'])) {
+            return $this->sendError(
+                'هذه الحوالة غير معتمدة في المنظومة — لا يجوز تسليمها.',
+                ['core_status' => $result['row']->core_status_label ?? null], 409);
+        }
+
         if (!empty($result['cancelled'])) {
             return $this->sendError(
                 'هذه الحوالة ملغاة في المنظومة — لا يجوز تسجيل تسليمها.',
@@ -1012,19 +1098,80 @@ class EmployeeController extends BaseController
                 }
             }
 
+            /*
+             * ⚠ الحالتان القديمةُ والجديدة في صفّ التدقيق نفسِه.
+             *
+             * صفُّ `transfer_status_history` يحملهما، وصفُّ التدقيق يحمل
+             * الموظفَ والوكيلَ والجهاز. وقارئُ الرقابة يسأل سؤالاً واحداً —
+             * «من حوّل ماذا من أيّ حالة إلى أيّ حالة؟» — فيجيبه صفٌّ واحد
+             * لا توفيقٌ بين جدولين بالتاريخ.
+             */
             $this->log->audit('TRANSFER_DELIVERED', [
                 'entity_type' => 'transfer',
                 'entity_id'   => $row->transfer_number,
                 'point_of_sale_id' => $posId,
-                'new_value'   => ['amount' => $row->amount],
+                'old_value'   => ['status' => AgentIncomingTransfersService::PENDING],
+                'new_value'   => [
+                    'status'     => AgentIncomingTransfersService::DELIVERED,
+                    'amount'     => $row->amount,
+                    'session_id' => (string) $session->id,
+                ],
             ] + $trace);
         }
+
+        /*
+         * ══════════════════════════════════════════════════════════════════
+         *  «سُلِّمت مسبقاً» — ولمن تُقال؟
+         * ══════════════════════════════════════════════════════════════════
+         *
+         * الطلبُ الثاني بعد تسليمٍ ناجح لا يُغيّر شيئاً (`changed = false`)،
+         * لكن **ليس كلُّ طلبٍ ثانٍ محاولةً ثانية**:
+         *
+         *   • شبكةٌ انقطعت بعد أن وصل الطلب فأعاد التطبيق إرساله ⇦ نجاحٌ
+         *     صامت. ورسالةُ رفضٍ هنا تُخبر الموظف أن تسليمَه فشل وقد نجح،
+         *     فيدفع مرّةً ثانية — وهذا أخطر ما يقع في هذا المسار.
+         *
+         *   • وزميلٌ سبقه إليها، أو الوكيلُ سلّمها من تطبيقه ⇦ **هنا** تُقال
+         *     الرسالة صراحةً: «تم تسليم هذه الحوالة مسبقاً…».
+         *
+         * والفرقُ يُقرأ من `transfer_attributions`: من نُسب إليه التسليم.
+         * فإن كان هو نفسَه فطلبُه الأول نجح، وإن كان غيرَه فقد سبقه.
+         *
+         * ⚠ والحالتان **تُعادان بـ200 لا بخطأ**: الحالةُ المطلوبة محقَّقةٌ
+         * فعلاً (الحوالة مسلَّمة)، والحمولةُ تحمل الصفَّ الطازج فيسقط الزرّ
+         * من شاشة الجميع. رمزُ خطأٍ هنا يُبقي بعض التطبيقات تعرض القائمة
+         * القديمة لأنها لا تقرأ حمولةَ الأخطاء.
+         */
+        $mine = null;
+        if (!$result['changed']
+            && ($result['row']->status ?? null) === AgentIncomingTransfersService::DELIVERED) {
+
+            $by = DB::table('transfer_attributions')
+                ->where('action', 'DELIVERED')
+                ->where('transfer_number', $result['row']->transfer_number)
+                ->orderBy('id')
+                ->first(['employee_id']);
+
+            // لا نسبة ⇦ سلّمها الوكيل من تطبيقه.
+            $mine = $by !== null && (int) $by->employee_id === (int) $employee->id;
+        }
+
+        $message = match (true) {
+            $result['changed'] => 'تم تسجيل التسليم.',
+            $mine === true     => 'تم تسجيل التسليم.',
+            $mine === false    => 'تم تسليم هذه الحوالة مسبقاً ولا يمكن تنفيذ العملية مرة أخرى.',
+            default            => 'الحوالة مسجّلة كمسلَّمة سلفاً.',
+        };
 
         return $this->sendResponse([
             'transfer' => $result['row'],
             'changed'  => $result['changed'],
+
+            // ⚠ عَلَمٌ صريح: التطبيق لا يستنبط الحالة من نصّ الرسالة.
+            'already_delivered_by_other' => $mine === false,
+
             'counts'   => $this->transfers->counts((int) $employee->agent_id),
-        ], $result['changed'] ? 'تم تسجيل التسليم.' : 'الحوالة مسجّلة كمسلَّمة سلفاً.');
+        ], $message);
     }
 
     /* ===================================================================

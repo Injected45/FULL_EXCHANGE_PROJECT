@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -28,7 +30,8 @@ class EmployeeTransfersScreen extends ConsumerStatefulWidget {
 }
 
 class _EmployeeTransfersScreenState
-    extends ConsumerState<EmployeeTransfersScreen> {
+    extends ConsumerState<EmployeeTransfersScreen>
+    with WidgetsBindingObserver {
   IncomingTab _tab = IncomingTab.pending;
 
   List<AgentIncomingTransfer> _rows = const [];
@@ -36,14 +39,64 @@ class _EmployeeTransfersScreenState
   bool _loading = true;
   String? _error;
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   *  ⚠ التحديثُ الدوريّ ليس رفاهية
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * الحوالةُ كيانٌ **واحد** مشترك بين الوكيل وكلّ موظفيه، لا نسخةٌ لكلٍّ.
+   * فحين يسلّمها زميلٌ يجب أن تغادر شاشةَ الباقين — وبلا نبضةٍ تبقى معروضةً
+   * إلى أن يسحب أحدُهم يدَه على الشاشة، وقد يضغط «تسجيل التسليم» قبل ذلك.
+   *
+   * والخادمُ يرفض الثانيَ قطعاً (التحوُّلُ الذرّيّ)، فلا يقع ازدواجٌ ماليّ.
+   * لكن **الموظف يقف أمام مستفيدٍ ينتظر**: صفٌّ يُعرض ثم يُرفض عند لمسه
+   * يُعلّمه أن التطبيق معطوب، وقد يدفع من درجه ثقةً بما رآه.
+   *
+   * ── ثلاثةُ قراراتٍ في النبضة ─────────────────────────────────────────
+   *
+   * • **ثلاثون ثانية** — نبضةُ جرس الوكيل نفسُها. أقصرُ منها لا يشتري شيئاً
+   *   في فرعٍ يسلّم حوالاتٍ بالدقائق، وأطولُ يُبقي الصفَّ الميت معروضاً.
+   *
+   * • **وتتوقّف في الخلفية** (`didChangeAppLifecycleState`): نبضةٌ لتطبيقٍ
+   *   لا يُنظَر إليه شبكةٌ تُستهلك بلا قارئ.
+   *
+   * • **ولا تُظهر مؤشّرَ تحميل** (`silent`): وميضُ هيكلٍ كلَّ نصف دقيقة
+   *   تحت يد الموظف أسوأ من صفٍّ قديم بثوانٍ.
+   */
+  static const _pulse = Duration(seconds: 30);
+  Timer? _timer;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    _timer = Timer.periodic(_pulse, (_) => _load(silent: true));
   }
 
-  Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // ⚠ وقراءةٌ فوريةٌ عند العودة لا انتظارُ نبضةٍ كاملة: الرجوعُ إلى
+      // التطبيق هو اللحظةُ التي يُنظر فيها إلى القائمة.
+      _timer ??= Timer.periodic(_pulse, (_) => _load(silent: true));
+      _load(silent: true);
+    } else if (state == AppLifecycleState.paused) {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!mounted) return;
+    if (!silent) setState(() { _loading = true; _error = null; });
     try {
       final env = await ref.read(apiClientProvider).get(
         '/device/employee/transfers/incoming',
@@ -64,18 +117,51 @@ class _EmployeeTransfersScreenState
         _loading = false;
       });
     } on ApiFailure catch (e) {
-      if (mounted) setState(() { _error = e.message; _loading = false; });
+      // ⚠ نبضةٌ أخفقت لا تمحو قائمةً صالحة: الشبكةُ تتقطّع في الفروع،
+      // وشاشةُ خطأٍ مكانَ قائمةٍ كانت معروضة تُوقف العمل بلا سبب.
+      if (mounted && !silent) {
+        setState(() { _error = e.message; _loading = false; });
+      }
     } catch (_) {
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() { _error = 'تعذّر الاتصال بالخادم.'; _loading = false; });
       }
     }
   }
 
+  /*
+   * ⚠ **«بانتظار التسليم» خلف صلاحية التسليم** — أمر المالك، 9 سبتمبر 2026.
+   *
+   * هي **قائمةُ عمل** لا عرضاً: من لا يسلّم لا شأن له بها، وعرضُها عليه
+   * يجعله يقول للمستفيد «حوالتُك عندي» ثم لا يستطيع تسليمها.
+   *
+   * وتبقى «تم التسليم» و«الملغاة» لمن مُنح `VIEW_INCOMING_TRANSFERS` — تلك
+   * استعلامٌ لا عمل، وهي ما مُنح الصلاحيةَ من أجله.
+   *
+   * ⚠ والإخفاءُ تجميلٌ لا حماية: الخادم يردّ 403 على طلب المعلَّق ممّن لا
+   * يملكها، ويجعل الافتراضيَّ «تم التسليم» — فحذفُ المعامل لا يتجاوزه.
+   */
+  List<IncomingTab> _tabsFor(bool canDeliver) => canDeliver
+      ? IncomingTab.values
+      : const [IncomingTab.delivered, IncomingTab.cancelled];
+
   @override
   Widget build(BuildContext context) {
     final canDeliver =
         ref.watch(employeeAuthProvider).profile?.can('DELIVER_TRANSFER') ?? false;
+
+    /*
+     * ⚠ تصحيحٌ ذاتيّ: الصلاحيةُ تُقرأ عند كل تحديث، فسحبُها والموظفُ واقفٌ
+     * على «بانتظار التسليم» يترك تبويباً محدَّداً لا يظهر في الشريط —
+     * فتبدو الشاشةُ فارغةً بلا سبب. يُنقَل إلى أول ما هو متاح.
+     */
+    if (!canDeliver && _tab == IncomingTab.pending) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _tab = IncomingTab.delivered);
+        _load();
+      });
+    }
 
     return Screen(
       child: Column(
@@ -86,6 +172,7 @@ class _EmployeeTransfersScreenState
             child: _Tabs(
               current: _tab,
               counts: _counts,
+              tabs: _tabsFor(canDeliver),
               onPick: (t) {
                 setState(() => _tab = t);
                 _load();
@@ -136,18 +223,23 @@ class _Tabs extends StatelessWidget {
   const _Tabs({
     required this.current,
     required this.counts,
+    required this.tabs,
     required this.onPick,
   });
 
   final IncomingTab current;
   final Map<String, int> counts;
+
+  /// ما يُعرض منها — ليست دائماً الثلاثةَ كلَّها. انظر الشاشة.
+  final List<IncomingTab> tabs;
+
   final ValueChanged<IncomingTab> onPick;
 
   @override
   Widget build(BuildContext context) => Row(
         children: [
-          for (final t in IncomingTab.values) ...[
-            if (t != IncomingTab.values.first) const SizedBox(width: 8),
+          for (final t in tabs) ...[
+            if (t != tabs.first) const SizedBox(width: 8),
             Expanded(
               child: GestureDetector(
                 onTap: () => onPick(t),
@@ -282,9 +374,28 @@ class _TransferCardState extends ConsumerState<_TransferCard> {
 
     setState(() => _busy = true);
     try {
-      await ref.read(apiClientProvider)
+      final env = await ref.read(apiClientProvider)
           .post('/device/employee/transfers/${widget.t.id}/deliver');
+
+      /*
+       * ⚠ **سبقني زميلي** — حالةٌ ناجحةٌ في الشبكة ومرفوضةٌ في المعنى.
+       *
+       * الخادم يردّ 200 لأن المطلوبَ محقَّق: الحوالة مسلَّمة. ولو ردّ
+       * خطأً لبقيت القائمةُ القديمة معروضةً — حمولةُ الأخطاء لا تُقرأ
+       * هنا — فيبقى الزرُّ حيّاً لحوالةٍ دُفع مالُها.
+       *
+       * فالعَلَمُ يُقرأ صريحاً لا من نصّ الرسالة: نصٌّ يُعاد صياغتُه في
+       * الخادم غداً يكسر شرطاً مكتوباً عليه.
+       */
+      final taken = (env.row ?? const {})['already_delivered_by_other'] == true;
+
+      // التحديثُ أولاً ثم الرسالة: الموظف يجب أن يرى الصفَّ قد تغيّر
+      // وهو يقرأ سببَ ذلك.
       await widget.onDelivered();
+      if (taken && mounted) {
+        _say(env.displayMessage(
+            'تم تسليم هذه الحوالة مسبقاً ولا يمكن تنفيذ العملية مرة أخرى.'));
+      }
     } on ApiFailure catch (e) {
       if (mounted) _say(e.message);
     } catch (_) {

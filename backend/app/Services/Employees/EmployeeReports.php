@@ -102,10 +102,12 @@ class EmployeeReports
      */
     public function pending(object $employee): array
     {
-        $rows = DB::table('agent_incoming_transfers')
-            ->where('agent_id', $employee->agent_id)
+        // ⚠ البوّابةُ السيادية: لا يرى الموظفُ ما لا يراه وكيلُه.
+        $rows = \App\Services\AgentIncomingTransfersService::onlyApproved(
+                DB::table('agent_incoming_transfers')
+                    ->where('agent_id', $employee->agent_id)
+            )
             ->where('status', 'PENDING_DELIVERY')
-            ->whereNull('core_missing_at')
             ->orderByDesc('id')
             ->limit(200)
             ->get(['transfer_number', 'amount', 'beneficiary_name', 'beneficiary_phone', 'created_at']);

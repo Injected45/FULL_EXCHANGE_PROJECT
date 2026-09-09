@@ -45,8 +45,21 @@ Route::post('device/initAuth',  'initAuth');
 ////////////////////////////اضافة اشعار من خلال المنظومة للقراءاة////////////////////////////////////////////////
 Route::post('device/storeNavction', [MobiledepositController::class, 'storeNavction']);
 
- //  update Password
- Route::post('device/update/password',  [ MobileAuthController::class , 'updatePassword']   );
+/* تغييرُ كلمة المرور — **خلف الجلسة**، وأُغلقت في 9 سبتمبر 2026.
+ *
+ * ⚠ كانت مفتوحةً بلا مصادقة: يكفي معرفةُ رقم الهاتف ومعرّف الجهاز
+ * لتعيين كلمة مرورٍ جديدة، ثمّ الدخولُ بها من `device/login`. وذلك
+ * استيلاءٌ كامل على حسابٍ ماليّ بلا رمز تحقّقٍ ولا جلسة.
+ *
+ * والتوثيقُ يسمّيها ثغرةً منذ إضافة `otp/login` (انظر تعليقَها في
+ * `AuthController`، وتعليقَ `auth_repository.dart` في التطبيق) — ومع
+ * ذلك بقي المسارُ مفتوحاً. ولا شيءَ في المشروع يناديه: لا تطبيقُ
+ * الوكيل ولا التطبيقُ المكتبيّ ولا مركزُ الدعم.
+ *
+ * ⚠ والحارسُ طبقتان لا واحدة: الجلسةُ هنا، وتقييدُ التغيير بصاحبها
+ * في الدالّة نفسِها — وإلّا غيّر وكيلٌ داخلٌ كلمةَ مرور وكيلٍ آخر. */
+Route::post('device/update/password',
+    [ MobileAuthController::class , 'updatePassword'])->middleware('auth:sanctum');
 Route::get('device/send-notification', [NotificationController::class, 'send']);
 
 Route::get('/user', function (Request $request) {
@@ -290,6 +303,14 @@ Route::get ('device/employee/transfers/point-of-sale',
     ->middleware('employee:VIEW_POS_TRANSFERS');
 Route::get ('device/employee/cashbox',
     [ EmployeeController::class , 'cashbox' ])
+    ->middleware('employee:VIEW_OWN_CASHBOX');
+
+/* كشفُ حركة الخزينة — للجرد: الرصيدُ بعد كل حركة، وفلترةٌ بالتاريخ والنوع.
+ *
+ * ⚠ الصلاحيةُ نفسُها لأنه السؤالُ نفسُه بتفصيلٍ أوفى — ولا صلاحيةٌ ثانية
+ * تجعل موظفاً يرى خزينتَه ولا يرى حركاتها. وقراءةٌ خالصة. */
+Route::get ('device/employee/cashbox/ledger',
+    [ EmployeeController::class , 'cashboxLedger' ])
     ->middleware('employee:VIEW_OWN_CASHBOX');
 
 Route::post('device/employee/cashbox/entry',

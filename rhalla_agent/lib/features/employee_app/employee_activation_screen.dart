@@ -10,6 +10,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import '../security/otp_paste.dart';
 import 'employee_qr_scan_screen.dart';
 import 'employee_session.dart';
 
@@ -75,6 +76,16 @@ class _EmployeeActivationScreenState
   }
 
   /// إدخال رقم من لوحة الأرقام أو من كيبورد الكمبيوتر.
+  /// يملأ الرمزَ من اللصق ثم يتحقّق بالمسار نفسِه — لا مسارَ ثانٍ.
+  void _fillOtp(String code) {
+    if (_maskedPhone == null || _busy) return;
+    setState(() {
+      _otpCode = code;
+      _error = null;
+    });
+    _verify();
+  }
+
   void _push(String d) {
     // ⚠ ولا شيء قبل خطوةِ الرمز: حارسٌ ثانٍ مستقلٌّ عن الذي
     // في `HardwareDigits`، لأنّ أحدَهما يكفي واجتماعَهما لا يكلّف
@@ -372,6 +383,10 @@ class _EmployeeActivationScreenState
         ),
         const SizedBox(height: 24),
         NumericKeypad(onDigit: _push, onDelete: _pop),
+
+        // ⚠ بديلُ AutoFill — انظر `otp_paste.dart`. والشاشةُ بلا حقلِ
+        // نصٍّ عمداً، والنظامُ لا يقرأ رسائل واتساب.
+        PasteOtpButton(enabled: !_busy, onCode: _fillOtp),
 
         if (_error != null) ...[
           const SizedBox(height: 16),

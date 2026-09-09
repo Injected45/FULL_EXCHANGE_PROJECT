@@ -29,7 +29,35 @@ bool isEmployeeQrPayload(String raw) =>
 /// «رمز غير صالح» — فيظنّ الموظف أن رمزَه هو المعطوب. فالرفضُ هنا صامتٌ:
 /// الماسح يبقى مفتوحاً حتى يقع على رمزٍ يعرفه.
 class EmployeeQrScanScreen extends StatefulWidget {
-  const EmployeeQrScanScreen({super.key});
+  /*
+   * ⚠ **ماسحٌ واحد لكل رموز التطبيق** — لا نسخةٌ لكلّ حالة.
+   *
+   * أُضيفت المعاملات في 9 سبتمبر 2026 حين لزم مسحُ رمزِ استلامِ حوالة.
+   * ونسخةٌ ثانية كانت ستفترق يوماً: إذنُ كاميرا يُعالَج في إحداهما، وحارسُ
+   * «مرّةً واحدة» يُنسى في الأخرى — وذلك عشرُ محاولاتٍ في الثانية.
+   *
+   * والافتراضياتُ هي سلوكُ التفعيل حرفاً بحرف، فمسارُ التفعيل لم يتغيّر.
+   */
+  const EmployeeQrScanScreen({
+    super.key,
+    this.accept,
+    this.title = 'مسح رمز التفعيل',
+    this.hint = 'وجّه الكاميرا إلى الرمز الظاهر على شاشة الوكيل',
+    this.note = 'يبقى الرمز صالحاً عشر دقائق من إصداره.',
+    this.fallbackHint = 'أدخل الكود يدوياً.',
+  });
+
+  /// ما يُقبل من الرموز. يُعيد النصَّ المُطبَّع أو `null` للرفض الصامت.
+  ///
+  /// ⚠ الافتراضيُّ رمزُ التفعيل — فالنداءاتُ القائمة لا تتغيّر.
+  final String? Function(String raw)? accept;
+
+  final String title;
+  final String hint;
+  final String note;
+
+  /// ما يُقال حين تتعذّر الكاميرا — ولكلِّ سياقٍ طريقُه اليدويّ.
+  final String fallbackHint;
 
   @override
   State<EmployeeQrScanScreen> createState() => _EmployeeQrScanScreenState();
@@ -61,13 +89,25 @@ class _EmployeeQrScanScreenState extends State<EmployeeQrScanScreen> {
     if (_done) return;
 
     for (final b in capture.barcodes) {
-      final raw = (b.rawValue ?? '').trim().toLowerCase();
+      final raw = (b.rawValue ?? '').trim();
       if (raw.isEmpty) continue;
-      if (!isEmployeeQrPayload(raw)) continue;
+
+      /*
+       * ⚠ التطبيعُ من شأن الفاحص لا الماسح.
+       *
+       * رمزُ التفعيل ستّ عشريٌّ فيُخفَّض حرفُه، ورقمُ الحوالة قد يحمل
+       * حروفاً كبيرةً ذاتَ معنى. وتخفيضُ الكلّ هنا كان يُفسد الثاني.
+       */
+      final accepted = widget.accept == null
+          ? (isEmployeeQrPayload(raw.toLowerCase())
+              ? raw.toLowerCase()
+              : null)
+          : widget.accept!(raw);
+      if (accepted == null) continue;
 
       _done = true;
       _controller.stop();
-      Navigator.of(context).pop(raw);
+      Navigator.of(context).pop(accepted);
       return;
     }
   }
@@ -93,10 +133,10 @@ class _EmployeeQrScanScreenState extends State<EmployeeQrScanScreen> {
               message: switch (error.errorCode) {
                 MobileScannerErrorCode.permissionDenied =>
                   'لم يُسمح للتطبيق باستخدام الكاميرا.\n'
-                      'يمكنك السماح من إعدادات الهاتف، أو إدخال الكود يدوياً.',
+                      'يمكنك السماح من إعدادات الهاتف، أو ${widget.fallbackHint}',
                 MobileScannerErrorCode.unsupported =>
-                  'هذا الجهاز لا يدعم مسح الرموز.\nأدخل الكود يدوياً.',
-                _ => 'تعذّر تشغيل الكاميرا.\nأدخل الكود يدوياً.',
+                  'هذا الجهاز لا يدعم مسح الرموز.\n${widget.fallbackHint}',
+                _ => 'تعذّر تشغيل الكاميرا.\n${widget.fallbackHint}',
               },
               onBack: () => Navigator.of(context).pop(),
             ),
@@ -118,13 +158,13 @@ class _EmployeeQrScanScreenState extends State<EmployeeQrScanScreen> {
                       // وما عداه يُردّ من الخادم فيُعرض في شاشة التفعيل بعد
                       // إغلاق الماسح — لا في شاشةٍ تُغلق قبل أن تُقرأ.
                       Text(
-                        'وجّه الكاميرا إلى الرمز الظاهر على شاشة الوكيل',
+                        widget.hint,
                         textAlign: TextAlign.center,
                         style: T.kufi(14, FontWeight.w600, color: Colors.white),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'يبقى الرمز صالحاً عشر دقائق من إصداره.',
+                        widget.note,
                         textAlign: TextAlign.center,
                         style: T.plex(12, FontWeight.w400,
                             color: Colors.white70, height: 1.7),
@@ -151,7 +191,7 @@ class _EmployeeQrScanScreenState extends State<EmployeeQrScanScreen> {
               tooltip: 'رجوع',
             ),
             Expanded(
-              child: Text('مسح رمز التفعيل',
+              child: Text(widget.title,
                   textAlign: TextAlign.center,
                   style: T.kufi(16, FontWeight.w700, color: Colors.white)),
             ),

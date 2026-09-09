@@ -150,11 +150,13 @@ class EmployeeTransferViews
          */
         $ledger = [];
         foreach (array_chunk($codes, 1000) as $chunk) {
-            foreach (DB::table('agent_incoming_transfers')
-                        ->where('agent_id', $agentId)
-                        ->whereIn('transfer_number', $chunk)
-                        ->whereNull('core_missing_at')
-                        ->get() as $t) {
+            // ⚠ البوّابةُ السيادية: حالةُ حوالةٍ غيرِ معتمدة لا تُلحق
+            // بصفٍّ يراه الموظف — ولو لم تُعرض الحوالةُ نفسُها.
+            foreach (\App\Services\AgentIncomingTransfersService::onlyApproved(
+                        DB::table('agent_incoming_transfers')
+                            ->where('agent_id', $agentId)
+                            ->whereIn('transfer_number', $chunk)
+                    )->get() as $t) {
                 $ledger[$t->transfer_number] = $t;
             }
         }

@@ -70,5 +70,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- ⚠ إلزاميٌّ لاستعمال Face ID: بلا هذا النصّ يُسقط النظامُ التطبيقَ
+	     عند أوّل نداء، وApple ترفض المراجعة. والنصُّ يُعرض للمستخدم كما هو. -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>يُستخدم Face ID لفتح التطبيق بعد بقائه في الخلفية، حمايةً لبيانات وكالتك. ولا تُخزَّن بياناتك الحيوية في التطبيق.</string>
 </dict>
 </plist>

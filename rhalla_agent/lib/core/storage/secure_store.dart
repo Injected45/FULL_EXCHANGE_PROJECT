@@ -31,6 +31,12 @@ class SecureStore {
   static const _kUser = 'user_json';
   static const _kOnboarded = 'onboarded';
 
+  /// وقتُ مغادرة التطبيق إلى الخلفية — لقفل الخمول.
+  static const _kBackgroundedAt = 'backgrounded_at';
+
+  /// تفضيلُ الفتح بالبصمة. ⚠ تفضيلٌ لا بيانات: لا شيءَ حيويٌّ يُخزَّن.
+  static const _kBiometricUnlock = 'biometric_unlock';
+
   final _s = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
@@ -189,9 +195,46 @@ class SecureStore {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
+  /* ═══════════════════ قفل التطبيق بعد الخمول ═══════════════════ */
+
+  /*
+   * ⚠ **وقتُ المغادرة في التخزين لا في الذاكرة.**
+   *
+   * مؤقّتُ الذاكرة يتوقّف حين يوقف النظامُ التطبيق، فيعود المستخدم بعد ساعةٍ
+   * ولم يمرّ من عمره إلّا ثوانٍ — والقفلُ لا يقع. ولأنّ الطابع مخزَّن، لا
+   * يُتحايَل عليه بإغلاق التطبيق وفتحه.
+   *
+   * ⚠ ويُخزَّن **بتوقيت UTC**: ساعةُ الهاتف تُضبط باليد وتتغيّر مع المنطقة،
+   * وفارقُ ساعتين محليّاً كان سيصير غياباً وهميّاً بساعتين — أو العكس.
+   */
+  Future<DateTime?> readBackgroundedAt() async {
+    final raw = await _s.read(key: _kBackgroundedAt);
+    if (raw == null || raw.isEmpty) return null;
+    return DateTime.tryParse(raw)?.toUtc();
+  }
+
+  Future<void> writeBackgroundedAt(DateTime at) =>
+      _s.write(key: _kBackgroundedAt, value: at.toUtc().toIso8601String());
+
+  Future<void> clearBackgroundedAt() => _s.delete(key: _kBackgroundedAt);
+
+  /// هل فعّل المستخدم الفتحَ السريع بالبصمة؟
+  ///
+  /// ⚠ **تفضيلٌ لا بيانات حيويّة.** لا بصمةَ ولا وجهَ يمرّ بالتطبيق: النظامُ
+  /// يُعيد نجاحاً أو فشلاً، وهذا المفتاح يقول «أظهِر زرَّ البصمة» لا غير.
+  Future<bool> readBiometricUnlock() async =>
+      (await _s.read(key: _kBiometricUnlock)) == '1';
+
+  Future<void> writeBiometricUnlock(bool on) =>
+      _s.write(key: _kBiometricUnlock, value: on ? '1' : '0');
+
   Future<void> signOut() async {
     await _s.delete(key: _kToken);
     await _s.delete(key: _kUser);
+    // ⚠ وطابعُ المغادرة يُمحى: الخروجُ يُنهي الجلسة، فقفلُ خمولٍ فوق
+    // شاشة الدخول يطلب بصمةً لا تفتح شيئاً.
+    await _s.delete(key: _kBackgroundedAt);
     // معرّف الجهاز يبقى عمداً — مسحه يقفل الحساب.
+    // وتفضيلُ البصمة يبقى كذلك: هو إعدادُ جهازٍ لا بيانات حساب.
   }
 }
