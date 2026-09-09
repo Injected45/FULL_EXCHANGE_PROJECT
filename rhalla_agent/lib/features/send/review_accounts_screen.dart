@@ -37,6 +37,9 @@ class _ReviewAccountsScreenState extends ConsumerState<ReviewAccountsScreen> {
   bool _sending = false;
 
   Future<void> _confirm() async {
+    // حارسٌ صريح لا يتّكل على تعطيل الزرّ: ضغطةٌ مزدوجة كانت ستُنشئ تحويلين
+    // — وهذا مالٌ لا يُسترجع (نمطُ review_screen).
+    if (_sending) return;
     final user = ref.read(authControllerProvider).user;
     if (user == null) return;
 

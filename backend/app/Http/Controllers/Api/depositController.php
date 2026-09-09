@@ -2934,8 +2934,11 @@ public function transInsert(Request $request)
            // ✅ 10. إدخال سجل التحويل
         $step = 'insert_transfer';
 
+        // 🔒 حساب المصدر هو حساب الجلسة لا ما يأتي في الطلب: كلُّ الفحوص
+        // أعلاه (الدقائق، الحدود، الرصيد) جرت على $AccID، فلو كُتب المصدرُ
+        // من الطلب لأمكن تحويلُ المال من حساب طرفٍ ثالث بعد فحصِ محفظة النفس.
         $insertedId = DB::table('TransBetweenAccountsTB')->insertGetId([
-            'TransFrom'      => $request->acc_id,
+            'TransFrom'      => $AccID,
             'TransTo'        => $request->acc_id_to,
             'CurrencyID'     => $request->currency_id,
             'TransValue'     => $request->amount,

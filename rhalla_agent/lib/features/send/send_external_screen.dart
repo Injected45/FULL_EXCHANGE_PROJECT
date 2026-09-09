@@ -142,6 +142,9 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
   }
 
   Future<void> _send() async {
+    // حارسٌ صريح لا يتّكل على تعطيل الزرّ: ضغطةٌ مزدوجة أو حدثٌ مكرّر في أثناء
+    // الإرسال كان سينشئ حوالتين لا واحدة — وهذا مالٌ لا يُسترجع (نمطُ review_screen).
+    if (_sending) return;
     if (!_valid) {
       setState(() => _error = 'أكمل بيانات الحوالة أولاً.');
       return;

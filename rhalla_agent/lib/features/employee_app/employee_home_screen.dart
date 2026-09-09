@@ -652,6 +652,10 @@ class _EmployeeCashboxScreenState extends ConsumerState<EmployeeCashboxScreen> {
   bool _loading = true;
   String? _error;
 
+  /// حارسُ طيرانٍ لتسجيل حركة الخزينة: يمنع فتحَ ورقةٍ ثانية أو إطلاقَ طلبٍ
+  /// ثانٍ في أثناء الأوّل — نقرتان كانتا تكتبان حركتين وتنفخان العهدة.
+  bool _posting = false;
+
   @override
   void initState() {
     super.initState();
@@ -759,6 +763,7 @@ class _EmployeeCashboxScreenState extends ConsumerState<EmployeeCashboxScreen> {
   }
 
   Future<void> _entry(String direction) async {
+    if (_posting) return;
     final amount = await showModalBottomSheet<double>(
       context: context,
       useRootNavigator: true,
@@ -768,16 +773,20 @@ class _EmployeeCashboxScreenState extends ConsumerState<EmployeeCashboxScreen> {
         title: direction == 'IN' ? 'نقد وارد' : 'نقد مسلَّم',
       ),
     );
-    if (amount == null || !mounted) return;
+    if (amount == null || !mounted || _posting) return;
 
+    // مرجعٌ فريد يُولَّد مرّةً لهذه الحركة قبل أوّل إرسال، لا عند كلّ نداء:
+    // نقرتان لا تكتبان حركتين. (الحمايةُ الكاملة من إعادةِ إرسالٍ بعد انقطاعٍ
+    // تحتاج تحايُداً في الخادم على هذا المرجع — بند مرفوع للمالك.)
+    final clientRef = 'e-${DateTime.now().microsecondsSinceEpoch}';
+    _posting = true;
     try {
       await ref.read(apiClientProvider).post(
         '/device/employee/cashbox/entry',
         body: {
           'amount': amount,
           'direction': direction,
-          // مرجعٌ فريد للطلب: نقرتان أو إعادة إرسال لا تُنشئان حركتين.
-          'client_ref': 'e-${DateTime.now().microsecondsSinceEpoch}',
+          'client_ref': clientRef,
         },
       );
       await _load();
@@ -785,6 +794,8 @@ class _EmployeeCashboxScreenState extends ConsumerState<EmployeeCashboxScreen> {
       if (mounted) _say(e.message);
     } catch (_) {
       if (mounted) _say('تعذّر تسجيل الحركة.');
+    } finally {
+      _posting = false;
     }
   }
 

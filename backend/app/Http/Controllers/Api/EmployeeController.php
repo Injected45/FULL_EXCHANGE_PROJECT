@@ -132,7 +132,42 @@ class EmployeeController extends BaseController
             ], 'نُفِّذت هذه الحوالة بالفعل.');
         }
 
-        $result = app(EmployeeApprovalExecutor::class)->execute($req);
+        /*
+         * ⚠ حجزٌ ذرّيّ قبل التنفيذ — الفحصُ أعلاه في الذاكرة، وضغطتان
+         * متسارعتان (أو إعادةُ إرسال) تمرّان معاً عليه فتُنفَّذ حوالتان
+         * لموافقةٍ واحدة. الشرطُ داخل `UPDATE` نفسِه هو الحارس، كما في
+         * `markDelivered` و`decide()`: من يُغيّر صفّاً واحداً يملك التنفيذ،
+         * والخاسرُ يرى صفراً. وكلُّ مسارات المنفِّذ تُنهي هذه الحالة (نجاح ⇦
+         * APPROVED+رقم · فشل ⇦ FAILED · مهلةُ الدقيقة ⇦ PENDING).
+         */
+        $claimed = DB::table('employee_approval_requests')
+            ->where('id', $id)
+            ->where('status', 'APPROVED')
+            ->whereNull('transfer_number')
+            ->update(['status' => 'EXECUTING', 'updated_at' => now()]);
+
+        if ($claimed !== 1) {
+            $fresh = DB::table('employee_approval_requests')->where('id', $id)->first();
+            if ($fresh && $fresh->transfer_number !== null) {
+                return $this->sendResponse([
+                    'already'         => true,
+                    'transfer_number' => $fresh->transfer_number,
+                ], 'نُفِّذت هذه الحوالة بالفعل.');
+            }
+            return $this->sendError('يُنفَّذ هذا الطلب الآن — انتظر لحظة.', [], 409);
+        }
+
+        try {
+            $result = app(EmployeeApprovalExecutor::class)->execute($req);
+        } catch (\Throwable $e) {
+            // استثناءٌ قبل أن يُنهي المنفِّذ الحالة ⇦ نُعيدها APPROVED كي لا
+            // يعلق الطلبُ في EXECUTING بلا رجعة.
+            DB::table('employee_approval_requests')
+                ->where('id', $id)
+                ->where('status', 'EXECUTING')
+                ->update(['status' => 'APPROVED', 'updated_at' => now()]);
+            throw $e;
+        }
 
         if (!$result['ok']) {
             return $this->sendError($result['message'], [], 422);

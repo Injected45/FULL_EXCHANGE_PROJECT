@@ -36,9 +36,12 @@ Route::post('device/send-notification-vbnet', function (Request $request) {
 
 
 Route::controller(MobileAuthController::class)->group(function(){
-    Route::post('device/register', 'register');
-    Route::post('device/login', 'login')->name('login');
-    Route::post('device/reActivate', 'reActivate');
+    // تقييدُ المعدّل: لا Rate Limiting كان في المنظومة، وOTP ٤ خانات بلا
+    // عدّاد يعني تخمينَ الحساب في دقائق. مع مهلة OTP (٣ دقائق) يصير المجالُ
+    // غيرَ قابلٍ للاستنفاد داخل نافذةٍ واحدة. المخزنُ ملفّيّ (انظر config/cache).
+    Route::post('device/register', 'register')->middleware('throttle:10,1');
+    Route::post('device/login', 'login')->name('login')->middleware('throttle:10,1');
+    Route::post('device/reActivate', 'reActivate')->middleware('throttle:10,1');
     //////////////ارسال التوكين للتحقق من انة هذه الرمز يمكن يتم او لا//////////////////
 Route::post('device/initAuth',  'initAuth');
 });
@@ -69,10 +72,11 @@ Route::get('/user', function (Request $request) {
 
 
 ////////////////////////////////////////////////كود ارسال Otb ///////////////////////////////////////////////////////////////
-Route::post('device/otp/send', [OtpController::class, 'sendOtp']);
-Route::post('device/otp/checkOtp', [OtpController::class, 'checkOtp']) ;
+// otp/send مقيَّدٌ أشدّ: كلُّ نداءٍ يُرسل واتساب حقيقياً ويحذف رموزَ الهاتف.
+Route::post('device/otp/send', [OtpController::class, 'sendOtp'])->middleware('throttle:5,1');
+Route::post('device/otp/checkOtp', [OtpController::class, 'checkOtp'])->middleware('throttle:10,1');
 ////تسجيل الدخول بالرمز وحده — يتحقّق الخادم من الـ OTP ثم يُصدر رمز Sanctum
-Route::post('device/otp/login', [MobileAuthController::class, 'otpLogin']);
+Route::post('device/otp/login', [MobileAuthController::class, 'otpLogin'])->middleware('throttle:10,1');
 /////////////////////////////////////////////////////////////////////////////////
 
 Route::post('device/send/whatsapp/message',  [ MobileAuthController::class , 'sendMessageWithCurl']   );

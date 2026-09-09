@@ -15,7 +15,10 @@ return [
     |
     */
 
-    'default' => env('CACHE_STORE', 'database'),
+    // يحترم المفتاح القديم CACHE_DRIVER (الإنتاج يحمله = file)، ويسقط إلى
+    // file لا database: قاعدةُ الإنتاج بلا جدول `cache`، فمخزنُ database
+    // يفشل — والتقييدُ (throttle) يعتمد هذا المخزن، فالافتراضُ الآمن ملفّيّ.
+    'default' => env('CACHE_STORE', env('CACHE_DRIVER', 'file')),
 
     /*
     |--------------------------------------------------------------------------

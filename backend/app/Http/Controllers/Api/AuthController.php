@@ -647,6 +647,26 @@ public function sendMessageWithCurl(Request $request)
 ///////////////////////اعادة تفعيل الكود///////////////////////////////////////
 public function reActivate(Request $request)
 {
+    /*
+     * 🔒 مسارٌ إداريّ للمكتبيّ فقط. كان **بلا أيّ مصادقة** يُصدر رمز جلسة
+     * لأيّ user_id يأتي في الطلب — أيُّ مجهولٍ يطلب user_id=1,2,3… فيملك
+     * رمزاً لكلّ وكيل: استيلاءٌ كامل على كلّ الحسابات المالية.
+     *
+     * يُحرَس الآن بسرٍّ مشترك مع المكتبيّ (نفسُ CUSTOM_X_TOKEN)، مقارنةً
+     * ثابتةَ الزمن. ويُقرأ عبر config لا env (آمنٌ بعد config:cache).
+     *
+     * ⚠ نشرٌ منسّق: المكتبيّ يجب أن يُرسل xtoken (RhallaConfig.ini →
+     * API_X_TOKEN = CUSTOM_X_TOKEN). حتى يُحدَّث المكتبيّ سيتلقّى 401 هنا.
+     */
+    $provided = (string) ($request->header('X-Token') ?? $request->input('xtoken') ?? '');
+    $expected = (string) config('services.custom_x_token', '');
+    if ($expected === '' || ! hash_equals($expected, $provided)) {
+        return response()->json([
+            'status'  => false,
+            'message' => 'غير مصرّح',
+        ], 401);
+    }
+
     // 👈 ابحث عن المستخدم بأي طريقة (بالبريد، أو بالـ ID، أو غيره)
     $user = User::where('id', $request->user_id)->first();
 

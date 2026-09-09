@@ -121,4 +121,12 @@ Public Module MD_SECRETS
         End Get
     End Property
 
+    ' سرٌّ مشترك مع الـ API لحراسة المسارات الإدارية (reActivate).
+    ' نفسُ قيمة CUSTOM_X_TOKEN في backend/.env.
+    Public ReadOnly Property ApiXToken As String
+        Get
+            Return GetVal("API_X_TOKEN")
+        End Get
+    End Property
+
 End Module

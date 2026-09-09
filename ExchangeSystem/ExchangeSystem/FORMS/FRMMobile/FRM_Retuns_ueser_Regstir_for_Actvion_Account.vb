@@ -53,8 +53,9 @@ Public Class FRM_Retuns_ueser_Regstir_for_Actvion_Account
     Public Shared Async Function ReActivateAsync(userId As Integer) As Task(Of String)
         Dim url As String = "http://102.214.165.242:8080/api/device/reActivate"
 
-        ' تجهيز JSON بالـ user_id
-        Dim jsonData As String = "{ ""user_id"": " & userId & " }"
+        ' تجهيز JSON بالـ user_id + السرّ المشترك (يحرس المسار في الـ API)
+        Dim xtoken As String = MD_SECRETS.ApiXToken
+        Dim jsonData As String = "{ ""user_id"": " & userId & ", ""xtoken"": """ & xtoken & """ }"
         Dim content As New StringContent(jsonData, Encoding.UTF8, "application/json")
 
         Using client As New HttpClient()

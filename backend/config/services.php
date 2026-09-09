@@ -47,4 +47,12 @@ return [
         */
         'dev_otp_to' => env('OTP_DEV_TO'),
     ],
+
+    /*
+    | سرٌّ مشترك مع التطبيق المكتبيّ لحراسة المسارات الإدارية (reActivate).
+    | يُقرأ عبر config لا env مباشرةً كي يبقى صحيحاً بعد config:cache — env()
+    | حينها تُعيد الافتراض. القيمةُ نفسُها في backend/.env (CUSTOM_X_TOKEN)
+    | وفي RhallaConfig.ini للمكتبيّ (API_X_TOKEN).
+    */
+    'custom_x_token' => env('CUSTOM_X_TOKEN'),
 ];

@@ -61,3 +61,7 @@ MYSQL_CONN_PROD=Server=<PROD_HOST>;Port=3306;Database=<PROD_DB>;User Id=exchange
 # WhatsApp gateway (wa.rhalla.online) — used by OTP login and transfer notifications.
 WA_SESSION_ID=
 WA_API_KEY=
+
+# Shared secret guarding the admin API route device/reActivate.
+# MUST equal CUSTOM_X_TOKEN in backend/.env. Without it, re-activation returns 401.
+API_X_TOKEN=
