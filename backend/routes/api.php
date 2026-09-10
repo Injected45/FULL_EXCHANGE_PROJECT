@@ -212,6 +212,15 @@ Route::get ('device/employee/external/mine',
     [ EmployeeController::class , 'externalMine' ])
     ->middleware('employee:VIEW_OWN_TRANSFERS');
 
+/* فاتورةُ حوالةٍ خارجية بالرقم — تُفتح بالضغط على صفِّها.
+   ⚠ والرقمُ يحمل شَرطاتٍ (`13152-55-6`)، فالقيدُ يسمح بها صراحةً: القيدُ
+   الافتراضيّ في لارافيل يقطع عند `/` وحده، لكنّ تركَ المعامل بلا قيدٍ يفتح
+   البابَ لأشكالٍ لا يتوقّعها الاستعلام. */
+Route::get ('device/employee/external/mine/{code}',
+    [ EmployeeController::class , 'externalByCode' ])
+    ->middleware('employee:VIEW_OWN_TRANSFERS')
+    ->where('code', '[A-Za-z0-9\-]+');
+
 /*
  * طلباتُ الموافقة التي أنشأها الموظف — قراءةٌ وإلغاءٌ لطلبه هو.
  *

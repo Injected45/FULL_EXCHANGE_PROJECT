@@ -814,13 +814,23 @@ class EmployeeController extends BaseController
             $t = $payload['data']['transfer'] ?? [];
 
             /*
-             * ⚠ رقمُ الخارجية هو `codeForMobile` — لا `Code`: `ExternalEx`
-             * لا عمودَ بهذا الاسم فيها أصلاً، وقراءةُ عمودٍ غير موجود كانت
-             * ستُسجّل النسبةَ برقمٍ فارغ فلا تُربط بحوالةٍ أبداً.
+             * ⚠ **الرقمُ هو `Code` لا `codeForMobile`** — وقد أخطأتُه أوّلاً.
+             *
+             * `ExternalEx` تحمل الاثنين: `codeForMobile` مفتاحٌ عشوائيّ يولّده
+             * المتحكّم ليعثر على صفِّه بعد الإدراج، و`Code` هو رقمُ الحوالة
+             * الذي يبنيه المحفّز (`13152-55-6`) وتعرفه المنظومةُ كلُّها —
+             * وهو ما يُكتب في `EX24AccSafeActivityTb.ISID`.
+             *
+             * فالنسبةُ بـ`codeForMobile` كانت تُسجَّل برقمٍ لا يعرفه دفترٌ
+             * ولا كشف، فلا تلتقي بصفِّها أبداً — وتظهر الحوالةُ في القائمة
+             * بلا مستفيدٍ ولا مبلغ، معلَّمةً «لم يُعثر على أصلها».
+             *
+             * و`codeForMobile` احتياطٌ إن غاب `Code`: صفٌّ بلا نسبةٍ أسوأُ
+             * من نسبةٍ برقمٍ ثانوي.
              */
             $actor->attributeCreate(
                 $employee, $session,
-                (string) ($t['codeForMobile'] ?? ''),
+                (string) ($t['Code'] ?? $t['codeForMobile'] ?? ''),
                 (float) ($t['CurrRecievedVal'] ?? $request->input('CurrRecievedVal', 0)),
                 $recipientPhone !== '' ? $recipientPhone : null,
                 $recipientName !== '' ? $recipientName : null,
@@ -830,14 +840,14 @@ class EmployeeController extends BaseController
             $this->log->audit('EMPLOYEE_CREATED_EXTERNAL_TRANSFER',
                 $this->trace($request, $employee, $session) + [
                     'entity_type' => 'external_transfer',
-                    'entity_id'   => (string) ($t['codeForMobile'] ?? ''),
+                    'entity_id'   => (string) ($t['Code'] ?? $t['codeForMobile'] ?? ''),
                 ]);
         }
 
         if ($claimId !== null) {
             $actor->closeClaim(
                 $claimId,
-                $ok ? (string) (($payload['data']['transfer']['codeForMobile'] ?? '')) : null,
+                $ok ? (string) (($payload['data']['transfer']['Code'] ?? $payload['data']['transfer']['codeForMobile'] ?? '')) : null,
                 $ok,
             );
         }
@@ -1047,6 +1057,26 @@ class EmployeeController extends BaseController
                 (int) $request->query('limit', 200),
             ),
             'Success');
+    }
+
+    /**
+     * GET employee/external/mine/{code} — يتطلّب VIEW_OWN_TRANSFERS
+     *
+     * فاتورةُ حوالةٍ خارجيةٍ أنشأها هذا الموظف — نظيرُ
+     * [outgoingTransferByCode] في الحوالة المحلّية، والمختلفُ دفترُها.
+     */
+    public function externalByCode(Request $request, string $code)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        $row = app(EmployeeTransferViews::class)->externalByCode(
+            (int) $employee->agent_id, (int) $employee->id, $code);
+
+        if (!$row) {
+            return $this->sendError('الحوالة غير موجودة.', [], 404);
+        }
+
+        return $this->sendResponse($row, 'Success');
     }
 
     /**

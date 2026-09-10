@@ -9,6 +9,7 @@ import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../chat/chat_screen.dart';
+import 'employee_external_receipt_screen.dart';
 import 'employee_header.dart';
 import 'employee_session.dart';
 
@@ -278,7 +279,26 @@ class EmployeeExternalMineScreen extends ConsumerWidget {
                             R.padScreen, 14, R.padScreen, 30),
                         itemCount: items.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) => _ExternalRow(m: items[i]),
+                        itemBuilder: (_, i) => _ExternalRow(
+                          m: items[i],
+                          /*
+                           * ⚠ الضغطةُ تفتح الفاتورة — أمرُ المالك (11 سبتمبر
+                           * 2026): «بنفس آليّة وطريقة عرض الحوالة الداخلية».
+                           *
+                           * وصفٌّ فقد أصلَه في المنظومة لا يُفتح: الفاتورةُ
+                           * تُقرأ من `ExternalEx`، فنقرةٌ عليه تنتهي بـ404 —
+                           * وبابٌ يُفتح ثمّ يُخفق أسوأُ من بابٍ لا يُفتح.
+                           */
+                          onTap: items[i].missingInCore
+                              ? null
+                              : () => Navigator.of(context,
+                                      rootNavigator: true)
+                                  .push(MaterialPageRoute(
+                                  builder: (_) =>
+                                      EmployeeExternalReceiptScreen(
+                                          code: items[i].code),
+                                )),
+                        ),
                       ),
               ),
             ),
@@ -290,11 +310,14 @@ class EmployeeExternalMineScreen extends ConsumerWidget {
 }
 
 class _ExternalRow extends StatelessWidget {
-  const _ExternalRow({required this.m});
+  const _ExternalRow({required this.m, this.onTap});
+
   final ExternalMovement m;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => GlassCard(
+        onTap: onTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

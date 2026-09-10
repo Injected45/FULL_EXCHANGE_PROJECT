@@ -3311,15 +3311,76 @@ public function transInsertExternal(Request $request)
         ->where('Second_value', '>=', $request->CurrRecievedVal)
         ->first();
 
+    /*
+     * ════════════════════════════════════════════════════════════════════
+     *  ⚠⚠ هويّةُ الحساب المُرسِل — بلاغُ المالك (11 سبتمبر 2026)
+     * ════════════════════════════════════════════════════════════════════
+     *
+     * «أرسلتُ حوالاتٍ خارجية ولم تظهر في التطبيق كصادرة … `RecievedBranchID`
+     *  يفترض يحمل فرعَ الوكيل المرسِل، و`SenderName` يُسجَّل فيه حساب الوكيل».
+     *
+     * ── وهو مُثبَتٌ بالقياس لا بالقول ───────────────────────────────────
+     *
+     * الحوالةُ **الداخلية** تعمل، وصفوفُها في `InternalEx` تقول لماذا:
+     *   SenderName = «جاري شركة الامانة» (اسمُ حساب الوكيل) · BranchRecievedID = 15
+     * والخارجيةُ كانت تكتب: SenderName = NULL · RecievedBranchID = ما اختاره
+     * المستخدم من قائمة الفروع.
+     *
+     * وتطبيقُ سطح المكتب يقول الشيءَ نفسَه صراحةً:
+     *   `FRMEXTERNALTRANS`: `BranchRecievedID.EditValue = BID` — فرعُ الجلسة،
+     *   ومُعطَّلٌ لغير الفرع الرئيسي فلا يُختار أصلاً.
+     *   و`FRMSELECTACCOUNT`: `SenderName.Text = AccID.Text` وعرضُه `AccName`.
+     *
+     * ── ولماذا كان أثرُه اختفاءَ الحوالة ──────────────────────────────
+     *
+     * ⚠ `RecievedBranchID` ليس حقلَ عرض: **مُحفّزُ `ExternalEx` يبني عليه
+     * القيدَ كلَّه** — `AccBranchID` في `EX24AccSafeActivityTb` يُكتب منه،
+     * والحسابُ المقابل يُستخرج به:
+     *   `@AccIDTo = AccID FROM AccountsTb WHERE BranchID = RecievedBranchID`.
+     *
+     * فحين وصله فرعٌ غيرُ فرع الوكيل، كُتب القيدُ على فرعٍ آخر وحسابٍ آخر —
+     * وقيسَ ذلك على البيانات الحيّة: خمسُ حوالاتٍ بـ`RecievedBranchID = 1`
+     * قيودُها `AccIDFrom = 272`، وواحدةٌ بـ`15` (فرعُ الوكيل) قيدُها
+     * `AccIDFrom = 530` — حسابُ الوكيل. فالخمسُ لم تظهر في كشفه، والسادسةُ
+     * ظهرت. لم تكن الحوالةُ «لا تُعرض»، بل كانت **مقيَّدةً على غيره**.
+     *
+     * ⚠ ولا يُغيَّر هنا منطقٌ ماليٌّ ولا معادلة: تُملأ خانتا هويّةٍ بما
+     * يملؤهما به المسارُ الداخليّ وتطبيقُ سطح المكتب حرفياً. والحسابُ
+     * والعمولةُ والسعرُ والحدودُ كما هي، يجريها المحفّزُ نفسُه.
+     */
+    $senderAccount = DB::table('AccountsTb')
+        ->where('AccID', $AccID)
+        ->first(['AccID', 'AccName', 'BranchID']);
 
+    /*
+     * ⚠ فرعُ الحساب أوّلاً ثمّ فرعُ المستخدم: المحفّزُ يبني الكودَ من
+     * `AccountsTb.BranchID` (‏`13152-55-6` = دولة+مدينة+فرع)، فالمرجعُ الذي
+     * يقيس عليه القيدَ هو فرعُ **الحساب**. و`users.BrancchID` احتياطٌ حين
+     * يغيب صفُّ الحساب — ولا يقع، لكنّ إسقاطَ حوالةٍ بخطأٍ لأجل قراءةٍ
+     * تعريفية ليس مقبولاً.
+     */
+    $senderBranchId = (int) ($senderAccount->BranchID ?? $user->BrancchID ?? 0);
 
          // ✅ إضافة التعديل فقط
          $isTypeFive = $user->UeserType == "5";
- 
+
+         /*
+          * ⚠ اسمُ الحساب بديلاً عن `users.name` — لا إضافةً إليه.
+          *
+          * `users.name` **فارغٌ لحسابات الوكلاء** (مقيس: المستخدم 104 اسمُه
+          * NULL)، فكان `SenderName` يُكتب فارغاً في كلّ حوالةٍ خارجية —
+          * وتُطبع الفاتورةُ بلا مُرسِل.
+          *
+          * والترتيبُ محفوظٌ كما كان: ما يرسله التطبيق أوّلاً (وهو مُرسِلٌ
+          * حقيقيّ حين يقف زبونٌ أمام الشبّاك)، ثمّ اسمُ الحساب. فلا يُدهَس
+          * اسمُ زبونٍ باسم الوكالة.
+          */
+         $accountName = $senderAccount->AccName ?? null;
+
          $senderName = $isTypeFive
-             ? ($request->input('SenderName') ?: $user->name)
-             : $user->name;
- 
+             ? ($request->input('SenderName') ?: ($user->name ?: $accountName))
+             : ($user->name ?: $accountName);
+
          $senderPhone = $isTypeFive
              ? ($request->input('SPhone1') ?: $user->phone)
              : $user->phone;
@@ -3358,7 +3419,14 @@ public function transInsertExternal(Request $request)
         }
     // ================= التحقق من معدل التحويل للفروع أو الوكلاء =================
     if (in_array($user->UeserType, ["3", "5"])) {
-        $rollbackResult = $this->Rollback_Branch_Trinsfrim_me($request->RecievedBranchID, $totalAmount);
+        /*
+         * ⚠ وسقفُ الفرع يُقاس على الفرع نفسِه الذي سيُكتب في الصفّ.
+         *
+         * قياسُه على ما أرسله التطبيق بينما يُكتب فرعٌ آخر يعني فحصَ سقفٍ
+         * لفرعٍ لا علاقةَ له بالحوالة: يُسمح بما يجب منعُه، ويُمنع ما يجب
+         * السماحُ به — والاثنان أسوأُ من غياب الفحص، لأنّ الرقم يبدو مفحوصاً.
+         */
+        $rollbackResult = $this->Rollback_Branch_Trinsfrim_me($senderBranchId, $totalAmount);
         if ($rollbackResult instanceof \Illuminate\Http\JsonResponse) {
             return $rollbackResult; // خروج فوري عند الخطأ
         }
@@ -3413,7 +3481,19 @@ public function transInsertExternal(Request $request)
         ", [
             $request->RecievedCurrencyID,
             $request->CountryIDFrom,
-            $request->RecievedBranchID,
+            /*
+             * ⚠ فرعُ الوكيل المرسِل — لا ما اختاره المستخدم من قائمة الفروع.
+             *
+             * الشرحُ الكامل عند `$senderBranchId` أعلاه. وباختصار: هذا الحقل
+             * يقرّر على أيّ فرعٍ وأيّ حسابٍ يُكتب قيدُ الحوالة، فوصولُ فرعٍ
+             * آخر يعني حوالةً تُنفَّذ ولا تظهر في كشف صاحبها.
+             *
+             * ⚠ ويُدهَس ما أرسله التطبيق: القيمةُ الصحيحة معروفةٌ في الخادم
+             * من جلسة المستخدم، فتركُ البابِ مفتوحاً لإرسالها يعني وكيلاً
+             * يقيّد حوالتَه على فرع غيره — وهو الشكلُ نفسُه الذي أُغلق في
+             * `transInsert` و`addUserTrans`.
+             */
+            $senderBranchId,
             $request->RecievedName,
             $request->RPhone1,
             $request->CityIDTo,

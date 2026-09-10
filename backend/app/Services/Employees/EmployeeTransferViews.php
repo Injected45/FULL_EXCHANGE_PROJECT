@@ -99,16 +99,23 @@ class EmployeeTransferViews
 
         $codes = $rows->pluck('transfer_number')->filter()->unique()->values()->all();
 
-        /* صفوفُ المنظومة — استعلامٌ واحدٌ لكل ألف، لا واحدٌ لكل صفّ. */
+        /*
+         * صفوفُ المنظومة — استعلامٌ واحدٌ لكل ألف، لا واحدٌ لكل صفّ.
+         *
+         * ⚠ **المفتاحُ `Code` لا `codeForMobile`.** الثاني مفتاحٌ عشوائيّ
+         * يولّده المتحكّم ليعثر على صفِّه بعد الإدراج، والأوّلُ رقمُ الحوالة
+         * الذي يبنيه المحفّز وتعرفه المنظومةُ كلُّها ويُكتب في
+         * `EX24AccSafeActivityTb.ISID`. والنسبةُ تُسجَّل به الآن.
+         */
         $core = [];
         foreach (array_chunk($codes, 1000) as $chunk) {
             foreach (DB::table('ExternalEx')
-                        ->whereIn('codeForMobile', $chunk)
-                        ->select('codeForMobile', 'RecievedName', 'RPhone1',
+                        ->whereIn('Code', $chunk)
+                        ->select('Code', 'RecievedName', 'RPhone1',
                                  'SenderName', 'CurrRecievedVal', 'ExVal',
                                  'CountryIDTo', 'CityIDTo', 'InsertDate')
                         ->get() as $c) {
-                $core[$c->codeForMobile] = $c;
+                $core[$c->Code] = $c;
             }
         }
 
@@ -154,6 +161,109 @@ class EmployeeTransferViews
         }
 
         return ['items' => $items, 'total' => count($items), 'limit' => $limit];
+    }
+
+    /**
+     * فاتورةُ حوالةٍ خارجيةٍ بالرقم — للموظف الذي **أنشأها هو**.
+     *
+     * ⚠ نظيرُ [outgoingByCode] حرفاً بحرف في قاعدته: الملكيةُ تُفحص **قبل**
+     * القراءة لا بعدها، ولا تُفرَّق النتيجةُ بين «غير موجودة» و«ليست لك» —
+     * `null` في الحالتين، كي لا يُستدلّ بوجودها على شيء.
+     *
+     * ⚠ والصفُّ يُقرأ بمراجعه محلولةً (دولةٌ ومدينةٌ ونوعُ خدمةٍ وعملة): الشاشةُ
+     * تعرض ولا تحسب ولا تسأل عن اسمٍ ثانياً — والفاتورةُ تُطبع وتُسلَّم للزبون،
+     * فمرجعٌ لم يُحلّ يخرج على الورق رقماً بلا معنى.
+     */
+    public function externalByCode(int $agentId, int $employeeId, string $code): ?object
+    {
+        $code = trim($code);
+        if ($code === '') {
+            return null;
+        }
+
+        $owns = DB::table('transfer_attributions')
+            ->where('agent_id', $agentId)
+            ->where('employee_id', $employeeId)
+            ->where('action', 'CREATED')
+            ->where('channel', 'EXTERNAL')
+            ->where('transfer_number', $code)
+            ->exists();
+
+        if (!$owns) {
+            return null;
+        }
+
+        return $this->externalRow($code);
+    }
+
+    /**
+     * صفُّ الحوالة الخارجية بمراجعه محلولة — بلا فحصِ ملكية.
+     *
+     * ⚠ `private`-كالمعنى: **لا يُنادى إلّا من بابٍ فحص الملكيةَ قبله.** هو
+     * مفصولٌ عن [externalByCode] كي يستعمله بابُ الوكيل حين يُفتح — لا كي
+     * يُنادى مباشرةً من مسارٍ بلا حارس.
+     */
+    public function externalRow(string $code): ?object
+    {
+        $r = DB::table('ExternalEx')->where('Code', $code)->first();
+
+        if (!$r) {
+            return null;
+        }
+
+        // ⚠ استعلامٌ لكلّ مرجعٍ مرّةً واحدة — لا واحدٌ لكلّ حقلٍ في حلقة.
+        $country = $r->CountryIDTo
+            ? DB::table('CountiresTb')->where('ID', $r->CountryIDTo)->value('CName')
+            : null;
+
+        $city = $r->CityIDTo
+            ? DB::table('CitiesTb')->where('ID', $r->CityIDTo)->value('CityName')
+            : null;
+
+        $service = $r->ServiceType
+            ? DB::table('ExtTraServiceTypeTb')->where('ID', $r->ServiceType)->value('ServiceName')
+            : null;
+
+        // ⚠ `CurCode` لا `CurrencyCode`: الأسماءُ قُرئت من المخطّط لا من
+        // التخمين — عمودٌ غير موجود يردّ `null` صامتاً، فتخرج الفاتورةُ بلا
+        // عملةٍ ولا يظهر في أيّ سجلّ لماذا.
+        $currency = $r->DeliveredCurrencyID
+            ? DB::table('CurrencyMainTb')->where('ID', $r->DeliveredCurrencyID)->value('CurCode')
+            : null;
+
+        $branch = $r->RecievedBranchID
+            ? DB::table('CoBranch')->where('ID', $r->RecievedBranchID)->value('BName')
+            : null;
+
+        return (object) [
+            'code'               => $r->Code,
+            'mobile_code'        => $r->codeForMobile,
+            'sender_name'        => $r->SenderName,
+            'sender_phone'       => $r->Phone1,
+            'beneficiary_name'   => $r->RecievedName,
+            'beneficiary_phone'  => $r->RPhone1,
+            'country'            => $country,
+            'city'               => $city,
+            'service'            => $service,
+            'branch'             => $branch,
+            // المبلغُ المقبوض بالدينار، والعمولةُ، وما يُسلَّم بعملة الوجهة.
+            'amount'             => $r->CurrRecievedVal !== null ? (float) $r->CurrRecievedVal : null,
+            'commission'         => $r->ExVal !== null ? (float) $r->ExVal : null,
+            'rate'               => $r->TransPrice !== null ? (float) $r->TransPrice : null,
+            'net_total'          => $r->NetTotal !== null ? (float) $r->NetTotal : null,
+            'currency_code'      => $currency,
+            'notes'              => $r->Notes,
+            /*
+             * ⚠ الحالةُ تُعاد **كما تقولها القاعدة** بأعلامها الثلاثة، ولا
+             * تُترجَم هنا إلى نصّ: `ExternalEx` لا جدولَ حالاتٍ لها نظيرَ
+             * `InternalEx_Stautes`، واختلاقُ وصفٍ («قيد التنفيذ») ادّعاءٌ عن
+             * حالةٍ لا تقولها القاعدة — والموظف يبني عليه كلامَه للزبون.
+             */
+            'is_canceled'        => (int) ($r->IsCanceled ?? 0),
+            'is_delivered'       => (int) ($r->IsDelivered ?? 0),
+            'confirmed_type'     => $r->ConfirmedType !== null ? (int) $r->ConfirmedType : null,
+            'at'                 => (string) $r->InsertDate,
+        ];
     }
 
     /**

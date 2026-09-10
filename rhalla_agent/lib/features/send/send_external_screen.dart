@@ -108,6 +108,24 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
     });
   }
 
+  /// فرعُ الوكيل نفسِه من قائمة الفروع — أو `null` قبل وصولها.
+  ///
+  /// ⚠ يُطابَق بالمعرّف لا بالاسم: الأسماءُ تتشابه وتُحرَّر في القاعدة،
+  /// والمعرّفُ عقدٌ ثابت.
+  ///
+  /// ⚠ وفي وضع الموظف لا حسابَ وكيلٍ في الجلسة، فيبقى `null` وتُعرض شرطةٌ
+  /// مكانَه — والخادمُ يملأ الفرعَ من جلسة الوكيل الذي ينفّذ باسمه على أيّ
+  /// حال، فلا شيءَ ينقص الحوالة.
+  Ref2? _ownBranch(List<Ref2>? branches) {
+    if (branches == null || branches.isEmpty) return null;
+    final id = ref.read(authControllerProvider).user?.branchId;
+    if (id == null || id == 0) return null;
+    for (final b in branches) {
+      if (b.id == id) return b;
+    }
+    return null;
+  }
+
   double get _amountValue => Fmt.num_(_amount.text);
   double get _commissionValue => Fmt.num_(_commission.text);
 
@@ -119,7 +137,13 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
       _phone.text.trim().length >= 6 &&
       _country != null &&
       _city != null &&
-      _branch != null &&
+      /*
+       * ⚠ الفرعُ لم يعد شرطاً في النموذج: لم يعد يُختار.
+       *
+       * الخادمُ يملؤه من جلسة المُرسِل ويدهس ما يصله، فاشتراطُ اختيارٍ لم
+       * يعد موجوداً كان سيُبقي زرَّ الإرسال معطّلاً إلى الأبد — نموذجٌ
+       * مكتملٌ لا يُرسَل ولا يقول لماذا.
+       */
       _service != null;
 
   Future<void> _refreshQuote() async {
@@ -177,7 +201,14 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
     final draft = ExternalDraft(
       country: _country!,
       city: _city!,
-      branch: _branch!,
+      /*
+       * ⚠ فرعُ الوكيل إن عُرف، وإلّا فصفر — والخادمُ يدهسه في الحالتين
+       * بفرع الجلسة (انظر `transInsertExternal`). فهذه قيمةٌ للعرض في
+       * المسودّة لا قيمةٌ تُقرَّر بها الحوالة.
+       */
+      branch: _ownBranch(ref.read(branchesProvider).valueOrNull) ??
+          _branch ??
+          const Ref2(0, ''),
       service: _service!,
       receiverName: _name.text.trim(),
       receiverPhone: _phone.text.trim(),
@@ -302,14 +333,36 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
             const SizedBox(height: R.gapCard),
           ],
 
+          /*
+           * ══════════════════════════════════════════════════════════════
+           *  ⚠⚠ الفرعُ المُصدِّر يُعرض ولا يُختار — بلاغُ المالك (11 سبتمبر 2026)
+           * ══════════════════════════════════════════════════════════════
+           *
+           * «أرسلتُ حوالاتٍ خارجية ولم تظهر في التطبيق كصادرة».
+           *
+           * وسببُه أنّ هذه القائمة كانت تفتح **كلَّ الفروع**، فيختار الوكيلُ
+           * منها فرعاً غيرَ فرعه. و`RecievedBranchID` ليس حقلَ عرض: به
+           * تُحسم — عند اعتماد الحوالة — الجهةُ التي يُقيَّد عليها القيد.
+           * وقيسَ ذلك على الحوالات الحيّة: خمسٌ بفرعٍ آخر قُيّدت على الحساب
+           * 272 فلم تظهر لصاحبها، وواحدةٌ بفرعه قُيّدت على حسابه 530 فظهرت.
+           *
+           * ⚠ **والخادمُ هو الحارس** — يدهس ما يصله بفرع الجلسة — وهذا
+           * العرضُ صدقٌ في الواجهة لا حماية: بابٌ يُترك مفتوحاً على خيارٍ
+           * لا أثرَ له يُعلّم المستخدم أنّ اختيارَه يعني شيئاً وهو لا يعني.
+           *
+           * ⚠ **ولم يُحذف الحقل**: يبقى ظاهراً باسمه وقيمته — فرعُ الوكيل
+           * نفسِه — لأنه بيانٌ يقرؤه قبل الإرسال ويُطبع في الفاتورة. تغيّر
+           * أنه لم يعد بابَ خطأ.
+           */
           Consumer(builder: (_, r, _) {
             final branches = r.watch(branchesProvider);
+            final mine = _ownBranch(branches.valueOrNull);
             return _PickerCard(
               label: 'الفرع المُصدِّر',
-              value: _branch?.name,
+              value: mine?.name ?? _branch?.name,
               loading: branches.isLoading,
-              onTap: () => _pickFrom('اختر الفرع',
-                  branches.valueOrNull ?? const [], (v) => setState(() => _branch = v)),
+              // بلا `onTap`: يُعرض ولا يُفتح.
+              onTap: null,
             );
           }),
           const SizedBox(height: R.gapCard),
@@ -568,7 +621,9 @@ class _PickerCard extends StatelessWidget {
 
   final String label;
   final String? value;
-  final VoidCallback onTap;
+
+  /// `null` يعني **بيانٌ يُعرض لا خيارٌ يُفتح** — فيسقط معه سهمُ القائمة.
+  final VoidCallback? onTap;
   final bool loading;
 
   @override
@@ -583,7 +638,9 @@ class _PickerCard extends StatelessWidget {
                   Text(label, style: T.label),
                   const SizedBox(height: 9),
                   Text(
-                    loading ? 'جارٍ التحميل…' : (value ?? 'اختر'),
+                    loading
+                        ? 'جارٍ التحميل…'
+                        : (value ?? (onTap == null ? '—' : 'اختر')),
                     style: value == null
                         ? T.plex(15, FontWeight.w600, color: R.inkA(.42))
                         : T.value,
@@ -591,8 +648,11 @@ class _PickerCard extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.keyboard_arrow_down_rounded,
-                size: 22, color: R.inkA(.45)),
+            // ⚠ السهمُ يَعِد بقائمةٍ تُفتح. وحقلٌ يُعرض ولا يُفتح ومعه سهمٌ
+            // يُنقَر بلا أثر يُقرأ عطباً في التطبيق.
+            if (onTap != null)
+              Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 22, color: R.inkA(.45)),
           ],
         ),
       );
