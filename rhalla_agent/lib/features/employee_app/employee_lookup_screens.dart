@@ -9,6 +9,9 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import '../transfers/agent_incoming_repository.dart';
+import '../transfers/delivery_receipt_screen.dart';
+import '../transfers/outgoing_receipt_screen.dart';
 
 /* ══════════════════════════════════════════════════════════════════════════
    حوالاتُ نقطة البيع
@@ -97,7 +100,17 @@ class _EmployeeSearchScreenState extends ConsumerState<EmployeeSearchScreen> {
 
   bool _busy = false;
   String? _error;
-  Map<String, dynamic>? _result;
+
+  /*
+   * ⚠ قائمةٌ لا صفٌّ واحد — بلاغُ المالك (10 سبتمبر 2026): «يستدعيها ويعرضها
+   * كتبويب في الشاشة، فإذا عرف أنها هي يضغط عليها لتُفتح مثل الحوالة الصادرة
+   * بكافة بياناتها ويمكن طباعتها أو تصديرها».
+   *
+   * والبحثُ جزئيّ (`LIKE`) فقد يطابق أكثر من رقم؛ وعرضُ الأوّل وحدَه كان
+   * يُخفي البقيّة بلا أن يقول إنه أخفى شيئاً.
+   */
+  List<Map<String, dynamic>> _results = const [];
+  int? _opening;
 
   @override
   void dispose() {
@@ -167,9 +180,31 @@ class _EmployeeSearchScreenState extends ConsumerState<EmployeeSearchScreen> {
                     ),
                   ],
 
-                  if (_result != null) ...[
-                    const SizedBox(height: 16),
-                    _TransferRow(m: _result!, big: true),
+                  if (_results.isNotEmpty) ...[
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Text('النتائج', style: T.section),
+                        const SizedBox(width: 8),
+                        Text('${_results.length}',
+                            style: T.plex(12, FontWeight.w700,
+                                color: R.inkA(.5))),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    for (var i = 0; i < _results.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 8),
+                      // ⚠ الصفُّ نفسُه، وقد صار يُضغط: الضغطةُ تفتح الفاتورة
+                      // الكاملة — الواردة بفاتورتها والصادرة بفاتورتها.
+                      Opacity(
+                        opacity: _opening == null || _opening == i ? 1 : .5,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(R.rCard),
+                          onTap: _opening != null ? null : () => _open(i),
+                          child: _TransferRow(m: _results[i], big: true),
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ),
@@ -188,20 +223,30 @@ class _EmployeeSearchScreenState extends ConsumerState<EmployeeSearchScreen> {
     setState(() {
       _busy = true;
       _error = null;
-      _result = null;
+      _results = const [];
     });
 
     try {
       final env = await ref
           .read(apiClientProvider)
-          .get('/device/employee/transfers/search', query: {'code': code});
+          // ⚠ `q` هو ما يقرؤه المسار. كان يُرسَل `code`، فيصل المصطلحُ
+          // فارغاً ويردّ الخادم «اكتب ثلاثة محارف» على بحثٍ مكتوب — وهو
+          // سببُ أنّ الشاشة «لا تعرض». (الخادم صار يقبل الاثنين احتياطاً.)
+          .get('/device/employee/transfers/search', query: {'q': code});
 
       if (!mounted) return;
+
+      // الحمولةُ كائنٌ فيه `items`؛ وتُقرأ `rows` كذلك لردٍّ أقدم.
+      final data = env.row;
+      final list = (data?['items'] as List?) ?? const [];
+      final rows = list.isNotEmpty
+          ? list.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+          : env.rows;
+
       setState(() {
         _busy = false;
-        // ⚠ الردُّ قد يكون صفّاً أو قائمةً بصفٍّ واحد — يُقرآن معاً.
-        _result = env.row ?? (env.rows.isEmpty ? null : env.rows.first);
-        if (_result == null) _error = 'لا حوالة بهذا الرقم.';
+        _results = rows;
+        if (rows.isEmpty) _error = 'لا حوالة بهذا الرقم.';
       });
     } on ApiFailure catch (e) {
       if (mounted) setState(() { _busy = false; _error = e.message; });
@@ -213,6 +258,79 @@ class _EmployeeSearchScreenState extends ConsumerState<EmployeeSearchScreen> {
         });
       }
     }
+  }
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   *  فتحُ الفاتورة — نفسُ فواتير شاشة الحوالات، لا نسخةٌ ثالثة
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * أمرُ المالك: «تُفتح مثل الحوالة الصادرة بكافة بياناتها ويمكن طباعتها أو
+   * تصديرها، كأني أعرضها من شاشة الحوالات». فهي **هي**: `DeliveryReceiptScreen`
+   * للواردة و`OutgoingReceiptScreen` للصادرة — بطباعتهما ومشاركتهما.
+   *
+   * ⚠ ويُقرَأ `kind` من الخادم لا يُخمَّن من شكل الحقول: صفٌّ ناقصُ الحقول
+   * كان سيُقرأ صادراً أو وارداً بحسب ما صادف أن يحمله.
+   *
+   * ⚠ وتُجلب الحوالةُ كاملةً قبل الفتح: صفُّ البحث موجزٌ (رقمٌ واسمٌ ومبلغ)،
+   * والفاتورةُ تحتاج المرسِلَ والفرعَ وسببَ الإلغاء. والمستودعُ في **وضع
+   * الموظف**، فمسارات الوكيل تردّ 403 على جلسته.
+   */
+  Future<void> _open(int i) async {
+    final m = _results[i];
+    final code = '${m['transfer_number'] ?? m['Code'] ?? m['code'] ?? ''}'.trim();
+    if (code.isEmpty) return;
+
+    setState(() => _opening = i);
+    final repo = ref.read(transfersRepositoryForProvider(TransfersMode.employee));
+
+    try {
+      if ('${m['kind'] ?? ''}' == 'OUTGOING') {
+        final t = await repo.findOutgoing(code);
+        if (!mounted) return;
+        if (t == null) {
+          _say('تعذّر فتح فاتورة هذه الحوالة.');
+          return;
+        }
+        await Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(builder: (_) => OutgoingReceiptScreen(transfer: t)),
+        );
+        return;
+      }
+
+      final t = await repo.findByCode(code);
+      if (!mounted) return;
+      if (t == null) {
+        _say('تعذّر فتح فاتورة هذه الحوالة.');
+        return;
+      }
+      await Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(
+          builder: (_) => DeliveryReceiptScreen(
+            transfer: t,
+            mode: TransfersMode.employee,
+          ),
+        ),
+      );
+    } on ApiFailure catch (e) {
+      _say(e.message);
+    } catch (_) {
+      _say('تعذّر فتح الفاتورة — تحقّق من الاتصال.');
+    } finally {
+      if (mounted) setState(() => _opening = null);
+    }
+  }
+
+  void _say(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content:
+            Text(m, style: T.plex(13, FontWeight.w500, color: Colors.white)),
+        backgroundColor: R.inkA(.92),
+        behavior: SnackBarBehavior.floating,
+      ));
   }
 }
 

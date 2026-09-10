@@ -398,6 +398,50 @@ to the cache store, so `CACHE_STORE=file` must be set on the server or the
 counters land in the production financial database. Both are step-by-step in the
 runbook.
 
+### «بحث برقم الحوالة» searched the wrong ledger, through the wrong parameter (10 Sep 2026)
+
+Owner: *«الموظف يطلب رقم أيّ حوالةٍ هو قام بتنفيذها فيستدعيها ويعرضها … ولا
+يعرض»*, and he wants a tap to open the full receipt, printable and shareable,
+«كأني أعرضها من شاشة الحوالات».
+
+**Two independent defects, either one enough to make the screen return nothing:**
+
+1. **The app sent `code`; the route reads `q`.** So the term arrived empty and the
+   server answered «اكتب ثلاثة محارف على الأقل» to a search that had been typed in
+   full. Invisible to `flutter analyze` and to every test — a parameter name is
+   text on two sides, not a symbol. The app now sends `q`, and **the server accepts
+   both**: a phone in an employee's hand is not updated the moment the server is.
+2. **It searched only the incoming ledger.** A transfer the employee *creates* is
+   outgoing to another agent and has no row in `agent_incoming_transfers` at all —
+   so the one thing he asked for («أيّ حوالةٍ هو قام بتنفيذها») could never be
+   found, however correct the number.
+
+**The search now asks two ledgers, because he is asking about two directions:**
+
+- **Incoming** — the agent's ledger, agency-wide. That is right here and is
+  unchanged: whoever searches by number is answering a customer at the counter, and
+  a colleague may have received it.
+- **Outgoing** — what **this employee** created, by the 8 Sep rule that an employee
+  does not see a colleague's work.
+
+⚠ **`InternalEx.Code` is not queried by `LIKE`.** It has no index, and a partial
+match on it scans a half-million-row table. The employee's own codes come from
+`transfer_attributions` (indexed on employee), the match is done in PHP over that
+small list, and only the survivors are read from `InternalEx` in one set query.
+
+Each row carries `kind` (`INCOMING` / `OUTGOING`) so the screen knows which receipt
+to open — **read, never inferred**: a row missing a field would otherwise be
+classified by whatever it happened to contain. Tapping fetches the full transfer
+through the employee-mode repository (agent paths return 403 to an employee token)
+and pushes the *same* `DeliveryReceiptScreen` / `OutgoingReceiptScreen` the
+transfers tab uses, with their printing and sharing intact.
+
+The result is a **list**, not a single row: the match is partial, so more than one
+number can qualify, and showing only the first hid the rest without saying so.
+
+Measured after the fix: `13151` → 3 outgoing rows with beneficiary names,
+`1111-1` → 3 incoming rows, a two-character term still refused.
+
 ### ⚠⚠ Retiring a permission froze the permissions screen for everyone who had it (10 Sep 2026)
 
 The owner granted a permission marked «تُمنح يدوياً» and the save came back

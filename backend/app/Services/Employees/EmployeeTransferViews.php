@@ -58,7 +58,7 @@ class EmployeeTransferViews
      * فيرى حوالةَ وكيلٍ آخر خرقٌ لعزل الوكلاء. والخدمةُ الأمّ تأخذ
      * `agent_id` فتحرسه بنفسها.
      */
-    public function search(int $agentId, string $term): array
+    public function search(int $agentId, string $term, ?int $employeeId = null): array
     {
         $term = trim($term);
 
@@ -66,12 +66,101 @@ class EmployeeTransferViews
             return ['error' => 'اكتب ثلاثة محارف على الأقل من رقم الحوالة.'];
         }
 
-        $res = $this->core->list($agentId, null, $term, 1, 20);
+        /*
+         * ══════════════════════════════════════════════════════════════════
+         *  البحثُ يسأل دفترين، لأنّ الموظف يسأل عن اتجاهين
+         * ══════════════════════════════════════════════════════════════════
+         *
+         * بلاغُ المالك (10 سبتمبر 2026): «الموظف يطلب رقم أيّ حوالةٍ هو قام
+         * بتنفيذها فيستدعيها ويعرضها … ولا يعرض».
+         *
+         * وكان يسأل دفترَ الوارد وحدَه. والحوالةُ التي **ينشئها** الموظف صادرةٌ
+         * إلى وكيلٍ آخر، فلا صفَّ لها في ذلك الدفتر أصلاً — فالبحثُ عنها يعود
+         * فارغاً دائماً، مهما كان الرقمُ صحيحاً.
+         *
+         * فصار السؤالُ سؤالين:
+         *
+         *   ١) **الوارد** — دفترُ الوكيل، على مستوى الوكالة. وهو الصواب هنا:
+         *      من يبحث برقمٍ يبحث عن حوالةِ زبونٍ واقفٍ أمامه، وقد يكون
+         *      استلمها زميلُه. وهذا سلوكُه القائم ولم يُمَسّ.
+         *
+         *   ٢) **الصادر** — ما أنشأه **هذا الموظف وحدَه** (`transfer_attributions`
+         *      بفعل `CREATED`)، تبعاً لقاعدة المالك: الموظف لا يرى عمل زميله.
+         *
+         * ⚠ ولكلٍّ منهما فاتورةٌ مختلفة، فيحمل كلُّ صفٍّ `kind` تقرأه الشاشةُ
+         * لتعرف أيَّهما تفتح. وبغيره كانت الشاشةُ ستخمّن من شكل الحقول.
+         */
+        $incoming = $this->core->list($agentId, null, $term, 1, 20);
 
-        return [
-            'items' => $res['items'] ?? [],
-            'total' => $res['total'] ?? count($res['items'] ?? []),
-        ];
+        $items = [];
+        foreach ($incoming['items'] ?? [] as $row) {
+            $r = (array) $row;
+            $r['kind'] = 'INCOMING';
+            $items[] = $r;
+        }
+
+        if ($employeeId !== null) {
+            foreach ($this->searchOwnOutgoing($agentId, $employeeId, $term) as $row) {
+                $items[] = $row;
+            }
+        }
+
+        return ['items' => $items, 'total' => count($items)];
+    }
+
+    /**
+     * الصادرُ الذي أنشأه هذا الموظف، مطابقةً جزئيةً على الرقم.
+     *
+     * ⚠ لا يُسأل `InternalEx` بالرقم مباشرةً: `Code` بلا فهرس، ومطابقةُ
+     * `LIKE` عليه تمسح جدولاً بنصف مليون صفّ. فتُرشَّح **أكوادُ هذا الموظف**
+     * أوّلاً من `transfer_attributions` — وهي مفهرسةٌ على الموظف — ثمّ تُقرأ
+     * صفوفُ المنظومة لما طابق منها، مجموعةً واحدة.
+     *
+     * والمطابقةُ في PHP على قائمةٍ صغيرة: أكوادُ موظفٍ واحد، لا دفترُ منظومة.
+     */
+    private function searchOwnOutgoing(int $agentId, int $employeeId, string $term): array
+    {
+        $codes = DB::table('transfer_attributions')
+            ->where('agent_id', $agentId)
+            ->where('employee_id', $employeeId)
+            ->where('action', 'CREATED')
+            ->orderByDesc('occurred_at')
+            ->take(self::MAX_OUTGOING)
+            ->pluck('transfer_number')
+            ->filter()
+            ->unique()
+            ->filter(fn ($c) => mb_stripos((string) $c, $term) !== false)
+            ->take(20)
+            ->values()
+            ->all();
+
+        if ($codes === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach (DB::table('InternalEx as t')
+                    ->leftJoin('InternalEx_Stautes as s', 's.ConfirmType', '=', 't.ConfirmType')
+                    ->whereIn('t.Code', $codes)
+                    ->select('t.Code', 't.ConfirmType', 's.SName', 't.RecievedName',
+                             't.SenderName', 't.RPhone1', 't.OverallVal', 't.ExVal',
+                             't.InsertDate')
+                    ->get() as $c) {
+            $out[$c->Code] = [
+                'kind'              => 'OUTGOING',
+                'transfer_number'   => $c->Code,
+                'beneficiary_name'  => $c->RecievedName,
+                'beneficiary_phone' => $c->RPhone1,
+                'sender_name'       => $c->SenderName,
+                'amount'            => $c->OverallVal !== null ? (float) $c->OverallVal : null,
+                'commission'        => $c->ExVal !== null ? (float) $c->ExVal : null,
+                'core_status_label' => $c->SName,
+                'core_confirm_type' => $c->ConfirmType !== null ? (int) $c->ConfirmType : null,
+                'sent_at'           => (string) $c->InsertDate,
+            ];
+        }
+
+        return array_values($out);
     }
 
     /**

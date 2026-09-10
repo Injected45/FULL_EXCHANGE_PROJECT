@@ -827,8 +827,20 @@ class EmployeeController extends BaseController
     {
         [$employee, , ] = $this->ctx($request);
 
+        /*
+         * ⚠ `q` أو `code` — الاثنان يُقرآن.
+         *
+         * الشاشةُ كانت ترسل `code` والمسارُ يقرأ `q` وحدَه، فيصل المصطلحُ
+         * فارغاً دائماً ويردّ «اكتب ثلاثة محارف» على بحثٍ مكتوب. عيبٌ لا يراه
+         * `flutter analyze` ولا اختبار: اسمُ معاملٍ نصٌّ على طرفين.
+         *
+         * وقُبِلا معاً بدل تصحيح أحدهما: نسخةٌ قديمة من التطبيق على هاتفِ
+         * موظفٍ لا تُحدَّث في اللحظة التي يُنشر فيها الخادم.
+         */
+        $term = (string) ($request->query('q') ?? $request->query('code') ?? '');
+
         $out = app(EmployeeTransferViews::class)
-            ->search((int) $employee->agent_id, (string) $request->query('q', ''));
+            ->search((int) $employee->agent_id, $term, (int) $employee->id);
 
         if (isset($out['error'])) {
             return $this->sendError($out['error'], [], 422);
