@@ -146,6 +146,23 @@ class Branding {
 
   bool get hasLogo => (logoUrl ?? '').isNotEmpty;
 
+  /// نسخةٌ بكتالوجٍ آخر — لا أكثر.
+  ///
+  /// ⚠ ولا تُعمَّم على بقيّة الحقول عمداً: الهويةُ تأتي من الخادم كاملةً، ونسخةٌ
+  /// تُعدَّل حقلاً حقلاً في العميل هي مصدرٌ ثانٍ للحقيقة يفترق عن الأوّل.
+  /// والكتالوجُ وحدَه استثناءٌ لأنه **ليس من الهوية**: قائمةُ خياراتٍ ثابتة
+  /// يرسلها الخادم، لا شيءَ يخصّ هذه الشركة. انظر [BrandingRepository._merge].
+  Branding copyWith({List<BrandTheme>? themes}) => Branding(
+        companyNameAr: companyNameAr,
+        companyNameEn: companyNameEn,
+        logoUrl: logoUrl,
+        themeKey: themeKey,
+        version: version,
+        colors: colors,
+        canEdit: canEdit,
+        themes: themes ?? this.themes,
+      );
+
   static Branding fromJson(Map<String, dynamic> j) {
     final b = (j['branding'] as Map?)?.cast<String, dynamic>() ?? const {};
     final rawLogo = (b['logo_url'] ?? '').toString();
@@ -223,7 +240,7 @@ class BrandingRepository {
         : '/company/branding';
 
     final env = await _api.get(path);
-    return Branding.fromJson(env.row ?? const {});
+    return _merge(env.row ?? const {});
   }
 
   /// حفظ الاسم والثيم. لا تُرسَل إلا الحقول التي تغيّرت فعلاً — إرسال
@@ -235,7 +252,7 @@ class BrandingRepository {
     if (themeKey != null) body['theme_key'] = themeKey;
 
     final env = await _api.put('/company/branding', body: body);
-    return Branding.fromJson(env.row ?? const {});
+    return _merge(env.row ?? const {});
   }
 
   Future<Branding> uploadLogo(String filePath) async {
@@ -243,13 +260,44 @@ class BrandingRepository {
       'logo': await MultipartFile.fromFile(filePath),
     });
     final env = await _api.post('/company/branding/logo', body: form);
-    return Branding.fromJson(env.row ?? const {});
+    return _merge(env.row ?? const {});
   }
 
   Future<Branding> reset() async {
     final env = await _api.post('/company/branding/reset');
-    return Branding.fromJson(env.row ?? const {});
+    return _merge(env.row ?? const {});
   }
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   *  ⚠⚠ كتالوجُ الثيمات لا يُفرَّغ بجوابٍ لا يحمله
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * بلاغُ المالك (10 سبتمبر 2026): «رجعتُ لأعدّل الثيم لم يفتح بالمرّة».
+   *
+   * كان `update`/`uploadLogo`/`resetTheme` في الخادم تُعيد `branding` وحدَها
+   * بلا `themes`، فيُبنى منها كائنٌ بكتالوجٍ **فارغ** ويحلّ محلّ الكامل —
+   * فتصير قائمةُ الاختيار بلا شيءٍ تعرضه بعد أوّل حفظ. أُصلح في الخادم
+   * (جوابٌ واحدٌ لكلّ الأبواب)، وهذا حارسُه في العميل.
+   *
+   * ⚠ وليس تكراراً للإصلاح: الخادمُ يُنشر بعد التطبيق أحياناً، وهاتفٌ محدَّث
+   * أمام خادمٍ قديم كان سيقع في العطب نفسِه. والحارسُ يُبقيه عاملاً.
+   *
+   * ولا يُخمَّن شيء: يُؤخذ ما وصل، ويُستبقى الكتالوجُ المعروف **فقط** حين لا
+   * يأتي أصلاً. جوابٌ يحمل كتالوجاً — ولو فارغاً بعد تعديلٍ في الخادم — هو
+   * الحقيقة.
+   */
+  Branding _merge(Map<String, dynamic> row) {
+    final fresh = Branding.fromJson(row);
+    if (row.containsKey('themes') || _catalog.isEmpty) {
+      if (fresh.themes.isNotEmpty) _catalog = fresh.themes;
+      return fresh;
+    }
+    return fresh.copyWith(themes: _catalog);
+  }
+
+  /// آخرُ كتالوجٍ وصل — يُملأ من `load()` ومن أيّ جوابٍ يحمله.
+  List<BrandTheme> _catalog = const [];
 
 }
 

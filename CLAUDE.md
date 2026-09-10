@@ -398,6 +398,56 @@ to the cache store, so `CACHE_STORE=file` must be set on the server or the
 counters land in the production financial database. Both are step-by-step in the
 runbook.
 
+### ⚠⚠ Why the theme half-applied, and then stopped opening (10 Sep 2026)
+
+The owner, in one sentence each: *«فتحتُ وغيّرتُ الألوان — لأجزاءٍ من التطبيق،
+وأجزاءٌ بقيت بالثيم السابق»*, then *«رجعتُ لأعدّل الثيم — لم يفتح بالمرّة»*.
+
+**Two unrelated defects that looked like one broken screen.**
+
+#### The catalogue was being emptied by the save itself
+
+`GET company/branding` returns `{branding, can_edit, themes}`. `PUT`, the logo
+upload and the reset returned `{branding}` **only** — and the app parses the whole
+response into a `Branding` and replaces what it holds. So the first successful save
+left `themes: []`, and the picker after it had nothing to show. Nothing was wrong
+with the button or the sheet: **the save is what emptied them.**
+
+Fixed in the server (one `payload()` used by all four endpoints, so the shape
+cannot drift again) and guarded in the app (`_merge` keeps the known catalogue when
+a response carries none) — the second is not redundant: a phone updates before a
+server does, and a new app against an old server would hit the same wall.
+
+**The rule:** an endpoint that returns *part* of a shape the client parses *whole*
+is a deletion on a delay.
+
+#### The colours only reached the screens that had not been built yet
+
+This one was documented in `router.dart` from the beginning and still bit:
+`go_router` keeps `StatefulShellRoute` branches alive by `GlobalKey`, so a branch
+that was already built is **moved, never rebuilt** — and `R`'s colours are statics
+read at build time. Any tab the agent had visited before saving kept its old
+palette for the rest of the session. The `KeyedSubtree(ValueKey(epoch))` in
+`main.dart` rebuilt everything *above* the `Navigator` and never reached them.
+
+So `routerProvider` now watches the brand epoch and **rebuilds the router itself** —
+new branches, new keys, every screen built fresh with the new colours.
+
+- **⚠ This is not a contradiction of the `select` fix above.** That one stopped a
+  rebuild that happened *every twelve seconds for no reason*; this one happens when
+  the identity actually changes — sign-in, save, reset — a handful of times in the
+  app's life, each on an explicit tap.
+- **The location is preserved** (`_lastLocation`, updated in `redirect`). Without it,
+  saving a theme from the settings screen throws the agent to the home tab, and a
+  successful save reads as being kicked out.
+- **And the `KeyedSubtree` epoch key was removed, not kept as a belt.** Tearing the
+  tree down while a new router mounts puts `_rootKey` — one `GlobalKey` — inside two
+  live trees in the same frame, which is precisely how "Duplicate GlobalKey" is
+  produced. The router rebuild subsumes what it was doing.
+
+`tests/manual/company_branding_acceptance.php` still passes 13/13, financial
+snapshot included.
+
 ### Three small things the owner saw before anyone else (10 Sep 2026)
 
 - **The commission row now carries its transfer number.** `COMMTION_RETVIEW`

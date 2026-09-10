@@ -146,8 +146,32 @@ class CompanyBrandingController extends BaseController
         );
 
         return $this->sendResponse(
-            ['branding' => $branding], 'تم حفظ هوية الشركة.'
+            $this->payload($branding, $user), 'تم حفظ هوية الشركة.'
         );
+    }
+
+    /**
+     * ⚠⚠ جوابٌ واحدٌ لكلّ أبواب الهوية — لا جوابان ناقصٌ وكامل.
+     *
+     * بلاغُ المالك (10 سبتمبر 2026): «رجعتُ لأعدّل الثيم لم يفتح بالمرّة».
+     *
+     * والسبب أنّ `show` كانت تُعيد `branding` و`can_edit` و**`themes`**، بينما
+     * `update` و`uploadLogo` و`resetTheme` تُعيد `branding` وحدَها. والتطبيق
+     * يقرأ الجواب كاملاً في `Branding.fromJson` ويستبدل به ما عنده — فبعد أوّل
+     * حفظٍ يصير **كتالوج الثيمات فارغاً**، وقائمةُ الاختيار لا شيءَ فيها
+     * تعرضه. لا عطبَ في الزرّ ولا في القائمة: الحفظُ نفسُه هو ما أفرغها.
+     *
+     * ⚠ وقاعدةٌ تُستخلص: مسارٌ يُعيد **جزءاً** من شكلٍ يقرؤه العميلُ كلَّه هو
+     * حذفٌ مؤجَّل. فإمّا شكلٌ واحد لكلّ الأبواب — وهو هذا — أو يقرأ العميلُ
+     * كلَّ حقلٍ على حدة، وذلك عقدٌ يُنسى نصفُه عند أوّل حقلٍ يُضاف.
+     */
+    private function payload($branding, $user): array
+    {
+        return [
+            'branding' => $branding,
+            'can_edit' => $this->canEdit($user),
+            'themes'   => $this->themesCatalog(),
+        ];
     }
 
     /** POST /api/company/branding/logo  (multipart: logo) */
@@ -185,7 +209,7 @@ class CompanyBrandingController extends BaseController
             return $this->sendError($e->getMessage(), [], 422);
         }
 
-        return $this->sendResponse(['branding' => $branding], 'تم حفظ الشعار.');
+        return $this->sendResponse($this->payload($branding, $user), 'تم حفظ الشعار.');
     }
 
     /**
@@ -237,7 +261,7 @@ class CompanyBrandingController extends BaseController
         );
 
         return $this->sendResponse(
-            ['branding' => $branding], 'تمت استعادة الهوية الافتراضية.'
+            $this->payload($branding, $user), 'تمت استعادة الهوية الافتراضية.'
         );
     }
 }
