@@ -318,9 +318,87 @@ class EmployeeTransferViews
             foreach ($this->searchOwnOutgoing($agentId, $employeeId, $term) as $row) {
                 $items[] = $row;
             }
+
+            /*
+             * ⚠ **ودفترٌ ثالث: الخارجية** — بلاغُ المالك (11 سبتمبر 2026).
+             *
+             * فُتح للموظف بابُ الحوالة الخارجية، ودفترُها `ExternalEx` لا
+             * `InternalEx`. فبحثٌ يسأل الاثنين الأوّلين وحدَهما يعود فارغاً
+             * عن كلّ حوالةٍ خارجيةٍ مهما كان الرقمُ صحيحاً — وهو بعينه
+             * العطبُ الذي أُصلح بالأمس في الصادر المحلّي، يتكرّر في قناةٍ
+             * جديدة.
+             *
+             * والقاعدةُ نفسُها: ما أنشأه **هذا الموظف وحدَه**.
+             */
+            foreach ($this->searchOwnExternal($agentId, $employeeId, $term) as $row) {
+                $items[] = $row;
+            }
         }
 
         return ['items' => $items, 'total' => count($items)];
+    }
+
+    /**
+     * الخارجيُّ الذي أنشأه هذا الموظف، مطابقةً جزئيةً على الرقم.
+     *
+     * ⚠ نظيرُ [searchOwnOutgoing] حرفاً بحرف، بدفترها هي: تُرشَّح أكوادُ هذا
+     * الموظف من `transfer_attributions` — وهي مفهرسةٌ عليه وعلى القناة — ثمّ
+     * تُقرأ صفوفُ المنظومة لما طابق منها، **مجموعةً واحدة**. ولا `LIKE` على
+     * دفتر الحوالات.
+     */
+    private function searchOwnExternal(int $agentId, int $employeeId, string $term): array
+    {
+        $codes = DB::table('transfer_attributions')
+            ->where('agent_id', $agentId)
+            ->where('employee_id', $employeeId)
+            ->where('action', 'CREATED')
+            ->where('channel', 'EXTERNAL')
+            ->orderByDesc('occurred_at')
+            ->take(self::MAX_OUTGOING)
+            ->pluck('transfer_number')
+            ->filter()
+            ->unique()
+            ->filter(fn ($c) => mb_stripos((string) $c, $term) !== false)
+            ->take(20)
+            ->values()
+            ->all();
+
+        if ($codes === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach (DB::table('ExternalEx')
+                    ->whereIn('Code', $codes)
+                    ->select('Code', 'RecievedName', 'RPhone1', 'SenderName',
+                             'CurrRecievedVal', 'ExVal', 'InsertDate',
+                             'IsCanceled', 'IsDelivered')
+                    ->get() as $c) {
+            $out[$c->Code] = [
+                // ⚠ `kind` تقرؤه الشاشةُ لتعرف **أيَّ فاتورةٍ تفتح**: للخارجية
+                // فاتورتُها هي، ولا تُخمَّن من شكل الحقول.
+                'kind'              => 'EXTERNAL',
+                'transfer_number'   => $c->Code,
+                'beneficiary_name'  => $c->RecievedName,
+                'beneficiary_phone' => $c->RPhone1,
+                'sender_name'       => $c->SenderName,
+                'amount'            => $c->CurrRecievedVal !== null
+                    ? (float) $c->CurrRecievedVal : null,
+                'commission'        => $c->ExVal !== null ? (float) $c->ExVal : null,
+                /*
+                 * ⚠ وصفٌ من أعلام القاعدة لا اختلاقٌ لحالة: `ExternalEx` بلا
+                 * جدولِ حالاتٍ نظيرَ `InternalEx_Stautes`.
+                 */
+                'core_status_label' => ((int) ($c->IsCanceled ?? 0)) !== 0
+                    ? 'ملغاة'
+                    : (((int) ($c->IsDelivered ?? 0)) !== 0
+                        ? 'مسلَّمة' : 'قيد المعالجة'),
+                'core_confirm_type' => null,
+                'sent_at'           => (string) $c->InsertDate,
+            ];
+        }
+
+        return array_values($out);
     }
 
     /**

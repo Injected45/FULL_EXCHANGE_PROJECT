@@ -11,6 +11,7 @@ import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../transfers/agent_incoming_repository.dart';
 import '../transfers/delivery_receipt_screen.dart';
+import '../transfers/external_receipt_screen.dart';
 import '../transfers/outgoing_receipt_screen.dart';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -285,6 +286,26 @@ class _EmployeeSearchScreenState extends ConsumerState<EmployeeSearchScreen> {
     final repo = ref.read(transfersRepositoryForProvider(TransfersMode.employee));
 
     try {
+      /*
+       * ⚠ الخارجيةُ فاتورتُها هي — أمرُ المالك (11 سبتمبر 2026): «بنفس
+       * الآليّة» التي تُفتح بها الواردةُ غيرُ المسلَّمة.
+       *
+       * وهي **الشاشةُ نفسُها** التي تفتحها قائمةُ «حوالاتي الخارجية»، لا
+       * نسخةٌ ثالثة. ولا تُجلب هنا ثمّ تُمرَّر: الشاشةُ تقرأ بنفسها، فطلبٌ
+       * هنا وطلبٌ هناك سؤالان لبيانٍ واحد.
+       */
+      if ('${m['kind'] ?? ''}' == 'EXTERNAL') {
+        await Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(
+            builder: (_) => ExternalReceiptScreen(
+              code: code,
+              mode: TransfersMode.employee,
+            ),
+          ),
+        );
+        return;
+      }
+
       if ('${m['kind'] ?? ''}' == 'OUTGOING') {
         final t = await repo.findOutgoing(code);
         if (!mounted) return;
