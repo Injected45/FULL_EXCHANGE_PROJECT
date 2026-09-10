@@ -398,6 +398,63 @@ to the cache store, so `CACHE_STORE=file` must be set on the server or the
 counters land in the production financial database. Both are step-by-step in the
 runbook.
 
+### The shift opens itself; only the employee closes it (10 Sep 2026)
+
+Owner's order, and his own definition of custody: *«العهدة إمّا قيمةٌ مودعةٌ
+كعهدة أو قيمةُ حوالةٍ مستلمة، وجميعها تُجمع … وإذا صرف قيمةً أو سلّم حوالة
+فتنقص … بحيث يكون مفهومُ العهدة والخزينة واحداً، ويظهر في الأعلى ليرى الموظف
+من الواجهة كم في حوزته»*, and *«الوردية تُفتح بمجرّد فتح يومٍ جديد وبأيّ حركة …
+والإقفالُ يدويٌّ بعد أن يتمّ الجرد»*.
+
+He also settled the scope question that had been holding this back: *«جميع ما
+طلبته هو في عرض تصميم الموظف وليس له أيُّ علاقة بحسابات الرحالة ولا العمليات
+الحسابية والشجرة الحسابية والدائن والمدين للمنظومة الرئيسية»*.
+
+**The arithmetic did not change, because it already said exactly this.**
+`expectedCash` is `opening + in − out`, where IN is the declared opening custody
+plus created-transfer values plus cash received, and OUT is payouts plus delivered
+transfers. His 100 + 1000 − 200 − 500 = 400 is that formula, unmodified. What
+changed is when a shift exists, and how the number is presented.
+
+**`ensureOpenShift` — the first movement opens the shift.** Wired into the four
+paths that write a movement (create transfer, execute approval, deliver, manual
+cashbox entry); the four that only *read* (`me`, custody, ledger, close) still use
+plain `openShift`.
+
+- **⚠ What it replaces is worse than a refusal.** The manual entry was refused with
+  «ابدأ وردية أولاً», but the three transfer paths were `if ($shift)` and then
+  **nothing** — an employee who forgot to press «بدء وردية» created and delivered
+  transfers whose cash never appeared in his custody. A refusal informs; silence
+  hides.
+- **Opening cash is zero**, because nobody declared any. The «بدء وردية» button
+  stays for the employee who actually receives a float and types its value.
+- **No `START_SHIFT` permission is required** for the automatic open: it is the
+  system acting, not the employee. Requiring it would put whoever lacks it back in
+  the silent state — the same defect wearing another coat. The permission still
+  guards *declaring an opening float*.
+- **Nothing ever closes automatically.** A new day opens a shift if none is open; it
+  does not close one. Closing is a stocktake and a handover of cash, and it does not
+  happen by the clock — so yesterday's open shift stays open and today's movements
+  join it until he counts.
+- **Concurrency is a unique filtered index**, `UX_shift_open_employee` on
+  `employee_shifts(employee_id) WHERE status='OPEN'`
+  (`deploy/2026-09-10_shift_single_open.sql`), with the loser re-reading the winner's
+  row. ⚠ The script refuses to create the index if an employee already has two open
+  shifts and prints them instead: closing one is a stocktake, not data cleanup.
+
+**«في عهدتك» moved from a footnote to the number it is.** It was 11.5pt under the
+name; it is now a block at the top of the employee's header on the same scale as
+the agent's balance (15 · 30 · 19), with the three terms of the equation under it —
+`opening + in − out` — so the answer to "where did this number come from?" is on
+screen instead of behind a full statement. The sign still flips the sentence rather
+than the number («في عهدتك» / «مستحقٌّ لك»), and no shift still shows nothing rather
+than zero — though with the automatic open that state now means literally "nothing
+has happened yet".
+
+Verified: `employee_cashbox_acceptance` 18/18 and `employee_cashbox_ledger_acceptance`
+59/59, both ending in the financial-invariant snapshot — `wallet`, `ExchangeAccData`,
+`InternalEx`, the safes and the chart of accounts identical before and after.
+
 ### ⚠⚠ Why the theme half-applied, and then stopped opening (10 Sep 2026)
 
 The owner, in one sentence each: *«فتحتُ وغيّرتُ الألوان — لأجزاءٍ من التطبيق،

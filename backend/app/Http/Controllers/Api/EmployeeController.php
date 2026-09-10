@@ -177,7 +177,9 @@ class EmployeeController extends BaseController
          * ⚠ حركةُ الخزينة بعد نجاح الحوالة لا قبله، ولا تُبطلها إن أخفقت:
          * المالُ خرج فعلاً، ووصفُه لا يُلغيه. وهو ترتيبُ التسليم نفسُه.
          */
-        $shift = $this->cashbox->openShift((int) $employee->id);
+        $shift = $this->cashbox->ensureOpenShift(
+            (int) $employee->agent_id, (int) $employee->id,
+            $session->active_pos_id ?? null, $session->device_hash ?? null);
         if ($shift) {
             try {
                 $this->cashbox->addEntry([
@@ -628,7 +630,9 @@ class EmployeeController extends BaseController
              * ⚠ وبعد نجاح الحوالة لا قبله، ولا تُبطلها إن أخفقت: المالُ
              * تحرّك فعلاً، ووصفُه لا يُلغيه. وهو ترتيبُ التسليم نفسُه.
              */
-            $shift = $this->cashbox->openShift((int) $employee->id);
+            $shift = $this->cashbox->ensureOpenShift(
+                (int) $employee->agent_id, (int) $employee->id,
+                $session->active_pos_id ?? null, $session->device_hash ?? null);
             if ($shift) {
                 try {
                     $this->cashbox->addEntry([
@@ -1175,7 +1179,9 @@ class EmployeeController extends BaseController
 
             // الحركة تُسجَّل داخل الوردية المفتوحة وحدها: بلا وردية لا يوجد
             // افتتاحيّ ولا إقفال، فحركةٌ خارجها لا تدخل في أي معادلة.
-            $shift = $this->cashbox->openShift((int) $employee->id);
+            $shift = $this->cashbox->ensureOpenShift(
+                (int) $employee->agent_id, (int) $employee->id,
+                $posId, $session->device_hash ?? null);
             if ($shift) {
                 try {
                     $this->cashbox->addEntry([
@@ -1337,9 +1343,19 @@ class EmployeeController extends BaseController
             'client_ref' => 'nullable|string|max:80',
         ]);
 
-        $shift = $this->cashbox->openShift((int) $employee->id);
+        /*
+         * ⚠ لا تُردّ حركةٌ بـ«ابدأ وردية أولاً» — أمرُ المالك (10 سبتمبر 2026):
+         * أيُّ حركةٍ تفتح ورديةً إن لم تكن مفتوحة. والصرفُ والقبضُ حركة.
+         *
+         * وكان الرفضُ يعني أنّ الموظف يقبض مالاً من زبونٍ ثم يُخبره التطبيقُ
+         * أنّ عليه إجراءً إدارياً أوّلاً — فيُسجّله متأخّراً أو لا يسجّله.
+         */
+        $shift = $this->cashbox->ensureOpenShift(
+            (int) $employee->agent_id, (int) $employee->id,
+            $session->active_pos_id, $session->device_hash ?? null);
+
         if (!$shift) {
-            return $this->sendError('ابدأ وردية أولاً لتسجيل حركة.', [], 422);
+            return $this->sendError('تعذّر فتح وردية — أعد المحاولة.', [], 422);
         }
 
         try {

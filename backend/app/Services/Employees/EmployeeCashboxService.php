@@ -444,4 +444,92 @@ class EmployeeCashboxService
             ->where('employee_id', $employeeId)->where('status', 'OPEN')
             ->orderByDesc('id')->first();
     }
+
+    /**
+     * ══════════════════════════════════════════════════════════════════════
+     *  الوردية تُفتح بأوّل حركة — ولا تُقفل إلّا بيد الموظف بعد الجرد
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * أمرُ المالك (10 سبتمبر 2026): «الوردية تُفتح بمجرّد فتح يومٍ جديد وبأيّ
+     * حركةٍ تتمّ — صرفٌ أو قبضٌ أو حوالة — تُفتح بشكلٍ آليّ، والإقفالُ يدويٌّ
+     * بعد أن يتمّ الجرد عليه آخر الوردية».
+     *
+     * ── وما الذي كان يقع بغيرها ──────────────────────────────────────────
+     *
+     * حركةُ الخزينة اليدوية كانت تُردّ بـ«ابدأ وردية أولاً»، وحركاتُ الحوالات
+     * كانت **تُكتب بلا وردية** (`if ($shift)` ثمّ لا شيء): فالموظفُ الذي نسي
+     * الضغط على «بدء وردية» ينشئ حوالاتٍ ويسلّمها ولا يظهر منها في عهدته شيء.
+     * وهو أخطرُ من الرفض: الرفضُ يُعلِم، والصمتُ يُخفي.
+     *
+     * ── وثلاثةُ قراراتٍ فيها ─────────────────────────────────────────────
+     *
+     * ١) **الافتتاحيُّ صفر.** الوردية المفتوحة آلياً لم يُصرّح أحدٌ فيها بعهدةٍ
+     *    نقدية، وافتراضُ رقمٍ غير الصفر اختلاقٌ. ومن استلم عهدةً نقدية يفتح
+     *    ورديّتَه بنفسه ويُدخل قيمتَها — والزرُّ باقٍ لذلك، لم يُحذف.
+     *
+     * ٢) **بلا صلاحية `START_SHIFT`.** هذا فتحٌ من النظام لا فعلٌ من الموظف:
+     *    اشتراطُ الصلاحية يعني أنّ من لا يملكها تُكتب حركاتُه بلا وردية —
+     *    أي العطبُ نفسُه بثوبٍ آخر. والصلاحيةُ تحرس **الإعلان عن عهدةٍ
+     *    افتتاحية**، وذلك ما زال خلفها.
+     *
+     * ٣) **ولا إقفالَ آليّ أبداً.** «يومٌ جديد» يفتح ورديةً إن لم تكن مفتوحة،
+     *    ولا يُقفل مفتوحةً: الإقفالُ جردٌ وتسليمُ نقد، ولا يقع بمرور الوقت.
+     *    فورديةٌ بقيت مفتوحةً من أمس تبقى، وحركةُ اليوم تدخل فيها حتى يجردها.
+     *
+     * ⚠ والتزامنُ يحرسه فهرسٌ فريد في القاعدة لا فحصٌ في الشيفرة:
+     * `UX_shift_open_employee` — طلبان متسارعان يمرّان معاً من أيّ `EXISTS`،
+     * والخاسرُ هنا يقرأ الصفَّ الذي كتبه الرابح بدل أن يفتح ورديةً ثانية.
+     * وبغير الفهرس تبقى المعاملةُ والقفلُ حارساً كافياً في الحالة العادية.
+     *
+     * @return object|null صفُّ الوردية — و`null` تعذّرٌ نادر لا يُسقط العملية.
+     */
+    public function ensureOpenShift(int $agentId, int $employeeId, ?int $posId,
+                                    ?string $deviceHash = null, string $currency = 'LYD')
+    {
+        $open = $this->openShift($employeeId);
+        if ($open) {
+            return $open;
+        }
+
+        try {
+            return DB::transaction(function () use ($agentId, $employeeId, $posId, $deviceHash, $currency) {
+                // قراءةٌ ثانية داخل المعاملة: بين القراءة الأولى وهنا قد يكون
+                // طلبٌ موازٍ قد فتحها.
+                $again = DB::table('employee_shifts')
+                    ->where('employee_id', $employeeId)->where('status', 'OPEN')
+                    ->lockForUpdate()->orderByDesc('id')->first();
+                if ($again) {
+                    return $again;
+                }
+
+                $cashboxId = $this->cashboxFor($agentId, $employeeId, $posId, $currency);
+
+                $id = DB::table('employee_shifts')->insertGetId([
+                    'agent_id'         => $agentId,
+                    'employee_id'      => $employeeId,
+                    'cashbox_id'       => $cashboxId,
+                    'point_of_sale_id' => $posId,
+                    'opening_cash'     => 0,
+                    'status'           => 'OPEN',
+                    'started_at'       => now(),
+                    'device_hash'      => $deviceHash,
+                ]);
+
+                // ⚠ يُسجَّل بفعلٍ يميّزه عن الفتح اليدويّ: من يقرأ التدقيق
+                // يجب أن يعرف أنّ لا أحدَ صرّح بعهدةٍ افتتاحية هنا.
+                $this->log->audit('SHIFT_AUTO_STARTED', [
+                    'agent_id'    => $agentId,
+                    'employee_id' => $employeeId,
+                    'entity_type' => 'shift',
+                    'entity_id'   => (string) $id,
+                    'new_value'   => ['opening_cash' => 0, 'auto' => true],
+                ]);
+
+                return DB::table('employee_shifts')->where('id', $id)->first();
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            // خرقُ الفهرس ⇦ طلبٌ موازٍ سبقنا. نقرأ ما كتبه.
+            return $this->openShift($employeeId);
+        }
+    }
 }

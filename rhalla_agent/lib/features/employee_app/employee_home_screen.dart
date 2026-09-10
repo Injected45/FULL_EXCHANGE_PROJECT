@@ -410,8 +410,6 @@ class _Header extends ConsumerWidget {
                           style: T.plex(11.5, FontWeight.w400,
                               color: R.whiteA(.82)),
                         ),
-                        if (profile.can('VIEW_OWN_CASHBOX'))
-                          const _CustodyLine(),
                       ],
                     ),
                   ),
@@ -429,6 +427,10 @@ class _Header extends ConsumerWidget {
                   ),
                 ],
               ),
+              // ⚠ العهدةُ في الأعلى، ظاهرةً — أمرُ المالك (10 سبتمبر 2026):
+              // «ليرى الموظف من الواجهة كم في حوزته». وكانت سطراً صغيراً تحت
+              // الاسم يُقرأ حاشيةً لا رقماً يُعمل عليه.
+              if (profile.can('VIEW_OWN_CASHBOX')) const _CustodyBlock(),
             ],
           ),
         ],
@@ -1143,8 +1145,31 @@ class _Failed extends StatelessWidget {
    «لم تبدأ بعد»، والفرق بينهما يومُ عملٍ كامل.
    ══════════════════════════════════════════════════════════════════════════ */
 
-class _CustodyLine extends ConsumerWidget {
-  const _CustodyLine();
+/// ══════════════════════════════════════════════════════════════════════════
+///  «في عهدتك» — ما في يد الموظف الآن، رقماً واحداً
+/// ══════════════════════════════════════════════════════════════════════════
+///
+/// أمرُ المالك (10 سبتمبر 2026): «العهدةُ إمّا قيمةٌ مودعةٌ كعهدة أو قيمةُ حوالةٍ
+/// مستلمة، وجميعها تُجمع … وإذا صرف قيمةً أو سلّم حوالة فتنقص من العهدة …
+/// بحيث يكون مفهومُ العهدة والخزينة واحداً، ويظهر في الأعلى ليرى الموظف من
+/// الواجهة كم في حوزته».
+///
+/// ── والحسابُ لم يتغيّر، لأنه كان يقول هذا أصلاً ───────────────────────────
+///
+/// `expected = opening + in − out` في `EmployeeCashboxService`، حيث الداخلُ
+/// العهدةُ الافتتاحية وقيمُ الحوالات المُنشأة والمقبوضات، والخارجُ المصروفاتُ
+/// وقيمُ الحوالات المُسلَّمة. فما تغيّر **العرضُ لا المعادلة**: صار الرقمُ في
+/// الأعلى بحجمٍ يُقرأ، وتحته أطرافُه الثلاثة كي يُرى **من أين جاء**.
+///
+/// ⚠ ولا يُحسب هنا شيء: الخادمُ يحسب، والشاشةُ تعرض. حسابٌ ثانٍ في الهاتف
+/// يفترق عن الأوّل عند أوّل حالة، ثم لا يُعرف أيُّهما الصادق.
+///
+/// ⚠ والإشارةُ تقلب الجملة لا الرقم: موجبٌ = مالٌ في يده عليه أن يسلّمه،
+/// وسالبٌ = دفع من ماله فالوكيلُ مدينٌ له — ويقع فعلاً حين يبدأ بلا عهدةٍ
+/// نقدية ويسلّم حوالةً من جيبه. والرقمُ يُعرض مطلقاً لأن الإشارة قيلت بالنصّ:
+/// ناقصٌ عارٍ يُقرأ عجزاً في العهدة وهو دائنٌ لا مدين.
+class _CustodyBlock extends ConsumerWidget {
+  const _CustodyBlock();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1152,46 +1177,78 @@ class _CustodyLine extends ConsumerWidget {
 
     return async.maybeWhen(
       data: (c) {
+        // ⚠ لا ورديةَ ⇦ لا شيء، ولا صفر: صفرٌ يُقرأ «لا شيءَ عليك» وهو غيرُ
+        // «لم تبدأ بعد». وبالفتح التلقائيّ صارت هذه الحالةُ نادرة: أوّلُ حركةٍ
+        // تفتح الوردية، فالصمتُ هنا يعني «لم يجرِ شيءٌ بعد» حرفياً.
         if (!c.hasShift) return const SizedBox.shrink();
 
         final owed = c.expected >= 0;
 
         return Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(
+          padding: const EdgeInsets.only(top: 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                owed
-                    ? Icons.account_balance_wallet_rounded
-                    : Icons.south_west_rounded,
-                size: 13,
-                color: R.whiteA(.9),
+              Row(
+                children: [
+                  Icon(
+                      owed
+                          ? Icons.account_balance_wallet_rounded
+                          : Icons.south_west_rounded,
+                      size: 14,
+                      color: R.whiteA(.86)),
+                  const SizedBox(width: 6),
+                  Text(owed ? 'في عهدتك' : 'مستحقٌّ لك',
+                      style:
+                          T.plex(12, FontWeight.w500, color: R.whiteA(.86))),
+                ],
               ),
-              const SizedBox(width: 5),
-              Text(owed ? 'في عهدتك · ' : 'مستحقٌّ لك · ',
-                  style: T.plex(11.5, FontWeight.w600, color: R.whiteA(.9))),
-              // رقمٌ لاتينيّ الاتجاه كسائر مبالغ التطبيق، والرمز عن يساره،
-              // والقيمة مطلقة لأن الإشارة قيلت بالنصّ.
+              const SizedBox(height: 8),
+              // نفسُ سُلَّم رصيد الوكيل: 15 · 30 · 19 — رقمٌ واحدٌ يُقرأ، لا
+              // ثلاثُ كتلٍ متنافرة.
               Directionality(
                 textDirection: TextDirection.ltr,
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text('${c.currency} ',
-                        style: T.plex(10.5, FontWeight.w500,
-                            color: R.whiteA(.82))),
-                    Text(Fmt.money(c.expected.abs()),
-                        style: T.kufi(12.5, FontWeight.w800,
-                            color: Colors.white)),
+                    Text(c.currency,
+                        style: T.plex(15, FontWeight.w600,
+                            color: R.whiteA(.86))),
+                    const SizedBox(width: 7),
+                    Text(Fmt.money(c.expected.abs()).split('.').first,
+                        style:
+                            T.kufi(30, FontWeight.w700, color: Colors.white)),
+                    const SizedBox(width: 2),
+                    Text('.${Fmt.money(c.expected.abs()).split('.').last}',
+                        style: T.kufi(19, FontWeight.w600,
+                            color: R.whiteA(.88))),
                   ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              /*
+               * ⚠ أطرافُ المعادلة تحت الرقم — لا زينةً بل إجابةً على السؤال
+               * الذي يليه دائماً: «من أين جاء هذا الرقم؟».
+               *
+               * وبها يصير «مفهومُ العهدة والخزينة واحداً» أمام عينه: افتتاحيٌّ
+               * + داخلٌ − خارج. وبغيرها يبقى رقماً يُصدَّق أو يُشَكّ فيه، ولا
+               * سبيل للموظف إلى مراجعته إلّا بفتح كشفٍ كامل.
+               */
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Text(
+                  '${Fmt.money(c.opening)} + ${Fmt.money(c.inAmount)}'
+                  ' − ${Fmt.money(c.outAmount)}',
+                  style: T.plex(11, FontWeight.w400, color: R.whiteA(.62)),
                 ),
               ),
             ],
           ),
         );
       },
-      // لا هيكلَ تحميلٍ ولا رسالةَ خطأ: سطرٌ ثانويّ تحت الاسم، ووميضُه في كل
-      // فتحةٍ يزاحم ما فوقه. يظهر حين يصل الرقم، ويصمت حين لا يصل.
+      // لا هيكلَ تحميلٍ ولا رسالةَ خطأ: وميضٌ في كل فتحةٍ يزاحم ما فوقه.
+      // يظهر حين يصل الرقم، ويصمت حين لا يصل.
       orElse: () => const SizedBox.shrink(),
     );
   }
