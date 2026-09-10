@@ -442,4 +442,112 @@ class EmployeeTransferViews
         return ['items' => $items, 'total' => $total,
                 'page' => $page, 'per_page' => $perPage];
     }
+
+    /**
+     * ══════════════════════════════════════════════════════════════════════
+     *  خزينةُ الموظف — مالُ الحوالات وحدَه، لا عهدةَ ولا وردية
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * تصحيحُ المالك (10 سبتمبر 2026): «طلبتُ إيقاف خدمة العهدة … من قبضٍ
+     * وصرفٍ والورديةِ وفتحِها وإقفالِها، ولكن أنت أخفيتَ حتى الخزينة وهذا
+     * خطأ. أريد إعادة تفعيل خزينة الموظف بحيث يظهر فيها قيمةُ الحوالات
+     * الصادرة والواردة والرصيد … ليجرد الدرج ويطابق».
+     *
+     * فالذي أُلغي **إدخالُ اليد**: قبضٌ وصرفٌ يدويّان، وعهدةٌ افتتاحية،
+     * ووردية تُفتح وتُقفل. والذي يعود **مرآةُ الحوالات**: كم دخل الدرجَ وكم
+     * خرج منه، والفرقُ بينهما.
+     *
+     * ── ولا جدولَ لها ولا صفَّ يُكتب ───────────────────────────────────────
+     *
+     * ⚠ تُحسب كلُّها من `transfer_attributions` — وهي السجلُّ القائم لمن
+     * أنشأ ومن سلّم. فلا `employee_cashboxes` ولا `employee_shifts` ولا صفٌّ
+     * جديدٌ في أيّ مكان: **قراءةٌ خالصة**، وهي الطريقةُ الوحيدة التي تجعل
+     * الخزينةَ لا تفترق عن الحوالات أبداً — لأنها هي الحوالاتُ منظوراً إليها
+     * من جهة النقد.
+     *
+     * ── والاتجاهُ من فعل الموظف لا من اتجاه الحوالة ───────────────────────
+     *
+     * • **أنشأ حوالة** ⇦ قبض قيمتَها من الزبون ⇦ **داخل** (`in`).
+     * • **سلّم حوالة** ⇦ دفع قيمتَها للمستفيد ⇦ **خارج** (`out`).
+     *
+     * ⚠ والتسميةُ في الشاشة تتبع ما يفهمه هو — «صادرة» لما أنشأه و«واردة»
+     * لما سلّمه — لكنّ الحسابَ على النقد: ما دخل الدرجَ وما خرج منه. وخلطُ
+     * الاثنين يقلب الرصيدَ إشارةً كاملة.
+     *
+     * @param int $days نافذةُ الجرد. والدرجُ يُجرد يومياً، فالافتراضيُّ يوم.
+     */
+    public function cashbox(int $agentId, int $employeeId, int $days = 1): array
+    {
+        $days  = max(1, min($days, 90));
+        $since = now()->subDays($days);
+
+        $rows = DB::table('transfer_attributions')
+            ->where('agent_id', $agentId)
+            ->where('employee_id', $employeeId)
+            ->whereIn('action', ['CREATED', 'DELIVERED'])
+            ->where('occurred_at', '>=', $since)
+            ->orderByDesc('occurred_at')
+            ->take(self::MAX_OUTGOING)
+            ->get(['action', 'transfer_number', 'amount', 'occurred_at']);
+
+        /*
+         * أسماءُ المستفيدين — استعلامٌ واحدٌ لكلّ الأكواد، لا واحدٌ لكلّ صفّ.
+         *
+         * ⚠ و`InternalEx.Code` بلا فهرس، فيُجزّأ عند 1000 كما في كلّ قراءةٍ
+         * منه هنا. والاسمُ زينةٌ في هذه الشاشة: غيابُه لا يُسقط صفّاً، لأنّ
+         * الجردَ على المبلغ لا على الاسم.
+         */
+        $codes = $rows->pluck('transfer_number')->filter()->unique()->values()->all();
+        $names = [];
+        foreach (array_chunk($codes, 1000) as $chunk) {
+            foreach (DB::table('InternalEx')
+                        ->whereIn('Code', $chunk)
+                        ->get(['Code', 'RecievedName']) as $c) {
+                $names[$c->Code] = $c->RecievedName;
+            }
+        }
+
+        $in = 0.0;
+        $out = 0.0;
+        $inCount = 0;
+        $outCount = 0;
+        $items = [];
+
+        foreach ($rows as $r) {
+            $amount   = $r->amount !== null ? (float) $r->amount : 0.0;
+            $isCreate = $r->action === 'CREATED';
+
+            if ($isCreate) {
+                $in += $amount;
+                $inCount++;
+            } else {
+                $out += $amount;
+                $outCount++;
+            }
+
+            $items[] = [
+                'transfer_number' => $r->transfer_number,
+                'action'          => $r->action,
+                'label'           => $isCreate ? 'حوالة صادرة — قبضتَ قيمتها'
+                                               : 'حوالة واردة — سلّمتَ قيمتها',
+                'direction'       => $isCreate ? 'IN' : 'OUT',
+                'amount'          => $amount,
+                'beneficiary'     => $names[$r->transfer_number] ?? null,
+                'at'              => (string) $r->occurred_at,
+            ];
+        }
+
+        return [
+            'days'        => $days,
+            'in'          => round($in, 3),
+            'in_count'    => $inCount,
+            'out'         => round($out, 3),
+            'out_count'   => $outCount,
+            // ⚠ الرصيدُ فرقٌ لا مجموع، وقد يكون سالباً: موظفٌ سلّم أكثر ممّا
+            // قبض دفع من ماله، والوكيلُ مدينٌ له. والإشارةُ تُقال بالنصّ في
+            // الشاشة لا برقمٍ عارٍ.
+            'balance'     => round($in - $out, 3),
+            'items'       => $items,
+        ];
+    }
 }

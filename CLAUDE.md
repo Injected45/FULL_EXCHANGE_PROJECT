@@ -485,6 +485,46 @@ Verified: the four cases behave as `dropped / REFUSED 422 / SAVED / dropped`
 `employee_sensitive_permissions_check` 19/19 with the financial snapshot,
 `flutter analyze` clean, 214 tests green.
 
+### ⚠ The cashbox came back the same day — it was never what he asked to remove (10 Sep 2026)
+
+Owner, correcting the removal below: *«طلبتُ إيقاف خدمة العهدة … من قبضٍ وصرفٍ
+والورديةِ وفتحِها وإقفالِها، ولكن أنت أخفيتَ حتى الخزينة وهذا خطأ. أريد إعادة
+تفعيل خزينة الموظف بحيث يظهر فيها قيمةُ الحوالات الصادرة والواردة والرصيد …
+ليجرد الدرج ويطابق الماليةَ بالحركة»*.
+
+**The distinction I had missed:** what he cancelled was *entering money by hand* —
+manual cash in/out, a declared opening float, a shift that opens and closes. The
+cashbox itself is not an input at all; it is **the transfers seen from the cash
+side**, and it is the one screen that lets an employee count his drawer.
+
+**So it is back, and it writes nothing.** `EmployeeTransferViews::cashbox` is
+computed entirely from `transfer_attributions` — the record of who created and who
+delivered, which the removal never touched. No `employee_cashboxes`, no
+`employee_shifts`, no new row anywhere. That is what guarantees the cashbox can
+never disagree with the transfers list: it *is* the transfers list.
+
+- **Direction comes from the employee's act, not the transfer's direction.** He
+  **creates** a transfer ⇒ he took the customer's cash ⇒ **IN**. He **delivers** one
+  ⇒ he paid the beneficiary ⇒ **OUT**. The screen labels them «صادرة» and «واردة»
+  because that is how he says it, but the arithmetic is on the cash. Confusing the
+  two inverts the balance completely.
+- **`VIEW_OWN_TRANSFERS`, no new permission.** These are his own transfers and their
+  amounts already appear in his transfers list, so a second key for the same data
+  would only let an agent grant one believing he had withheld the other.
+- **The balance may be negative**, and then the sentence flips rather than the
+  number («المفترض في درجك» / «مستحقٌّ لك») — an employee who delivered more than he
+  took in paid from his own pocket and the agent owes him.
+- **A window, not a running total**: today / week / month, because a drawer is
+  counted for a period. The two terms of the equation sit under the figure so the
+  answer to "where did this come from?" needs no second screen.
+- ⚠ `InternalEx` is read once for the whole page of codes (chunked at 1000) purely
+  to put a beneficiary name on each row; `Code` has no index and a per-row lookup is
+  the shape that made the statement take 68 seconds. The name is decoration — a
+  missing one never drops a row, because the stocktake is on the amount.
+
+Measured on live data: `in = 4,525` over 3 transfers, `out = 1,200` over 1,
+`balance = 3,325`, each movement carrying its number and beneficiary.
+
 ### ⚠⚠ The shift and the custody were removed a few hours after they were finished (10 Sep 2026)
 
 Owner, the same day the automatic-shift work landed: *«في تطبيق الوكيل إلغاء نظام

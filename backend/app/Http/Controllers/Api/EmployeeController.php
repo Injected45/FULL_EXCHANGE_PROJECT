@@ -893,6 +893,30 @@ class EmployeeController extends BaseController
         return $this->sendResponse($row, 'Success');
     }
 
+    /**
+     * GET employee/cashbox — خزينةُ الموظف، من حوالاته وحدَها.
+     *
+     * تصحيحُ المالك (10 سبتمبر 2026): إيقافُ العهدة والوردية لم يكن يعني
+     * إخفاءَ الخزينة. فعادت — بلا قبضٍ يدويّ ولا صرفٍ ولا افتتاحيّ ولا إقفال:
+     * ما قبضه من حوالاتٍ أنشأها، وما دفعه في حوالاتٍ سلّمها، والفرق.
+     *
+     * ⚠ الصلاحيةُ `VIEW_OWN_TRANSFERS` ولا مفتاحَ جديد: هذه **حوالاتُه هو
+     * منظوراً إليها من جهة النقد**، ومبالغُها معروضةٌ في قائمة حوالاته أصلاً.
+     * ومفتاحٌ ثانٍ لنفس البيانات يجعل الوكيلَ يمنح أحدَهما ويظنّ أنه منع الآخر.
+     */
+    public function cashbox(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeTransferViews::class)->cashbox(
+                (int) $employee->agent_id,
+                (int) $employee->id,
+                (int) $request->query('days', 1),
+            ),
+            'Success');
+    }
+
     /** GET employee/transfers/mine — يتطلّب VIEW_OWN_TRANSFERS */
     public function myTransfers(Request $request)
     {

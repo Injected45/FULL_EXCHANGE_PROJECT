@@ -288,6 +288,12 @@ Route::get ('device/employee/transfers/mine',
     [ EmployeeController::class , 'myTransfers' ])
     ->middleware('employee:VIEW_OWN_TRANSFERS');
 
+/* خزينةُ الموظف — قراءةٌ خالصة من حوالاته: ما قبض وما دفع والفرق.
+   بلا عهدةٍ ولا وردية، وبلا صفٍّ يُكتب في أيّ جدول. */
+Route::get ('device/employee/cashbox',
+    [ EmployeeController::class , 'cashbox' ])
+    ->middleware('employee:VIEW_OWN_TRANSFERS');
+
 /* «الصادرة» في تبويب الحوالات — ما أنشأه الموظف بحالته في المنظومة.
    ⚠ القائمةُ قبل الفاتورة: مسارٌ ثابتٌ يسبق مسارَ المعامل الحرّ. */
 Route::get ('device/employee/transfers/outgoing',

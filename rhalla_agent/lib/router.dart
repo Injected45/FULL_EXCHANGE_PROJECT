@@ -16,6 +16,7 @@ import 'features/employees/approvals_screen.dart';
 import 'features/employees/employees_screen.dart';
 import 'features/employee_app/employee_activation_screen.dart';
 import 'features/employee_app/employee_approvals_screen.dart';
+import 'features/employee_app/employee_cashbox_screen.dart';
 import 'features/employee_app/employee_extras_screens.dart';
 import 'features/employee_app/employee_lookup_screens.dart';
 import 'features/employee_app/employee_reports_screen.dart';
@@ -285,6 +286,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/employee/statement',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const EmployeeStatementScreen(),
+      ),
+      GoRoute(
+        // خزينتُه — مالُ حوالاته: ما قبض وما دفع والفرق. بلا عهدةٍ ولا وردية.
+        path: '/employee/cashbox',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeCashboxScreen(),
       ),
       GoRoute(
         // «طلباتي» — نتيجةُ ما أرسله الموظف إلى وكيله.
