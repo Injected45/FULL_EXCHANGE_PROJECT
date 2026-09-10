@@ -341,11 +341,107 @@ Three defects fixed alongside it, each one a thing the app claimed and did not d
 - **The employee's transfer list read `rows`/`data` while the server returns
   `items`** — so the counter showed a number and the list below it was empty.
 - **The chat threads list only refreshed on a manual pull.** It now polls every
-  3 s with `skipLoadingOnRefresh: true` (no spinner flash), stops when
+  8 s with `skipLoadingOnRefresh: true` (no spinner flash), stops when
   backgrounded and pulses once on resume — the same shape as every other poll here.
 
 «عمولاتي» was split out of the limits screen into `reports/commissions_screen.dart`
 with its own route, and the employee cards on the agent's employees screen fold.
+
+#### The committee re-read its own two batches, and eight things came back (10 Sep 2026)
+
+A review of `10/09-05` and `10/09-06` against the source. Everything below is
+fixed and green (`flutter analyze` clean, **227 tests**, `php -l` clean on every
+touched file). **Nothing accounting was touched** — the owner's condition — and
+the one finding that lands inside the cashbox was deliberately left as a comment
+correction rather than a code change.
+
+- **⚠ The voice-note fix worked on iOS and failed on Android — measured, not
+  guessed.** `ChatService` reads the type with `finfo` (content, never the
+  request header). iOS writes an `M4A ` brand and is read as `audio/x-m4a`, which
+  the batch added. Android's `record` routes AAC-LC through `MediaMuxer`
+  (`AacFormat.kt` → `MUXER_OUTPUT_MPEG_4`), which stamps `mp42` — and `finfo`
+  reads *that* as **`video/mp4`**, which was not in the allow-list. So the
+  recording was made on the employee's phone and then refused by the server, on
+  the one platform every branch device runs. `video/mp4` now maps to `AUDIO`/`m4a`;
+  the cost is that a genuine mp4 video would be labelled audio, and no path in the
+  app uploads video.
+- **⚠ `addUserTrans` still wrote `ID_UESER_ACCID` from the request body** while
+  `$user_id` sat read and unused two lines above — the same shape as the `transInsert`
+  hole the committee closed as CRITICAL, and the twin of the ownership check it
+  added to `deleteUser`. Any signed-in agent could write a row into another agent's
+  favourites. It now writes the session's `AccID`. No accounting effect:
+  `AddUserTransTb` is a list of preferred beneficiaries — no balance, no entry.
+- **The freeze screen ordered an action the app forbade.** It says «تواصل مع
+  الإدارة» while chat sits behind `CHAT_WITH_AGENT`, which the pause gate refused
+  like any other permission — so a paused employee had no way to reach his agent
+  from inside the app. `EmployeePermissions::ALLOWED_WHILE_PAUSED` now names what
+  survives a pause (chat, and only chat), and the middleware consults it. The list
+  lives with the rest of the permission policy, not in the middleware, so tomorrow's
+  key is decided in one place.
+
+  ⚠ **And the server-side exception alone would have changed nothing**, which is the
+  part worth remembering: the veil wrapped the *whole* screen in an `AbsorbPointer`,
+  so every button inside it was dead too — including any door one might add. The gate
+  is now two layers, an absorbing veil underneath and the content above it, and it
+  carries a «مراسلة الوكيل» button shown only to an employee who actually holds
+  `CHAT_WITH_AGENT` (a button that opens and then gets a 403 is worse than no button).
+  Opening a permission on the server while the UI cannot reach it is a fix that
+  measures as done and reads as broken.
+- **The employee's `me` pulse never stopped in the background.** Every other poll
+  in this app stops on `paused` and pulses once on `resumed` — `10/09-06` added
+  exactly that to the chat screen and then opened a 12 s timer here that ran
+  forever. `EmployeeAuthController` is now a `WidgetsBindingObserver` like
+  `AppLockController`.
+- **The account footer lost the company's name.** «رحلة · اسم الشركة» was
+  *replaced* by the copyright line rather than joined by it, which quietly reversed
+  the owner's decision of 3 Sep («كل شيء باسمها ظاهرياً») that the account footer
+  carries the tenant's identity like the invoice header does. The footer is now
+  three lines: company, copyright, version.
+- **The token cache could be repoisoned by a read already in flight.** `readToken`
+  is async, so a read that started before a sign-out finished after it and wrote the
+  **old** token back into the cache — every later request then carried a dead token
+  and ended in a 401 the user could not explain. A generation counter now guards the
+  write-back, and every mutator invalidates **before and after** its awaits (a read
+  starting in between would otherwise have cached the pre-write state).
+- **`pause-all` was check-then-insert on a primary key.** Two taps in the same
+  instant meant a duplicate-key 500 on an operation that had in fact succeeded. It
+  updates first and only inserts when nothing was updated, with the duplicate folded
+  back into an update.
+- **The chat threads poll was 3 s** — twenty requests a minute from one screen,
+  against 30 s for the bell and the employee's incoming list. Now 8 s.
+- **⚠ The four pause routes were invisible to `app_routes_wiring_check`.** The
+  repository built them as one interpolated string with the verb chosen inline, so
+  the extractor read `employees/{p}/${paused` and the suite failed — and a path that
+  the check cannot parse is a path outside the guard it exists to provide (a typo in
+  a route string is invisible to `flutter analyze` and to every test, because it is
+  text, not a symbol). Both calls now pick between two complete literals. Re-run:
+  **104 paths, all registered, all three checks pass.**
+
+  And a trap worth knowing before writing the comment that explains this: **the
+  check reads the Dart file as raw text and does not strip Dart comments**, so the
+  first version of that very comment quoted the old interpolated path — and the
+  suite kept failing, now on the documentation of its own fix.
+
+Two more, and what was deliberately *not* changed:
+
+- `employees_screen.dart` had ~110 lines inside `if (_expanded) ...[` indented as
+  though they were outside it. The structure was correct; the indentation was an
+  invitation to break it. Re-indented, no behaviour change.
+- **`addEntry`'s duplicate catch was left exactly as it is.** Its comment claimed
+  the condition was SQL Server's `2601/2627`; the code actually keys on finding a
+  matching row, so an unrelated query failure with a pre-existing `client_ref` would
+  read as a duplicate. The window is narrow, and this is the cashbox ledger — under
+  the standing red line — so only the comment was corrected to say what the code
+  does. Changing it needs the owner's word.
+
+**And a test that had started lying.** `employee_home_permissions_test` decided
+"a tile is on screen" by counting `InkWell`s above a hardcoded baseline of one
+(the logout button). `10/09-07` added a second header button — «الأمان», permissionless
+by design — and the check began failing on `CLOSE_SHIFT` for a contradiction that did
+not exist. The baseline is now *measured* by mounting the screen with no permissions
+at all, and is itself bounded (`expect(chrome, lessThan(4))`) so a future screen that
+renders tiles unconditionally cannot inflate the baseline and swallow the very defect
+the test exists to catch.
 
 ### ⚠⚠ Release APKs could not open a socket at all (9 Sep 2026)
 

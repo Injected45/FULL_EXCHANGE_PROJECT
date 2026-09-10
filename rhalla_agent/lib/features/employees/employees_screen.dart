@@ -329,118 +329,118 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
             const SizedBox(height: 10),
 
             _Line(icon: Icons.storefront_outlined, text: e.posLabel),
-          const SizedBox(height: 6),
-          _Line(
-            icon: e.hasDevice
-                ? Icons.phone_android_rounded
-                : Icons.phonelink_erase_rounded,
-            text: e.hasDevice
-                ? 'جهاز مفعّل${e.deviceModel.isEmpty ? '' : ' · ${e.deviceModel}'}'
-                : 'لا جهاز مربوط',
-          ),
-          const SizedBox(height: 6),
-          _Line(
-            icon: Icons.vpn_key_outlined,
-            text: e.permissions.isEmpty
-                ? 'بلا صلاحيات — لا يرى شيئاً'
-                : '${e.permissions.length} صلاحية ممنوحة',
-          ),
-          if (e.lastActivityAt.isNotEmpty) ...[
             const SizedBox(height: 6),
             _Line(
-              icon: Icons.schedule_rounded,
-              text: 'آخر نشاط · ${Fmt.stampShort(e.lastActivityAt)}',
+              icon: e.hasDevice
+                  ? Icons.phone_android_rounded
+                  : Icons.phonelink_erase_rounded,
+              text: e.hasDevice
+                  ? 'جهاز مفعّل${e.deviceModel.isEmpty ? '' : ' · ${e.deviceModel}'}'
+                  : 'لا جهاز مربوط',
             ),
-          ],
-
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _Action(
-                  label: 'كود تفعيل',
-                  icon: Icons.qr_code_2_rounded,
-                  filled: e.needsCode,
-                  onTap: _busy ? null : _issueCode,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _Action(
-                  label: 'الصلاحيات',
-                  icon: Icons.tune_rounded,
-                  onTap: _busy
-                      ? null
-                      : () => context.push('/employees/${e.id}/permissions',
-                          extra: e),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _Action(
-                  label: e.status == EmployeeStatus.suspended ? 'تفعيل' : 'إيقاف',
-                  icon: e.status == EmployeeStatus.suspended
-                      ? Icons.play_arrow_rounded
-                      : Icons.pause_rounded,
-                  danger: e.status != EmployeeStatus.suspended,
-                  onTap: _busy ? null : _toggleSuspend,
-                ),
+            const SizedBox(height: 6),
+            _Line(
+              icon: Icons.vpn_key_outlined,
+              text: e.permissions.isEmpty
+                  ? 'بلا صلاحيات — لا يرى شيئاً'
+                  : '${e.permissions.length} صلاحية ممنوحة',
+            ),
+            if (e.lastActivityAt.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _Line(
+                icon: Icons.schedule_rounded,
+                text: 'آخر نشاط · ${Fmt.stampShort(e.lastActivityAt)}',
               ),
             ],
-          ),
 
-          // إيقافٌ مؤقّت (تجميد ناعم) — يختلف عن «الإيقاف» أعلاه: لا يُغلق
-          // الجلسة ولا يفقد شيئاً، ويعود فوراً. سيطرةٌ سريعة عن بُعد.
-          const SizedBox(height: 8),
-          _Action(
-            label: e.paused ? 'تشغيل الموظف' : 'إيقاف مؤقّت',
-            icon: e.paused
-                ? Icons.play_circle_outline_rounded
-                : Icons.pause_circle_outline_rounded,
-            danger: !e.paused,
-            onTap: _busy ? null : _togglePause,
-          ),
-
-          // مراسلة الموظّف — من هنا تبدأ المحادثة أوّل مرّة.
-          //
-          // شاشة الدردشة تعرض المحادثات **القائمة** وحدها، فبلا هذا الزرّ
-          // لا سبيل إلى مراسلة موظّفٍ لم يبدأ هو. والزرّ يُنشئ المحادثة عند
-          // الضغط لا قبله: محادثةٌ فارغة لكل موظّف تملأ القائمة بما لم يبدأ.
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _Action(
-                  label: 'سقف التحويل',
-                  icon: Icons.speed_rounded,
-                  onTap: _busy ? null : _openLimits,
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _Action(
+                    label: 'كود تفعيل',
+                    icon: Icons.qr_code_2_rounded,
+                    filled: e.needsCode,
+                    onTap: _busy ? null : _issueCode,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _Action(
-                  label: 'مراسلة',
-                  icon: Icons.chat_bubble_outline_rounded,
-                  onTap: _busy ? null : _openChat,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _Action(
+                    label: 'الصلاحيات',
+                    icon: Icons.tune_rounded,
+                    onTap: _busy
+                        ? null
+                        : () => context.push('/employees/${e.id}/permissions',
+                            extra: e),
+                  ),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _Action(
+                    label: e.status == EmployeeStatus.suspended ? 'تفعيل' : 'إيقاف',
+                    icon: e.status == EmployeeStatus.suspended
+                        ? Icons.play_arrow_rounded
+                        : Icons.pause_rounded,
+                    danger: e.status != EmployeeStatus.suspended,
+                    onTap: _busy ? null : _toggleSuspend,
+                  ),
+                ),
+              ],
+            ),
 
-          /*
-           * ⚠ الحذفُ وحدَه في سطره، وأحمر.
-           *
-           * وهو الفعلُ الوحيد هنا الذي لا يُتراجَع عنه من التطبيق،
-           * فلا يجاور فعلاً عادياً كالمراسلة — ضغطةٌ في غير موضعها
-           * تُخرج موظفاً من العمل.
-           */
-          const SizedBox(height: 8),
-          _Action(
-            label: 'حذف الموظف',
-            icon: Icons.person_remove_outlined,
-            danger: true,
-            onTap: _busy ? null : _deleteEmployee,
-          ),
+            // إيقافٌ مؤقّت (تجميد ناعم) — يختلف عن «الإيقاف» أعلاه: لا يُغلق
+            // الجلسة ولا يفقد شيئاً، ويعود فوراً. سيطرةٌ سريعة عن بُعد.
+            const SizedBox(height: 8),
+            _Action(
+              label: e.paused ? 'تشغيل الموظف' : 'إيقاف مؤقّت',
+              icon: e.paused
+                  ? Icons.play_circle_outline_rounded
+                  : Icons.pause_circle_outline_rounded,
+              danger: !e.paused,
+              onTap: _busy ? null : _togglePause,
+            ),
+
+            // مراسلة الموظّف — من هنا تبدأ المحادثة أوّل مرّة.
+            //
+            // شاشة الدردشة تعرض المحادثات **القائمة** وحدها، فبلا هذا الزرّ
+            // لا سبيل إلى مراسلة موظّفٍ لم يبدأ هو. والزرّ يُنشئ المحادثة عند
+            // الضغط لا قبله: محادثةٌ فارغة لكل موظّف تملأ القائمة بما لم يبدأ.
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _Action(
+                    label: 'سقف التحويل',
+                    icon: Icons.speed_rounded,
+                    onTap: _busy ? null : _openLimits,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _Action(
+                    label: 'مراسلة',
+                    icon: Icons.chat_bubble_outline_rounded,
+                    onTap: _busy ? null : _openChat,
+                  ),
+                ),
+              ],
+            ),
+
+            /*
+             * ⚠ الحذفُ وحدَه في سطره، وأحمر.
+             *
+             * وهو الفعلُ الوحيد هنا الذي لا يُتراجَع عنه من التطبيق،
+             * فلا يجاور فعلاً عادياً كالمراسلة — ضغطةٌ في غير موضعها
+             * تُخرج موظفاً من العمل.
+             */
+            const SizedBox(height: 8),
+            _Action(
+              label: 'حذف الموظف',
+              icon: Icons.person_remove_outlined,
+              danger: true,
+              onTap: _busy ? null : _deleteEmployee,
+            ),
           ], // نهاية الجزء المنسدل (if (_expanded))
         ],
       ),

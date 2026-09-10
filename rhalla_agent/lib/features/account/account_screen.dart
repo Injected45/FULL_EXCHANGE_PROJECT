@@ -12,6 +12,7 @@ import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
 import '../auth/delete_account_otp_screen.dart';
 import '../branding/brand_mark.dart';
+import '../branding/branding_controller.dart';
 
 class AccountScreen extends ConsumerWidget {
   const AccountScreen({super.key});
@@ -130,8 +131,24 @@ class AccountScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                // تذييل: حقوقُ الجهة المطوّرة ورقمُ الإصدار الموثّق
-                // (kAppVersion — مصدرٌ واحد، يتدرّج ولا يتكرّر).
+                /*
+                 * تذييلٌ من ثلاثة أسطر، وترتيبُها مقصود:
+                 *
+                 * ١) اسمُ شركة الوكيل — قرارُ المالك (٣ سبتمبر ٢٠٢٦): «كل شيء
+                 *    باسمها ظاهرياً»، وهو نفسُ ما تحمله ترويسةُ الفاتورة.
+                 *    ⚠ كان قد سقط حين أُضيف سطرُ الحقوق (١٠ سبتمبر) — أُعيد
+                 *    مكانه، فالسطران يجتمعان ولا يُبدَّل أحدهما بالآخر.
+                 *    و«رحلة» تبقى معه: هي اسم التطبيق لا اسم الشركة.
+                 *
+                 * ٢) حقوقُ الجهة المطوّرة.  ٣) رقمُ الإصدار (kAppVersion —
+                 *    مصدرٌ واحد، يتدرّج ولا يتكرّر، ويطابق pubspec).
+                 */
+                Text(
+                  'رحلة · ${ref.watch(brandingControllerProvider).branding.displayName}',
+                  textAlign: TextAlign.center,
+                  style: T.meta,
+                ),
+                const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [

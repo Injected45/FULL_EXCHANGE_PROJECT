@@ -60,24 +60,48 @@ class SecureStore {
   String? _tokenCache;
   bool _tokenCached = false;
 
+  /// ⚠ عدّادُ جيلٍ للذاكرة الوسيطة — وليس ترفاً.
+  ///
+  /// إبطالُ الذاكرة برايةٍ وحدها لا يكفي: `readToken` غير متزامنة، فقراءةٌ
+  /// **كانت جارية** قبل الكتابة تنتهي بعدها وتُعيد ملء الذاكرة بالرمز
+  /// **القديم** — فتُرسَل الطلباتُ التالية برمزٍ مُلغى (خروج، أو انتقالٌ بين
+  /// وضع الوكيل ووضع الموظف) وينتهي الأمر بـ401 وخروجٍ لا يفهمه المستخدم.
+  ///
+  /// فالقراءةُ تلتقط الجيلَ قبل أن تبدأ، ولا تكتب في الذاكرة إلّا إن كان
+  /// الجيلُ نفسَه لم يتغيّر بينهما. وكلُّ إبطالٍ يمرّ بـ[_invalidateToken].
+  int _tokenGen = 0;
+
+  void _invalidateToken() {
+    _tokenGen++;
+    _tokenCached = false;
+    _tokenCache = null;
+  }
+
   Future<String?> readToken() async {
     if (_tokenCached) return _tokenCache;
+    final gen = _tokenGen;
     final v = (await _s.read(key: _kEmployeeToken)) ?? (await _s.read(key: _kToken));
-    _tokenCache = v;
-    _tokenCached = true;
+    if (gen == _tokenGen) {
+      _tokenCache = v;
+      _tokenCached = true;
+    }
     return v;
   }
 
   Future<void> writeToken(String v) async {
-    _tokenCached = false;
+    _invalidateToken();
     await _s.delete(key: _kEmployeeToken);
     await _s.delete(key: _kEmployee);
     await _s.write(key: _kToken, value: v);
+    // ومرّةً بعد الكتابة كذلك: قراءةٌ بدأت **بين** الإبطال والكتابة كانت
+    // ستقرأ الحالة القديمة من التخزين وتحفظها وجيلُها لم يتغيّر بعد.
+    _invalidateToken();
   }
 
-  Future<void> clearToken() {
-    _tokenCached = false;
-    return _s.delete(key: _kToken);
+  Future<void> clearToken() async {
+    _invalidateToken();
+    await _s.delete(key: _kToken);
+    _invalidateToken();
   }
 
   /* ── جلسة الموظف ─────────────────────────────────────────────── */
@@ -88,10 +112,11 @@ class SecureStore {
   Future<String?> readEmployeeToken() => _s.read(key: _kEmployeeToken);
 
   Future<void> writeEmployeeToken(String v) async {
-    _tokenCached = false;
+    _invalidateToken();
     await _s.delete(key: _kToken);
     await _s.delete(key: _kUser);
     await _s.write(key: _kEmployeeToken, value: v);
+    _invalidateToken();
   }
 
   Future<Map<String, dynamic>?> readEmployee() async {
@@ -112,9 +137,10 @@ class SecureStore {
   /// معرّف الجهاز يبقى دائماً: الخادم يربط به التفعيل، وتغييره يفقد الموظف
   /// جهازه المعتمد ويحتاج كوداً جديداً بلا سبب.
   Future<void> clearEmployee() async {
-    _tokenCached = false;
+    _invalidateToken();
     await _s.delete(key: _kEmployeeToken);
     await _s.delete(key: _kEmployee);
+    _invalidateToken();
   }
 
   Future<Map<String, dynamic>?> readUser() async {
@@ -263,12 +289,13 @@ class SecureStore {
       _s.write(key: _kSecurityMode, value: mode);
 
   Future<void> signOut() async {
-    _tokenCached = false;
+    _invalidateToken();
     await _s.delete(key: _kToken);
     await _s.delete(key: _kUser);
     // ⚠ وطابعُ المغادرة يُمحى: الخروجُ يُنهي الجلسة، فقفلُ خمولٍ فوق
     // شاشة الدخول يطلب بصمةً لا تفتح شيئاً.
     await _s.delete(key: _kBackgroundedAt);
+    _invalidateToken();
     // معرّف الجهاز يبقى عمداً — مسحه يقفل الحساب.
     // وتفضيلُ البصمة يبقى كذلك: هو إعدادُ جهازٍ لا بيانات حساب.
   }

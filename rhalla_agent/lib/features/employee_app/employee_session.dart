@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/net/api_client.dart';
@@ -127,24 +128,50 @@ class EmployeeAuthState {
   static const initial = EmployeeAuthState(status: EmpSessionStatus.unknown);
 }
 
-class EmployeeAuthController extends StateNotifier<EmployeeAuthState> {
+class EmployeeAuthController extends StateNotifier<EmployeeAuthState>
+    with WidgetsBindingObserver {
   EmployeeAuthController(this._api, this._store)
       : super(EmployeeAuthState.initial) {
     _restore();
-    // نبضٌ دوريّ لـ me: يُبقي حالة الإيقاف (paused) حديثة، فيظهر التجميدُ
-    // خلال ثوانٍ حين يوقفه الوكيل، ويُرفع فور التشغيل — بلا فعلٍ من الموظف.
-    _pauseTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      if (state.status == EmpSessionStatus.signedIn) refresh();
-    });
+    WidgetsBinding.instance.addObserver(this);
+    _startPulse();
   }
 
   final ApiClient _api;
   final SecureStore _store;
   Timer? _pauseTimer;
 
+  /// نبضُ `me`: يُبقي حالة الإيقاف (paused) حديثة، فيظهر التجميدُ خلال ثوانٍ
+  /// حين يوقفه الوكيل، ويُرفع فور التشغيل — بلا فعلٍ من الموظف.
+  static const _pulse = Duration(seconds: 12);
+
+  void _startPulse() {
+    _pauseTimer ??= Timer.periodic(_pulse, (_) {
+      if (state.status == EmpSessionStatus.signedIn) refresh();
+    });
+  }
+
+  /// ⚠ ويتوقّف في الخلفية ويعود بنبضةٍ فورية — قاعدةُ كلّ نبضٍ في هذا
+  /// التطبيق (الجرس، واردةُ الموظف، قائمةُ المحادثات). نبضٌ لا يقف يستهلك
+  /// البطارية وهو ما لا يراه أحد، وهو أحد بنود مراجعة Google Play.
+  /// ولا فائدةَ منه أصلاً وقتَها: شاشةُ التجميد لا تُرى والتطبيقُ مُغلق.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (this.state.status == EmpSessionStatus.signedIn) refresh();
+      _startPulse();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _pauseTimer?.cancel();
+      _pauseTimer = null;
+    }
+  }
+
   @override
   void dispose() {
     _pauseTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 

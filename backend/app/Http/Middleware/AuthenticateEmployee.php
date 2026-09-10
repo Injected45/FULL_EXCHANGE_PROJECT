@@ -107,7 +107,14 @@ class AuthenticateEmployee
         // عملٍ (المسارات ذات الصلاحية) ما دام الموظفُ مُوقَفاً، وتُبقي me/logout/
         // branding (بلا صلاحية) ليعرف التطبيقُ حالتَه ويخرجَ إن شاء. لا شيءَ
         // يُفقَد؛ ومعزولٌ عن المال — علامةٌ وبوّابةُ واجهةٍ فقط.
-        if ($permission !== null && $this->isPaused($employee)) {
+        //
+        // ⚠ ويُستثنى ما في `ALLOWED_WHILE_PAUSED` — الدردشةُ اليوم: شاشةُ
+        // التجميد تأمره بمراسلة الإدارة، فمنعُها يجعل التطبيق يأمر بما يمنع.
+        // والقائمةُ في `EmployeePermissions` لا هنا، فمفتاحٌ يُضاف غداً يُقرَّر
+        // في مكانٍ واحد مع بقيّة سياسة الصلاحيات.
+        if ($permission !== null
+            && !EmployeePermissions::allowedWhilePaused($permission)
+            && $this->isPaused($employee)) {
             return response()->json([
                 'data' => ['paused' => true],
                 'message' => 'أوقفَ وكيلُك الخدمةَ مؤقتاً. تواصل مع الإدارة.',

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
+import '../chat/chat_screen.dart';
 import 'employee_session.dart';
 
 /// شاشةُ تجميدٍ فوق كلّ شيء حين يُوقف الوكيلُ الموظفَ (فردياً أو جماعياً).
@@ -27,13 +28,26 @@ class EmployeeFreezeGate extends ConsumerWidget {
         : 'أوقفَ وكيلُك الخدمةَ مؤقتاً. تواصل مع الإدارة.';
 
     return Positioned.fill(
-      // يمتصّ كلَّ لمسة: لا وصول لأيّ زرٍّ تحته.
-      child: AbsorbPointer(
-        child: Container(
-          color: const Color(0xF20B1220),
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
+      /*
+       * ⚠ طبقتان لا واحدة: حاجبٌ يمتصّ، ومحتوىً يتفاعل.
+       *
+       * كان `AbsorbPointer` يلفّ كلَّ شيء — فيمنع الوصول إلى ما تحته، ويمنع
+       * كذلك أيَّ زرٍّ **فيه**. فما إن صار للشاشة بابُ مراسلةٍ حتى كان لا
+       * يُضغط. الآن الحاجبُ طبقةٌ سفلى تبتلع كلَّ لمسةٍ تُفلت من المحتوى،
+       * والمحتوى فوقه فيأخذ لمساته أولاً — وترتيبُ الطبقتين هو الحارس.
+       */
+      child: Stack(
+        children: [
+          const Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(color: Color(0xF20B1220)),
+            ),
+          ),
+          Container(
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: SingleChildScrollView(
+              child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
@@ -57,6 +71,47 @@ class EmployeeFreezeGate extends ConsumerWidget {
                 style: T.plex(14.5, FontWeight.w400,
                     color: Colors.white.withValues(alpha: .82), height: 1.7),
               ),
+              /*
+               * ⚠ بابُ المراسلة — وبغيره تكون الشاشة قد أمرت بما تمنع.
+               *
+               * الرسالةُ تقول «تواصل مع الإدارة»، والحاجبُ يمتصّ كلَّ لمسة
+               * تحته، فلم يكن للموظف سبيلٌ إلى وكيله من داخل التطبيق أصلاً.
+               * والخادمُ يستثني `CHAT_WITH_AGENT` وحدَها من بوّابة الإيقاف
+               * (`EmployeePermissions::ALLOWED_WHILE_PAUSED`)، فهذا الزرّ هو
+               * نظيرُ ذلك الاستثناء في الواجهة — لا عملٌ يُفتح، قناةُ كلامٍ فقط.
+               *
+               * ولا يظهر لمن لا يملك الصلاحية: زرٌّ يفتح ثمّ يُردّ 403 أسوأُ
+               * من غيابه.
+               */
+              if (profile.can('CHAT_WITH_AGENT')) ...[
+                const SizedBox(height: 26),
+                TextButton.icon(
+                  onPressed: () =>
+                      Navigator.of(context, rootNavigator: true).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ChatScreen(
+                        title: 'الوكيل',
+                        asEmployee: true,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.chat_bubble_outline_rounded,
+                      size: 18, color: Colors.white),
+                  label: Text('مراسلة الوكيل',
+                      style: T.kufi(13.5, FontWeight.w700,
+                          color: Colors.white)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 22, vertical: 13),
+                    backgroundColor: Colors.white.withValues(alpha: .12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(R.rCard),
+                      side: BorderSide(
+                          color: Colors.white.withValues(alpha: .22)),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
               Container(
                 padding:
@@ -71,9 +126,11 @@ class EmployeeFreezeGate extends ConsumerWidget {
                     style: T.plex(12, FontWeight.w400,
                         color: Colors.white.withValues(alpha: .6))),
               ),
-            ],
+                ],
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

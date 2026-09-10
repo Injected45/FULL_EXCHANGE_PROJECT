@@ -186,13 +186,24 @@ class EmployeeAdminController extends BaseController
 
         // upsert لصفّ الوكيل: علامةٌ واحدة تحكم الجميع، دون المساس بالإيقاف
         // الفرديّ (يبقى مستقلاً، فرفعُ الجماعيّ لا يُشغّل موظفاً أوقفتَه وحده).
-        $exists = DB::table('employee_pause_gate')->where('agent_id', $user->id)->exists();
+        //
+        // ⚠ التحديثُ أولاً ثم الإدراج، لا «افحص ثمّ أدرج»: `agent_id` مفتاحٌ
+        // أساسيّ، وضغطتان متزامنتان على الزرّ تمرّان معاً من فحصٍ في الذاكرة
+        // فيصطدم الإدراجُ الثاني ويرى الوكيلُ خطأ 500 على عمليةٍ نجحت. وخرقُ
+        // التفرّد هنا يعني أنّ صفاً وُجد للتوّ — فيُحدَّث لا يُرمى.
         $data = ['all_paused_at' => $paused ? now() : null,
                  'updated_by' => $user->id, 'updated_at' => now()];
-        if ($exists) {
-            DB::table('employee_pause_gate')->where('agent_id', $user->id)->update($data);
-        } else {
-            DB::table('employee_pause_gate')->insert($data + ['agent_id' => $user->id]);
+
+        $affected = DB::table('employee_pause_gate')
+            ->where('agent_id', $user->id)->update($data);
+
+        if ($affected === 0) {
+            try {
+                DB::table('employee_pause_gate')->insert($data + ['agent_id' => $user->id]);
+            } catch (\Illuminate\Database\QueryException $e) {
+                DB::table('employee_pause_gate')
+                    ->where('agent_id', $user->id)->update($data);
+            }
         }
 
         $this->log->audit($paused ? 'EMPLOYEES_PAUSED_ALL' : 'EMPLOYEES_RESUMED_ALL', [

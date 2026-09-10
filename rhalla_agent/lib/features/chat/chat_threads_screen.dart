@@ -27,11 +27,16 @@ class ChatThreadsScreen extends ConsumerStatefulWidget {
 class _ChatThreadsScreenState extends ConsumerState<ChatThreadsScreen>
     with WidgetsBindingObserver {
   // ⚠ نبضٌ صامت: كانت القائمة لا تتحدّث إلّا بالسحب اليدويّ، فرسالةٌ جديدة
-  // لا تظهر حتى يسحب المستخدم. الآن تُحدَّث تلقائياً كلّ 3 ثوانٍ — وبلا وميض
+  // لا تظهر حتى يسحب المستخدم. الآن تُحدَّث تلقائياً كلّ 8 ثوانٍ — وبلا وميض
   // لأنّ `skipLoadingOnRefresh` يُبقي القائمةَ معروضةً أثناء التحديث. وتتوقّف
   // في الخلفية وتعود بنبضةٍ فورية عند الرجوع، كبقيّة شاشات النبض.
+  //
+  // ⚠ ثمانٍ لا ثلاث: النبضةُ الواحدة تجلب كلَّ المحادثات، وثلاثُ ثوانٍ تعني
+  // عشرين طلباً في الدقيقة من شاشةٍ واحدة — والجرسُ وواردةُ الموظف على ثلاثين
+  // ثانية. وحجمُ طلبات الخمول ملاحظةٌ مسجّلة على الخادم أصلاً، والفرقُ الذي
+  // يراه المستخدم بين ٣ و٨ ثوانٍ لا يُذكر.
   Timer? _timer;
-  static const _pulse = Duration(seconds: 3);
+  static const _pulse = Duration(seconds: 8);
 
   @override
   void initState() {

@@ -3508,18 +3508,28 @@ public function addUserTrans(Request $request     ){
         return $this->sendError('Validation Error.', $validator->errors(), 422);
     }
 
-    $user_id = Auth::User()->id;
- 
+    /* 🔒 صاحبُ المفضّلة هو صاحبُ الجلسة، لا ما يرسله الهاتف.
+     *
+     * ⚠ كان `ID_UESER_ACCID` يُكتب من `acc_id` في جسم الطلب بينما `$user_id`
+     * مقروءٌ ولا يُستعمل — فأيّ وكيلٍ مسجَّل يكتب صفاً في قائمة مفضّلة وكيلٍ
+     * آخر. وهو نفسُ شكل C-02 في `transInsert` الذي أُغلق، ونظيرُ فحصِ الملكية
+     * الذي أُضيف إلى `deleteUser` (P-15) — والإضافةُ كانت قد بقيت مفتوحة.
+     *
+     * ولا أثرَ محاسبيّ هنا: `AddUserTransTb` قائمةُ مستفيدين مفضّلين، لا رصيدَ
+     * فيها ولا قيدَ ولا عمولة. (لجنة فحص تطبيق الصرافة — 10 سبتمبر 2026)
+     */
+    $accId = Auth::User()->AccID;
+
     DB::beginTransaction();
 
 try {
 
 
     DB::insert("
-    INSERT INTO [dbo].[AddUserTransTb] 
-        (ID_UESER_ACCID, UserTo_ACCID) 
+    INSERT INTO [dbo].[AddUserTransTb]
+        (ID_UESER_ACCID, UserTo_ACCID)
     VALUES (?, ?)
-", [$request->acc_id , $request->acc_to]);
+", [$accId , $request->acc_to]);
 
 
     DB::commit();

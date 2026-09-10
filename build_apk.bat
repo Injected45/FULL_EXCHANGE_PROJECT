@@ -372,11 +372,18 @@ echo      adb install -r "%FINAL%"
 echo.
 if /i "%MODE%"=="release" (
     echo  NOTE: this build targets %API_BASE%
-    echo  If that is a plain http:// address the build cannot reach it.
-    echo  Android blocks cleartext at this targetSdk and iOS blocks it via
-    echo  ATS. The fix is a TLS certificate on the server - not
-    echo  usesCleartextTraffic, which would put balances and transfer codes
-    echo  on the wire in the clear.
+    if defined CLEARTEXT (
+        echo  Cleartext HTTP was enabled for this host only, so the apk CAN
+        echo  reach it. That makes this a TEST apk: balances and transfer
+        echo  codes travel unencrypted, Play flags cleartext in review and
+        echo  iOS refuses it via ATS. A store bundle cannot be built with
+        echo  the flag at all. The real fix is a TLS certificate on the
+        echo  server - never usesCleartextTraffic, which opens every host.
+    ) else (
+        echo  It is an https:// address or the strict network config is in
+        echo  force, so nothing cleartext can leave this build. That is the
+        echo  shape a store artefact must have.
+    )
     echo.
 ) else (
     echo  Check from the phone's browser first:

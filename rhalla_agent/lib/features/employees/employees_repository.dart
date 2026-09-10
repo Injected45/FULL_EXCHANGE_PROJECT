@@ -348,11 +348,21 @@ class EmployeesRepository {
       _api.post('/employees/$id/status', body: {'status': status});
 
   /// بوّابةُ الإيقاف — سيطرةُ الوكيل عن بُعد (تجميدٌ ناعم، بلا فقدان شيء).
-  Future<void> setPaused({required int id, required bool paused}) =>
-      _api.post('/employees/$id/${paused ? 'pause' : 'resume'}');
+  ///
+  /// ⚠ المساران مكتوبان كاملَين، ولا يُركَّب اسمُ الفعل داخل النصّ بشرطٍ
+  /// ثلاثيّ. الصيغةُ المركَّبة تعمل، لكنّ `app_routes_wiring_check` يستخرج
+  /// المسارات من شيفرة التطبيق ويطابقها بجدول الخادم — وهو ما يمسك خطأً
+  /// مطبعياً في مسارٍ لا يراه `flutter analyze` ولا اختبار، إذ المسارُ نصٌّ
+  /// لا رمز. والمركَّبُ يصل إليه مبتوراً فيُخفق، ومسارٌ يعجز الفحصُ عن قراءته
+  /// مسارٌ خارج الحراسة.
+  ///
+  /// ⚠ ولا يُكتب المثالُ المركَّب في تعليقٍ هنا: الفحصُ يقرأ الملفّ نصّاً ولا
+  /// يُسقط تعليقات دارت، فيلتقط الشرحَ على أنّه مسارٌ ويُخفق على شرحِ إصلاحه.
+  Future<void> setPaused({required int id, required bool paused}) => _api
+      .post(paused ? '/employees/$id/pause' : '/employees/$id/resume');
 
   Future<void> setPausedAll({required bool paused}) =>
-      _api.post('/employees/${paused ? 'pause-all' : 'resume-all'}');
+      _api.post(paused ? '/employees/pause-all' : '/employees/resume-all');
 
   /// يُعيد الكود ورمز QR **نصّاً صريحاً مرّة واحدة**؛ الخادم لا يحفظ أياً
   /// منهما كذلك ولا يُعيده ثانيةً. لذلك تعرضهما الشاشة فوراً وتقول للوكيل
