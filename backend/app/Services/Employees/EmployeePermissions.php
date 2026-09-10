@@ -268,6 +268,20 @@ class EmployeePermissions
             && !in_array($key, self::NEVER_FOR_EMPLOYEES, true);
     }
 
+    /**
+     * صلاحيةُ مسؤولٍ يُحاوَل منحُها لموظف — تُرَدّ صراحةً.
+     *
+     * ⚠ وهي **ليست** نقيضَ [grantable]: مفاتيحُ `NEVER_FOR_EMPLOYEES` ليست في
+     * الكتالوج أصلاً، فـ`grantable` تردّها بوصفها «غير معروفة» — وهو الوصفُ
+     * نفسُه الذي يستحقّه مفتاحٌ **تقاعد** مع ميزةٍ أُلغيت. والحالتان مختلفتان
+     * تماماً: الأولى محاولةُ تصعيدٍ تُرفض بصوتٍ عالٍ، والثانية صفٌّ خاملٌ
+     * يُسقَط بصمت. فتُسأل هذه أوّلاً، وإلّا لم تُبلَغ الحالةُ الأولى أبداً.
+     */
+    public static function forbiddenForEmployees(string $key): bool
+    {
+        return in_array($key, self::NEVER_FOR_EMPLOYEES, true);
+    }
+
     /** الكتالوج مسطّحاً لشاشة المنح. */
     public static function catalogForAdmin(): array
     {

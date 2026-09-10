@@ -398,6 +398,49 @@ to the cache store, so `CACHE_STORE=file` must be set on the server or the
 counters land in the production financial database. Both are step-by-step in the
 runbook.
 
+### ⚠⚠ Retiring a permission froze the permissions screen for everyone who had it (10 Sep 2026)
+
+The owner granted a permission marked «تُمنح يدوياً» and the save came back
+«صلاحية غير معروفة أو لا تُمنح لموظف» — nothing saved. The permission he granted
+was fine; **the message named a different key entirely**, and he had no way to know
+that.
+
+**The chain:** the screen sends the **whole granted set**, not the delta. His
+employees still carry the five cashbox/shift rows retired the same day — left in
+the database on purpose, because they are inert and deleting them erases who was
+granted what. So every save shipped them along, and the loop rejected the request
+on the first key no longer in the catalog. Measured: 7 such rows across 2 employees.
+
+**Retiring a feature therefore froze the permissions screen for every employee who
+had ever held one of its keys** — no grant, no revoke, nothing, until someone
+noticed the message named a key the agent never touched.
+
+**The fix is one distinction the old condition could not express.** `grantable()`
+is `exists() && !NEVER_FOR_EMPLOYEES`, and the admin keys are **not in the catalog
+either** — so both cases produced the same "unknown" refusal. They are opposites:
+
+- **Not in the catalog** ⇒ retired, or a typo from an older client. Nothing enforces
+  it, so granting it gives nothing and refusing it protects nothing. **Dropped
+  silently**, and the row cleans itself on the next save.
+- **In `NEVER_FOR_EMPLOYEES`** ⇒ an attempt to hand an employee an admin
+  permission. **Refused loudly** — that is the case the check exists for.
+
+⚠ **And the order matters, or the loud half never runs.** Asking "is it known?"
+first sends every escalation attempt into the silent branch: verified by running the
+first version, where `MANAGE_EMPLOYEES` came out `dropped` instead of `REFUSED`.
+`forbiddenForEmployees()` is asked first, and its doc comment says why it is not
+merely the negation of `grantable()`.
+
+The app now also intersects the selected set with the catalogue it received before
+sending — not redundancy: the server decides, and this stops the bad request from
+being made at all, so the screen never claims to have granted something that no
+longer exists.
+
+Verified: the four cases behave as `dropped / REFUSED 422 / SAVED / dropped`
+(retired · admin · sensitive · typo), `employee_permissions_wiring_check` PASS,
+`employee_sensitive_permissions_check` 19/19 with the financial snapshot,
+`flutter analyze` clean, 214 tests green.
+
 ### ⚠⚠ The shift and the custody were removed a few hours after they were finished (10 Sep 2026)
 
 Owner, the same day the automatic-shift work landed: *«في تطبيق الوكيل إلغاء نظام

@@ -177,9 +177,29 @@ class _EmployeePermissionsScreenState
   Future<void> _save() async {
     setState(() => _busy = true);
     try {
+      /*
+       * ⚠ لا يُرسَل إلّا ما يعرفه الكتالوج.
+       *
+       * `_granted` تبدأ من صلاحيات الموظف المحفوظة، وقد يكون فيها مفتاحٌ
+       * **تقاعد** مع ميزةٍ أُلغيت — صفٌّ خاملٌ في القاعدة لا مسارَ يفرضه.
+       * وإرسالُه كان يُسقط الحفظَ كلَّه (بلاغ المالك، 10 سبتمبر 2026): يمنح
+       * صلاحيةً فيُردّ عليه بمفتاحٍ لا علاقة له بما فعل.
+       *
+       * الخادمُ يُسقطها الآن صامتاً كذلك، وهذا ليس تكراراً: هو من يقرّر، وهذه
+       * تمنع الطلبَ الخاطئ من أن يُرسَل أصلاً — والشاشةُ لا تدّعي منحَ ما لا
+       * وجود له.
+       */
+      final known = ref.read(permissionCatalogProvider).valueOrNull;
+      final send = known == null
+          ? _granted.toList()
+          : _granted
+              .where((k) =>
+                  known.any((g) => g.items.any((i) => i.key == k)))
+              .toList();
+
       await ref.read(employeesRepositoryProvider).setPermissions(
             id: widget.employee.id,
-            permissions: _granted.toList(),
+            permissions: send,
           );
       if (!mounted) return;
       ref.invalidate(employeesProvider);
