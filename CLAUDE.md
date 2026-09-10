@@ -251,6 +251,112 @@ It also asserts the absence of what must not appear: `usesCleartextTraffic="true
 2. **A published privacy policy URL**, plus Play's Data Safety form and Apple's privacy nutrition labels — both must match what the app actually collects (phone number, device id, transfer data).
 3. **iOS needs a Mac** (or a cloud runner) to build; `ios/Podfile` is still generated on first Mac build.
 
+### ⚠⚠ The employee's screens closed themselves every 12 seconds (10 Sep 2026)
+
+The owner: *«في تطبيق الموظف الصفحات غير مستقرّة… أفتح إنشاء حوالة وأبدأ أكتب
+البيانات تُقفل ولا تدعني أُكمل»*. A transfer form closing under the employee's
+hands while a customer stands at the counter.
+
+**The chain, and every link is ordinary on its own:**
+
+1. `EmployeeAuthController` polls `me` every 12 s (added with the remote-pause
+   feature, so a paused employee sees the veil within seconds).
+2. `refresh()` assigned a **new** `EmployeeAuthState` on every poll — the class
+   had no `==`, so two identical responses were two different states.
+3. `routerProvider` did `ref.watch(employeeAuthProvider)` — the whole object.
+4. **That provider builds `GoRouter` itself.** A new state meant a new router,
+   a new navigation stack starting at `initialLocation`, and every pushed screen
+   gone.
+
+So the app worked perfectly for eleven seconds at a time. It is invisible to
+`flutter analyze`, to every widget test, and to anyone who does not sit in front
+of one screen for twelve seconds — which is to say, invisible to everyone except
+the person trying to use it.
+
+**Fixed in two layers, and neither alone is enough:**
+
+- **`select` in the router.** It now watches only the four primitives `redirect`
+  actually reads (`authStatus`, `onboarded`, `isMainAgent`, `empStatus`, plus the
+  one permission the shared-route rule consults). A change to `paused`, a shift,
+  or a POS name no longer touches the router at all. Re-evaluating `redirect`
+  never needed a router rebuild — `refreshListenable` already does that.
+- **Value equality on `EmployeeAuthState`, `EmployeeProfile`, `EmployeePos` and
+  `OpenShift`, plus `if (next != state) state = next` in `refresh`.** The guard on
+  the assignment is not redundant: `StateNotifier` compares with `identical`, not
+  `==`, so an equal-but-new object still notifies. And the lists are compared with
+  `listEquals` — `List.==` is reference equality in Dart, and the permissions list
+  is rebuilt from the response every time, so without it no two states could ever
+  be equal.
+
+`test/employee_session_stability_test.dart` (7 tests) pins it, and was proven the
+only way that means anything: replacing `listEquals` with `==` on the permissions
+list makes the first test fail, and restoring it passes. It also asserts the
+*opposite* direction — pausing, revoking a permission, or switching POS **must**
+produce a different state, or the freeze veil would never appear.
+
+**The rule this leaves behind:** a provider that builds the router must watch
+primitives, never objects. Anything else is a periodic navigation reset waiting
+for a poll to be added.
+
+### The employee's transfers tab is the agent's screen, not a copy of it (10 Sep 2026)
+
+Owner's order: *«تبويب مخصّص للحوالات نفس تبويب الوكيل … بأكمل الشكل والعرض
+والبحث والفلترة … والواردة بنفس منطقها ونفس طريقة العرض ونفس طريقة التسليم
+ونفسها في كل شيء»*.
+
+**"The same" is taken literally: one `TransfersScreen`, built twice.**
+`TransfersScreen(asEmployee: true)` is what `/employee/transfers` now builds, and
+the 540-line `employee_transfers_screen.dart` — a parallel screen with its own
+cards, its own tabs and its own delivery button — is gone. Two screens diverge at
+the first edit, and then the employee's "same" screen is the agent's screen as it
+was a month ago.
+
+Exactly three things differ, all marked `asEmployee` in that file:
+
+1. **The paths**, decided in `AgentIncomingRepository` by a new `TransfersMode`
+   (list, deliver, outgoing-receipt). Nothing else in the screen knows.
+2. **The source of «صادرة»** — the agent's statement, or `employeeOutgoingProvider`.
+3. **What the permissions allow to show** — the incoming tabs and the outgoing
+   section.
+
+Everything else — the card, the receipt, the delivery flow, the search box, the
+stage chips, the counters — is one piece of code.
+
+**«صادرة» for an employee is what he created, and it needed a new endpoint.**
+`GET device/employee/transfers/outgoing` (behind `VIEW_OWN_TRANSFERS`), scoped by
+the owner's rule of 8 Sep — an employee does not see a colleague's work.
+
+- **It is not built on `mine`.** That view reads its detail from
+  `agent_incoming_transfers`, the **incoming** ledger; a transfer the employee
+  *created* is outgoing to another agent and has no row there at all — it would
+  render as a card with no beneficiary and no status.
+- **Nor on the agent's statement.** `LocalStatmentAccount` carries the agency's
+  running balance on every row, and that balance is behind a permission the owner
+  deliberately keeps off the bulk-grant. So the endpoint reads
+  `transfer_attributions` (action `CREATED`) for the codes, then `InternalEx` +
+  `InternalEx_Stautes` **once per page of codes** for the real state — chunked at
+  1000, because `InternalEx.Code` has no index and a per-row probe is the shape
+  that made the statement take 68 seconds.
+- It returns rows shaped as `Movement`, so `MovementRow` and `CoreStage` render
+  them with no second card and no second model.
+
+**⚠ «تم التسليم» now shows only what *this* employee delivered** — the owner, same
+day: *«لا يظهر له كل الحوالات المسلَّمة في الوكيل، بل تظهر حوالته المسلَّمة من
+قِبل الموظف فقط»*. The filter is a subquery on `transfer_attributions` inside
+`AgentIncomingTransfersService`, so **the counter and the list pass through the
+same rule** — a count that disagrees with its own tab is worse than no count. It
+is `null`-guarded so the agent's own path is byte-for-byte unchanged.
+**«بانتظار التسليم» stays agency-wide on purpose**: it is a shared work queue, and
+a beneficiary must not be turned away because a colleague received the alert.
+**«الملغاة» is also still agency-wide** — the owner named the delivered tab only,
+and a cancelled transfer is nobody's work; say so before changing it.
+
+Two defects surfaced while building it and are fixed: `EmployeeTransferViews`
+compared `action === 'DELIVER'` while the writer stores `'DELIVERED'`, so every
+transfer an employee delivered was labelled «أنشأتُها»; and the pause routes were
+built as one interpolated string, which `app_routes_wiring_check` could not parse
+— see the note in the batch review above.
+
 ### The audit committee sat, and what came out of it (10 Sep 2026)
 
 «لجنة فحص تطبيق الصرافة» was convened. The full report is
@@ -291,6 +397,25 @@ working. And the throttling added on the OTP and login routes writes its counter
 to the cache store, so `CACHE_STORE=file` must be set on the server or the
 counters land in the production financial database. Both are step-by-step in the
 runbook.
+
+### Three small things the owner saw before anyone else (10 Sep 2026)
+
+- **The commission row now carries its transfer number.** `COMMTION_RETVIEW`
+  returns `ISID` — the transfer's `Code`, `1111-1-1` — and «عمولاتي» was showing
+  amount, date and branch only. Three commissions on one day can match on all
+  three, so a commission that looks wrong could not be traced to its transfer.
+  Rendered LTR beside the date; the paragraph's RTL run would otherwise reverse it.
+- **The circle beside the name in both home headers carries the company's logo.**
+  `BrandAvatar` — the logo the moment it is saved, the initial when there is none,
+  and the initial again if the image fails (a broken-image icon reads as a bug, a
+  letter reads as a design). ⚠ **The white disc under it is not decoration**: logos
+  arrive as uploaded, mostly dark ink on white, and the header is a dark gradient —
+  the same rule already applied to the invoice header and the arrival banner.
+- **The balance line was three mismatched sizes** — `13 · 44 · 22`, the integer
+  three and a half times the currency symbol, so it read as three separate blocks
+  rather than one number. Now `15 · 30 · 19` with the weights stepping down with
+  the sizes, and the fraction no longer separated by an 8px gap that made it look
+  like a second number.
 
 ### Remote pause of an employee, and one version number (10 Sep 2026)
 

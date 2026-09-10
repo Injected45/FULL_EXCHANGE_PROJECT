@@ -11,6 +11,7 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../alerts/incoming_alerts.dart';
+import '../employee_app/employee_session.dart';
 import 'agent_incoming_repository.dart';
 import 'delivery_receipt_screen.dart';
 import 'transfers_repository.dart';
@@ -19,8 +20,31 @@ import '../home/home_repository.dart';
 import '../home/home_screen.dart';
 
 /// تبويب الحوالات — إدخال رمز للتسليم، وقائمة ما ينتظر التسليم في الفرع.
+///
+/// ══════════════════════════════════════════════════════════════════════════
+///  وهي **الشاشة نفسها** في تطبيق الموظف — لا نسخةٌ عنها
+/// ══════════════════════════════════════════════════════════════════════════
+///
+/// أمرُ المالك (10 سبتمبر 2026): «تبويب مخصّص للحوالات نفس تبويب الوكيل …
+/// بأكمل الشكل والعرض والبحث والفلترة … والواردة بنفس منطقها ونفس طريقة
+/// العرض ونفس طريقة التسليم ونفسها في كل شيء».
+///
+/// و«نفسها» تعني شيفرةً واحدة: نسختان تفترقان عند أوّل تعديل، ثم يُقال إنّ
+/// شاشة الموظف «تشبه» شاشة الوكيل بينما هي تشبه ما كانته قبل شهر. فما يختلف
+/// بينهما ثلاثةٌ لا غير، وكلُّها معلَّمة بـ[asEmployee] في هذا الملفّ:
+///
+///   ١) **المسارات** — تُحسم في `AgentIncomingRepository` عبر [TransfersMode]،
+///      فلا يظهر منها شيء في هذه الشاشة.
+///   ٢) **مصدر «صادرة»** — كشفُ الوكيل عنده، و`employeeOutgoingProvider` عنده.
+///   ٣) **ما يُعرض بحسب الصلاحية** — تبويباتُ الواردة وقسمُ الصادرة.
+///
+/// وما عدا ذلك — البطاقةُ والفاتورةُ والتسليمُ والبحثُ والشرائحُ والعدّادات —
+/// واحدٌ حرفياً، لأنه شيفرةٌ واحدة تُبنى مرّتين.
 class TransfersScreen extends ConsumerStatefulWidget {
-  const TransfersScreen({super.key});
+  const TransfersScreen({super.key, this.asEmployee = false});
+
+  /// تُبنى بعين الموظف؟ انظر شرح الصنف.
+  final bool asEmployee;
 
   @override
   ConsumerState<TransfersScreen> createState() => _TransfersScreenState();
@@ -48,12 +72,47 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
   /// بحذف التطبيق أو تغيير الهاتف، ولا يراه الوكيل إن دخل من جهاز آخر.
   /// و«خطّ الأساس» فيه كان يُخفي كل ما وصل قبل أول تشغيل — وهو ما أخفى
   /// حوالةً معتمدة فعلاً. الملف باقٍ ولا يُستعمل هنا.
+  TransfersMode get _mode =>
+      widget.asEmployee ? TransfersMode.employee : TransfersMode.agent;
+
   AutoDisposeFutureProvider<IncomingPage> get _provider =>
-      agentIncomingProvider(IncomingQuery(_tab, _query));
+      agentIncomingProvider(IncomingQuery(_tab, _query, _mode));
+
+  /// تبويباتُ الواردة المعروضة.
+  ///
+  /// ⚠ «بانتظار التسليم» خلف `DELIVER_TRANSFER` عند الموظف — أمرُ المالك
+  /// (9 سبتمبر 2026): هي **قائمةُ عمل** لا عرض، ومن لا يسلّم يقول للمستفيد
+  /// «حوالتُك عندي» ثم يعجز. والخادمُ يردّ 403 على طلبها ممّن لا يملكها،
+  /// فالإخفاءُ تجميلٌ والرفضُ حماية.
+  List<IncomingTab> get _tabs {
+    if (!widget.asEmployee) return IncomingTab.values;
+    final canDeliver =
+        ref.watch(employeeAuthProvider).profile?.can('DELIVER_TRANSFER') ??
+            false;
+    return canDeliver
+        ? IncomingTab.values
+        : const [IncomingTab.delivered, IncomingTab.cancelled];
+  }
 
   @override
   void initState() {
     super.initState();
+    // ⚠ الموظفُ قد لا يملك «بانتظار التسليم» — والافتراضيُّ هو. يُنقَل إلى
+    // أوّل تبويبٍ متاحٍ له، وإلّا فُتحت الشاشةُ على تبويبٍ لا يظهر في شريطها
+    // فتبدو فارغةً بلا سبب.
+    if (widget.asEmployee) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final tabs = _tabs;
+        if (!tabs.contains(_tab)) setState(() => _tab = tabs.first);
+        // ⚠ ومن لا واردةَ له تُفتح شاشتُه على «صادرة»: القسمُ الافتراضيّ
+        // «واردة»، ونداؤها من جلسةٍ بلا صلاحيتها يردّ 403 — فتُستقبل الشاشةُ
+        // برسالة خطأ على بابٍ لم يطلبه أحد.
+        if (!_canSeeIncoming && _canSeeOutgoing && !_outgoing) {
+          setState(() => _outgoing = true);
+        }
+      });
+    }
     // فتحُ هذه الشاشة يُطفئ عدّاد الجرس (أمر المالك، 5 سبتمبر 2026).
     //
     // القائمة تعرض ما وصل برقمه واسمه ومبلغه، فمن فتحها فقد رأى وارده —
@@ -62,9 +121,14 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
     // ومؤجَّلٌ إلى ما بعد أوّل إطار: تعديل مزوّد أثناء بناء الشجرة يرمي
     // تأكيداً في Riverpod، ويُبتلع صامتاً داخل مستقبلٍ لا يراقبه أحد —
     // فيكون العَرَض أن العدّاد لا ينطفئ، بلا أثرٍ في السجل.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.read(incomingAlertsProvider.notifier).markAllSeen();
-    });
+    //
+    // ⚠ وللوكيل وحدَه: الجرسُ ينبض من صدفة الوكيل ولا يعمل في وضع الموظف
+    // أصلاً، فإطفاءُ عدّادٍ لا يعدّ عبثٌ يُقرأ لاحقاً على أنّه ميزةٌ للموظف.
+    if (!widget.asEmployee) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(incomingAlertsProvider.notifier).markAllSeen();
+      });
+    }
   }
 
   @override
@@ -83,9 +147,34 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
     });
   });
 
+  /// هل يُعرض قسم «صادرة»؟
+  ///
+  /// عند الوكيل دائماً — هي حوالاتُه. وعند الموظف بصلاحية `VIEW_OWN_TRANSFERS`
+  /// وحدَها، ونطاقُها **ما أنشأه هو** بقرار المالك (10 سبتمبر 2026): الموظف
+  /// لا يرى عمل زميله، وهو امتدادُ قاعدته المسجّلة في 8 سبتمبر.
+  bool get _canSeeOutgoing =>
+      !widget.asEmployee ||
+      (ref.watch(employeeAuthProvider).profile?.can('VIEW_OWN_TRANSFERS') ??
+          false);
+
+  /// هل يُعرض قسم «واردة»؟
+  ///
+  /// الوكيلُ دائماً. والموظفُ بـ`VIEW_INCOMING_TRANSFERS` — أو بـ
+  /// `DELIVER_TRANSFER` وحدَها، فمن يسلّم يحتاج قائمةَ ما يُسلَّم.
+  bool get _canSeeIncoming {
+    if (!widget.asEmployee) return true;
+    final p = ref.watch(employeeAuthProvider).profile;
+    return (p?.can('VIEW_INCOMING_TRANSFERS') ?? false) ||
+        (p?.can('DELIVER_TRANSFER') ?? false);
+  }
+
   /// فاتورة الحوالة — ومنها يُسجَّل التسليم.
-  void _openReceipt(AgentIncomingTransfer t) => Navigator.of(context, rootNavigator: true)
-      .push(MaterialPageRoute(builder: (_) => DeliveryReceiptScreen(transfer: t)));
+  ///
+  /// ⚠ الفاتورةُ نفسُها في الوضعين، والتسليمُ منها هو التسليمُ نفسُه: ما
+  /// يتبدّل مسارُ الخادم وحدَه، وتحمله [DeliveryReceiptScreen.mode].
+  void _openReceipt(AgentIncomingTransfer t) =>
+      Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+          builder: (_) => DeliveryReceiptScreen(transfer: t, mode: _mode)));
 
   // مسح السجل المحلّي زال مع الدفتر المحلّي — راجع _provider.
 
@@ -119,26 +208,31 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
           // الواردة تبقى **كما هي حرفياً**: تبويباتها الثلاثة وبحثها وبطاقاتها
           // لم يُمسّ منها شيء، وإنما صارت تحت هذا المفتاح. والصادرة انتقلت
           // إليه من «آخر العمليات» في الواجهة، فخفّت الواجهة وزال التكرار.
-          Padding(
-            padding: const EdgeInsets.fromLTRB(R.padScreen, 16, R.padScreen, 0),
-            child: _SectionSwitch(
-              outgoing: _outgoing,
-              // إغلاق اللوحة قبل تبديل القسم: حقل البحث يختفي مع «واردة»،
-              // وحقلٌ يُنتزع من الشجرة وهو مركَّز يترك اللوحة معلّقة.
-              onChanged: (v) {
-                hideKeyboard();
-                setState(() => _outgoing = v);
-              },
+          // ⚠ قسمُ «صادرة» يظهر للموظف بصلاحيته وحدَها (`VIEW_OWN_TRANSFERS`)،
+          // وبدونها يُعرض شريطُ الواردة وحدَه بلا مفتاحٍ يقود إلى بابٍ مغلق:
+          // مفتاحٌ يُفتح ثم يردّ 403 أسوأُ من غيابه.
+          if (_canSeeOutgoing)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(R.padScreen, 16, R.padScreen, 0),
+              child: _SectionSwitch(
+                outgoing: _outgoing,
+                // إغلاق اللوحة قبل تبديل القسم: حقل البحث يختفي مع «واردة»،
+                // وحقلٌ يُنتزع من الشجرة وهو مركَّز يترك اللوحة معلّقة.
+                onChanged: (v) {
+                  hideKeyboard();
+                  setState(() => _outgoing = v);
+                },
+              ),
             ),
-          ),
 
-          if (_outgoing)
-            const Expanded(child: _OutgoingList())
+          if (_outgoing && _canSeeOutgoing)
+            Expanded(child: _OutgoingList(mode: _mode))
           else ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(R.padScreen, 18, R.padScreen, 0),
             child: _Tabs(
               index: _tab.index,
+              shown: _tabs,
               pendingCount: page.pending,
               deliveredCount: page.delivered,
               cancelledCount: page.cancelled,
@@ -328,7 +422,17 @@ class _SectionChip extends StatelessWidget {
 /// وبطاقاتها هي **بطاقات «آخر العمليات» نفسها** بلا تغيير — نُقلت من الواجهة
 /// إلى هنا، فما ألِفه الوكيل بقي كما هو.
 class _OutgoingList extends ConsumerStatefulWidget {
-  const _OutgoingList();
+  const _OutgoingList({required this.mode});
+
+  /// ⚠ المصدرُ وحدَه يختلف بين الوضعين، والعرضُ واحد:
+  ///
+  ///   • **الوكيل** — كشفُ حسابه (`statementProvider`) مرشَّحاً على الحوالات،
+  ///     ومعه ما أرسله ولم يُعتمد بعد (`pendingOutgoingProvider`).
+  ///   • **الموظف** — `employeeOutgoingProvider`: ما أنشأه هو، بحالته في
+  ///     المنظومة. ولا كشفَ حسابٍ هنا ولا رصيدَ وكالة.
+  ///
+  /// والشرائحُ والبطاقاتُ والفرزُ بعدها شيفرةٌ واحدة.
+  final TransfersMode mode;
 
   @override
   ConsumerState<_OutgoingList> createState() => _OutgoingListState();
@@ -346,12 +450,22 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
     CoreStage.cancelled,
   ];
 
+  /// مصدرُ الصفوف بحسب الباب — انظر [_OutgoingList.mode].
+  AutoDisposeFutureProvider<List<Movement>> get _source =>
+      widget.mode.isEmployee ? employeeOutgoingProvider : statementProvider;
+
   @override
   Widget build(BuildContext context) {
-    final snap = ref.watch(statementProvider);
+    final snap = ref.watch(_source);
     // غير المعتمدة تُجلب على حدة: لا قيد لها في كشف الحساب حتى تُعتمد.
     // وفشلها لا يُسقط القائمة — تُعرض المعتمدة ويغيب الجديد وحده.
-    final pending = ref.watch(pendingOutgoingProvider).valueOrNull ?? const [];
+    //
+    // ⚠ وللوكيل وحدَه: مصدرُ الموظف يقرأ من `transfer_attributions` مباشرةً،
+    // فحوالتُه الجديدة فيه من لحظة إنشائها معتمدةً كانت أو لا — ولا مسارَ
+    // «غير معتمد» منفصلاً له أصلاً، ونداؤه من جلسة موظفٍ يردّ 403.
+    final pending = widget.mode.isEmployee
+        ? const <Movement>[]
+        : (ref.watch(pendingOutgoingProvider).valueOrNull ?? const []);
     final currency =
         ref.watch(authControllerProvider).user?.currencyCode ?? 'د.ل';
 
@@ -362,7 +476,7 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
       ),
       error: (e, _) => _Failed(
         message: '$e',
-        onRetry: () => ref.invalidate(statementProvider),
+        onRetry: () => ref.invalidate(_source),
       ),
       data: (rowsAll) {
         // الصادر = حركةُ حوالةٍ خرجت من الحساب. والعمولة مستثناة لأنها تظهر
@@ -425,10 +539,15 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
               child: rows.isEmpty
                   ? const _NoOutgoing()
                   : RefreshIndicator(
-                      onRefresh: () => ref
-                          .refresh(statementProvider.future)
-                          .then((_) => ref.refresh(pendingOutgoingProvider.future))
-                          .then((_) {}, onError: (_) {}),
+                      onRefresh: () => widget.mode.isEmployee
+                          ? ref
+                              .refresh(employeeOutgoingProvider.future)
+                              .then((_) {}, onError: (_) {})
+                          : ref
+                              .refresh(statementProvider.future)
+                              .then((_) =>
+                                  ref.refresh(pendingOutgoingProvider.future))
+                              .then((_) {}, onError: (_) {}),
                       color: R.primary,
                       backgroundColor: Colors.white,
                       child: ListView.separated(
@@ -440,7 +559,10 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
                             const SizedBox(height: R.gapRow),
                         itemBuilder: (_, i) => RiseIn.small(
                           delay: Duration(milliseconds: 40 * i),
-                          child: MovementRow(m: rows[i], currency: currency),
+                          child: MovementRow(
+                              m: rows[i],
+                              currency: currency,
+                              mode: widget.mode),
                         ),
                       ),
                     ),
@@ -551,10 +673,15 @@ class _Tabs extends StatelessWidget {
     required this.pendingCount,
     required this.deliveredCount,
     required this.cancelledCount,
+    this.shown = IncomingTab.values,
   });
 
   final int index;
   final ValueChanged<int> onChanged;
+
+  /// ما يُعرض من التبويبات — ثلاثتُها عند الوكيل، وقد تنقص عند الموظف الذي
+  /// لا يملك صلاحية التسليم. انظر `_TransfersScreenState._tabs`.
+  final List<IncomingTab> shown;
 
   /// العددان يُشتقّان من الدفتر نفسه الذي يبني القائمتين، فلا يفترقان عنهما
   /// ولا يحتاجان تحديثاً يدوياً بعد كل تسليم.
@@ -589,22 +716,34 @@ class _Tabs extends StatelessWidget {
          */
         child: Row(
           children: [
-            Expanded(
-                flex: _weight('غير مسلَّمة', pendingCount),
-                child: _tab('غير مسلَّمة', 0, Icons.schedule_rounded,
-                    pendingCount)),
-            const SizedBox(width: 5),
-            Expanded(
-                flex: _weight('تم التسليم', deliveredCount),
-                child:
-                    _tab('تم التسليم', 1, Icons.check_rounded, deliveredCount)),
-            const SizedBox(width: 5),
-            Expanded(
-                flex: _weight('الملغاة', cancelledCount),
-                child: _tab('الملغاة', 2, Icons.block_rounded, cancelledCount)),
+            for (final t in shown) ...[
+              if (t != shown.first) const SizedBox(width: 5),
+              Expanded(
+                flex: _weight(_label(t), _count(t)),
+                child: _tab(_label(t), t.index, _icon(t), _count(t)),
+              ),
+            ],
           ],
         ),
       );
+
+  static String _label(IncomingTab t) => switch (t) {
+        IncomingTab.pending => 'غير مسلَّمة',
+        IncomingTab.delivered => 'تم التسليم',
+        IncomingTab.cancelled => 'الملغاة',
+      };
+
+  static IconData _icon(IncomingTab t) => switch (t) {
+        IncomingTab.pending => Icons.schedule_rounded,
+        IncomingTab.delivered => Icons.check_rounded,
+        IncomingTab.cancelled => Icons.block_rounded,
+      };
+
+  int _count(IncomingTab t) => switch (t) {
+        IncomingTab.pending => pendingCount,
+        IncomingTab.delivered => deliveredCount,
+        IncomingTab.cancelled => cancelledCount,
+      };
 
   /// وزنُ التبويب = طولُ ما يُعرض فيه، بحدٍّ أدنى يسع الأيقونةَ والعدّاد.
   static int _weight(String label, int count) {

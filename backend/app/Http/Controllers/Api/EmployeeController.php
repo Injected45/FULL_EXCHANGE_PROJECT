@@ -374,11 +374,24 @@ class EmployeeController extends BaseController
 
         $perPage = max(1, min((int) $request->query('per_page', 20), 100));
 
+        /*
+         * ⚠ «تم التسليم» = **تسليماتُ هذا الموظف وحدَه** — أمرُ المالك
+         * (10 سبتمبر 2026): «لا يظهر له كل الحوالات المسلَّمة في الوكيل، بل
+         * تظهر حوالته المسلَّمة من قِبل الموظف فقط».
+         *
+         * و«بانتظار التسليم» تبقى للوكالة كلِّها عمداً: هي **قائمةُ عمل**
+         * مشتركة — أيُّ موظفٍ يسلّم أيَّ حوالةٍ واردة، ومستفيدٌ واقفٌ أمام
+         * شبّاكٍ لا يُردّ لأنّ زميلاً هو من استلم الإشعار.
+         *
+         * والقصرُ في الخدمة لا هنا، فيسري على العدّاد كما يسري على القائمة.
+         */
+        $mineOnly = (int) $employee->id;
+
         $result = $this->transfers->list(
             (int) $employee->agent_id, $status, $request->query('search'),
-            max(1, (int) $request->query('page', 1)), $perPage
+            max(1, (int) $request->query('page', 1)), $perPage, $mineOnly
         );
-        $result['counts'] = $this->transfers->counts((int) $employee->agent_id);
+        $result['counts'] = $this->transfers->counts((int) $employee->agent_id, $mineOnly);
 
         return $this->sendResponse($result, 'Success');
     }
@@ -1003,6 +1016,50 @@ class EmployeeController extends BaseController
         }
 
         return $this->sendResponse($out, 'Success');
+    }
+
+    /**
+     * GET employee/transfers/outgoing — يتطلّب VIEW_OWN_TRANSFERS
+     *
+     * «الصادرة» في تبويب حوالات الموظف: ما أنشأه هو، بحالته في المنظومة.
+     * التفصيل — ولماذا لا تُبنى على كشف الوكيل — في [EmployeeTransferViews::outgoing].
+     *
+     * ⚠ الصلاحيةُ هي `VIEW_OWN_TRANSFERS` نفسُها لا مفتاحٌ جديد: السؤالُ هو
+     * سؤالُها («ما حوالاتي؟»)، ومفتاحٌ ثانٍ له معناه يعني وكيلاً يمنح أحدهما
+     * ويظنّ أنه منح الآخر.
+     */
+    public function outgoingTransfers(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeTransferViews::class)->outgoing(
+                (int) $employee->agent_id,
+                (int) $employee->id,
+                (int) $request->query('limit', 200),
+            ),
+            'Success');
+    }
+
+    /**
+     * GET employee/transfers/outgoing/{code} — يتطلّب VIEW_OWN_TRANSFERS
+     *
+     * فاتورةُ حوالةٍ أنشأها هذا الموظف — نظيرُ `agent/outgoing-transfers/{code}`
+     * وبنفس الاستعلام حرفياً (`AgentIncomingTransfersService::outgoingRowByCode`)،
+     * والمختلفُ فحصُ الملكية وحدَه.
+     */
+    public function outgoingTransferByCode(Request $request, string $code)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        $row = app(EmployeeTransferViews::class)->outgoingByCode(
+            (int) $employee->agent_id, (int) $employee->id, $code);
+
+        if (!$row) {
+            return $this->sendError('الحوالة غير موجودة.', [], 404);
+        }
+
+        return $this->sendResponse($row, 'Success');
     }
 
     /** GET employee/transfers/mine — يتطلّب VIEW_OWN_TRANSFERS */

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/glass.dart';
 import 'branding_controller.dart';
@@ -75,6 +76,85 @@ class BrandWatermark extends ConsumerWidget {
     return Opacity(
       opacity: .16,
       child: RhallaLogo(size: size, color: R.whiteA(.56)),
+    );
+  }
+}
+
+/// الدائرةُ المجاورة للاسم في الترويسة — شعارُ الشركة إن رُفع، وإلّا الحرف.
+///
+/// ══════════════════════════════════════════════════════════════════════════
+///
+/// أمرُ المالك (10 سبتمبر 2026): «الدائرة جنب اسم الوكيل … بمجرّد ما يحفظ
+/// يظهر شعار الشركة في هذه الدائرة بجوار اسمه وفي الواجهة الرئيسية».
+///
+/// وهي **شرطُ الشعار لا شرطُ التصميم**: كانت الدائرةُ حرفاً من الاسم دائماً،
+/// فيرى الوكيلُ شعارَه في الفاتورة وفي شاشة الهوية ولا يراه حيث ينظر أوّلاً.
+///
+/// ⚠ **والقرصُ الأبيض تحت الشعار ليس زينة.** الشعاراتُ تُرفع كما هي — حبرٌ
+/// داكن على أبيض في أغلبها — والترويسةُ تدرّجٌ غامق. فبلا القرص يذوب الشعارُ
+/// فيها ويبدو مربّعاً باهتاً. وهي القاعدةُ نفسُها المطبَّقة في شريط «لديك
+/// حوالة جديدة» وفي ترويسة الفاتورة، ولنفس السبب.
+///
+/// ⚠ ولا يُلوَّن شعارُ الشركة: تلوينُ شعارِ شركةٍ يشوّهه. والاحتياطيُّ عند فشل
+/// التحميل هو الحرفُ لا أيقونةُ عطب — دائرةٌ فيها حرفُ الاسم تبدو مقصودةً،
+/// وأيقونةُ صورةٍ مكسورة تبدو خطأً في التطبيق.
+class BrandAvatar extends ConsumerWidget {
+  const BrandAvatar({super.key, required this.initial, this.size = 46});
+
+  /// حرفٌ من اسمٍ حقيقيّ فقط — لا حرفَ من رقم هاتف.
+  final String? initial;
+  final double size;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final b = ref.watch(brandingControllerProvider).branding;
+
+    final letter = initial == null
+        ? Icon(Icons.person_outline_rounded,
+            size: size * .48, color: Colors.white)
+        : Text(initial!,
+            style: T.kufi(size * .35, FontWeight.w600, color: Colors.white));
+
+    if (!b.hasLogo) {
+      return Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: R.whiteA(.2),
+          border: Border.all(color: R.whiteA(.34)),
+        ),
+        child: letter,
+      );
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white,
+        border: Border.all(color: R.whiteA(.42)),
+      ),
+      child: Padding(
+        // هامشٌ داخليّ: شعارٌ يلامس حافّة الدائرة يبدو مقصوصاً.
+        padding: EdgeInsets.all(size * .13),
+        child: Image.network(
+          b.logoUrl!,
+          fit: BoxFit.contain,
+          errorBuilder: (_, _, _) => Container(
+            alignment: Alignment.center,
+            color: R.primaryDark,
+            child: letter,
+          ),
+          // بلا دوّامة: الشعارُ يظهر حين يصل، والدائرةُ البيضاء مكانُه
+          // حتى ذلك الحين. ودوّامةٌ في الترويسة تلفت النظر إلى ما لا يعني.
+          loadingBuilder: (_, child, progress) =>
+              progress == null ? child : const SizedBox.shrink(),
+        ),
+      ),
     );
   }
 }

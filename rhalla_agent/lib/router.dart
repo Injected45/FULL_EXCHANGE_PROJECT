@@ -23,7 +23,6 @@ import 'features/employee_app/employee_statement_screen.dart';
 import 'features/employee_app/employee_home_screen.dart';
 import 'features/employee_app/employee_session.dart';
 import 'features/employee_app/employee_shift_screens.dart';
-import 'features/employee_app/employee_transfers_screen.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/auth/otp_screen.dart';
@@ -65,16 +64,50 @@ final _rootKey = GlobalKey<NavigatorState>();
 ///
 /// والخادمُ يبقى الحارسَ الأخير (403 عند أوّل نداء)، لكنّ شاشةً تُفتح ثم
 /// تسقط عند الإرسال تُعلّم الموظف أن التطبيق معطوب لا أنه غير مصرَّح.
-bool _sharedWithEmployee(String loc, EmployeeAuthState emp) {
+bool _sharedWithEmployee(String loc, bool canCreate) {
   final shared = loc == '/send/internal' ||
       loc == '/send/internal/review' ||
       loc == '/send/internal/done';
 
-  return shared && (emp.profile?.can('CREATE_TRANSFER') ?? false);
+  return shared && canCreate;
 }
 
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ *  ⚠⚠ لا يُراقَب هنا إلّا ما يقرؤه `redirect` — وإلّا انهار المُوجِّه دورياً
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * هذا المزوّد **يبني `GoRouter` نفسَه**. وكلُّ إعادة بناءٍ له تُنشئ مُوجِّهاً
+ * جديداً، وبه كومةَ تنقّلٍ جديدة تبدأ من `initialLocation` — فتُغلق كلُّ شاشةٍ
+ * مدفوعة في وجه من يستعملها.
+ *
+ * ── العطبُ الذي كشفه المالك (10 سبتمبر 2026) ─────────────────────────────
+ *
+ * «في تطبيق الموظف الصفحات غير مستقرّة… أفتح إنشاء حوالة وأبدأ أكتب البيانات
+ * تُقفل ولا تدعني أُكمل».
+ *
+ * والسبب أنّ السطر كان `ref.watch(employeeAuthProvider)` — الحالةَ كاملةً.
+ * ونبضُ `me` كلّ اثنتي عشرة ثانية يُسند حالةً **جديدةً** في كل مرّة، ولو لم
+ * يتغيّر فيها حرف. فيُعاد بناءُ المُوجِّه كلّ اثنتي عشرة ثانية، وتُغلق شاشةُ
+ * إنشاء الحوالة بينما الموظف يكتب فيها بيانات زبونٍ واقفٍ أمامه.
+ *
+ * ── والعلاجُ طبقتان، وكلتاهما لازمة ──────────────────────────────────────
+ *
+ * ١) **`select` هنا**: لا يُراقَب إلّا ما يقرؤه `redirect` فعلاً — أربعُ قيمٍ
+ *    بدائية. فتغيُّرُ أيّ شيءٍ آخر في الجلسة (`paused`، وردية، اسمُ نقطة بيع)
+ *    لا يمسّ المُوجِّه أصلاً.
+ *
+ * ٢) **مساواةٌ بالقيمة في `EmployeeAuthState`** مع امتناعِ الإسناد حين لا
+ *    تتغيّر: فنبضةٌ لم تُغيّر شيئاً لا تُوقظ أحداً — لا المُوجِّه ولا الشاشات.
+ *
+ * ⚠ وإعادةُ تقييم `redirect` **لا تحتاج إعادةَ بناءٍ للمُوجِّه**: يتكفّل بها
+ * `refreshListenable` أدناه. فما فُقد بهذا التغيير: لا شيء.
+ */
 final routerProvider = Provider<GoRouter>((ref) {
-  final auth = ref.watch(authControllerProvider);
+  final authStatus = ref.watch(authControllerProvider.select((s) => s.status));
+  final onboarded = ref.watch(authControllerProvider.select((s) => s.onboarded));
+  final isMainAgent =
+      ref.watch(authControllerProvider.select((s) => s.user?.isMainAgent));
 
   // هوية الشركة تُقرأ هنا لا لتُعرض، بل لتُؤخَّر شاشاتُ ما بعد الدخول حتى
   // تستقرّ — انظر التعليق على `BrandingState.settled`.
@@ -86,8 +119,11 @@ final routerProvider = Provider<GoRouter>((ref) {
   // ⚠ الفصل بين السياقين شرط أمني (بند 22): جلسة موظف لا تُرقّى إلى مسؤول.
   // ولذلك لا تشارك الشاشتان تبويباً ولا هيكلاً، والراوتر يحسم أيّهما قبل كل
   // شيء آخر.
-  final emp = ref.watch(employeeAuthProvider);
-  final employeeIn = emp.status == EmpSessionStatus.signedIn;
+  final empStatus =
+      ref.watch(employeeAuthProvider.select((s) => s.status));
+  final empCanCreate = ref.watch(employeeAuthProvider
+      .select((s) => s.profile?.can('CREATE_TRANSFER') ?? false));
+  final employeeIn = empStatus == EmpSessionStatus.signedIn;
 
   return GoRouter(
     navigatorKey: _rootKey,
@@ -116,7 +152,7 @@ final routerProvider = Provider<GoRouter>((ref) {
        */
       if (employeeIn) {
         return (inEmployeeArea && loc != '/employee/activate') ||
-                _sharedWithEmployee(loc, emp)
+                _sharedWithEmployee(loc, empCanCreate)
             ? null
             : '/employee/home';
       }
@@ -128,19 +164,19 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (inEmployeeArea) return '/phone';
 
       // لم تُقرأ الحالة من التخزين بعد.
-      if (auth.status == AuthStatus.unknown ||
-          emp.status == EmpSessionStatus.unknown) {
+      if (authStatus == AuthStatus.unknown ||
+          empStatus == EmpSessionStatus.unknown) {
         return loc == '/splash' ? null : '/splash';
       }
 
-      final signedIn = auth.status == AuthStatus.signedIn;
+      final signedIn = authStatus == AuthStatus.signedIn;
       final inAuthFlow = loc == '/phone' ||
           loc == '/otp' ||
           loc == '/onboarding' ||
           loc == '/splash';
 
       if (!signedIn) {
-        if (!auth.onboarded) {
+        if (!onboarded) {
           return loc == '/onboarding' ? null : '/onboarding';
         }
         return inAuthFlow && loc != '/splash' ? null : '/phone';
@@ -158,7 +194,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // «نقاط البيع» للوكيل الرئيسي وحده؛ الخادم يرد 403 لغيره. صارت شاشةً
       // تُدفع لا تبويباً، والحارس باقٍ: الرابط قد يُفتح بلا مرور بالحساب.
-      if (loc == '/pos' && auth.user?.isMainAgent != true) return '/';
+      if (loc == '/pos' && isMainAgent != true) return '/';
 
       return null;
     },
@@ -215,7 +251,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/employee/transfers',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const EmployeeTransfersScreen(),
+        // ⚠ شاشةُ الوكيل نفسُها بعين الموظف — أمرُ المالك (10 سبتمبر 2026):
+        // «تبويب مخصّص للحوالات نفس تبويب الوكيل … ونفسها في كل شيء».
+        // والشرحُ الكامل في رأس `TransfersScreen`.
+        builder: (_, _) => const TransfersScreen(asEmployee: true),
       ),
       GoRoute(
         path: '/employee/cashbox',

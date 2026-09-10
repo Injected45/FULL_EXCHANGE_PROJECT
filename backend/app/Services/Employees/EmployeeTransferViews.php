@@ -42,6 +42,16 @@ class EmployeeTransferViews
     private const MAX_PER_PAGE = 100;
 
     /**
+     * سقفُ «الصادرة» في الطلب الواحد.
+     *
+     * ⚠ بلا ترقيمِ صفحات عمداً: الشرائحُ والبحثُ تعمل على المجموعة كلِّها في
+     * الشاشة — نظيرُ صادر الوكيل حرفياً — وترقيمٌ تحتها يجعل الشريحةَ تعدّ
+     * صفحةً وتزعم أنها الكل. وخمسمئةٌ سقفٌ لا هدف: هذه حوالاتُ موظفٍ واحد
+     * بيده، لا دفترُ وكالة.
+     */
+    private const MAX_OUTGOING = 500;
+
+    /**
      * بحثٌ برقم الحوالة — البند: `SEARCH_TRANSFER`.
      *
      * ⚠ يبحث في دفتر **وكيله هو** لا في المنظومة كلِّها: موظّفٌ يبحث برقمٍ
@@ -118,6 +128,154 @@ class EmployeeTransferViews
     }
 
     /**
+     * ══════════════════════════════════════════════════════════════════════
+     *  «الصادرة» بعين الموظف — ما أنشأه هو، بحالته في المنظومة
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * أمرُ المالك (10 سبتمبر 2026): للموظف تبويبُ حوالاتٍ كتبويب الوكيل،
+     * صادرُه فيه بكامل العرض والبحث والترشيح. ونطاقُه «ما أنشأه هو وحدَه»
+     * بقراره كذلك — امتدادُ قاعدة 8 سبتمبر: الموظف لا يرى عمل زميله.
+     *
+     * ── ولماذا لا يُعاد استعمالُ [mine] ────────────────────────────────
+     *
+     * [mine] تقرأ تفاصيلَ الصفّ من `agent_incoming_transfers` — دفترِ
+     * **الوارد**. والحوالةُ التي يُنشئها الموظف صادرةٌ إلى وكيلٍ آخر، فلا صفَّ
+     * لها هناك أصلاً: تخرج بلا اسم مستفيدٍ ولا حالة، أي بطاقةٌ فارغة. فحالةُ
+     * الصادر تُقرأ من `InternalEx` نفسِه، وهو الموضعُ الوحيد الذي يعرفها.
+     *
+     * ── ولا شيءَ من مال الوكيل يعبر من هنا ─────────────────────────────
+     *
+     * ⚠ كشفُ الوكيل (`LocalStatmentAccount`) يحمل **رصيدَه الجاري** في كل
+     * صفّ، ورصيدُ الوكالة خلف صلاحيةٍ حسّاسة لا تُمنح بضغطةٍ جماعية. فلم
+     * يُبنَ هذا عليه: لا `Balnce` هنا ولا مجموعَ وكالة — أرقامُ الحوالة
+     * وحدَها، وهي أرقامُ حوالةٍ كتبها الموظف بيده.
+     *
+     * ⚠ وقراءةٌ خالصة: لا كتابةَ ولا حسابَ عمولةٍ ولا رصيد. `ExVal` و
+     * `OverallVal` تُنقلان كما كتبتهما المنظومة.
+     *
+     * ── وقفةٌ عند الأداء ───────────────────────────────────────────────
+     *
+     * ⚠ `InternalEx.Code` **بلا فهرس** (مُثبَت: `PK(ID)` و`UQ(IDCode)` وفهرسا
+     * الإلغاء لا غير). فسؤالُه صفّاً صفّاً يمسح الجدول مرّةً لكل حوالة — وهو
+     * ما جعل كشفَ الحساب يستغرق 68 ثانية. فالأكوادُ تُجمَع أوّلاً ويُسأل
+     * الدفترُ **مرّةً واحدة** لها، مُجزّأةً عند 1000 لأنّ `IN` يقف عند 2100.
+     *
+     * @param int $limit سقفُ ما يُعاد — أحدثُ ما أنشأه. الترشيحُ والبحثُ في
+     *        الشاشة كما في صادر الوكيل تماماً، فتُجلب دفعةً ثمّ تُرشَّح بلا
+     *        طلبٍ جديد عند كل ضغطةِ شريحة.
+     */
+    public function outgoing(int $agentId, int $employeeId, int $limit = 200): array
+    {
+        $limit = max(1, min($limit, self::MAX_OUTGOING));
+
+        $rows = DB::table('transfer_attributions')
+            ->where('agent_id', $agentId)
+            ->where('employee_id', $employeeId)
+            ->where('action', 'CREATED')
+            ->orderByDesc('occurred_at')
+            ->take($limit)
+            ->get(['transfer_number', 'amount', 'occurred_at', 'point_of_sale_id']);
+
+        if ($rows->isEmpty()) {
+            return ['items' => [], 'total' => 0, 'limit' => $limit];
+        }
+
+        $codes = $rows->pluck('transfer_number')->filter()->unique()->values()->all();
+
+        /* صفوفُ المنظومة لهذه الأكواد — استعلامٌ واحد لكل ألف. */
+        $core = [];
+        foreach (array_chunk($codes, 1000) as $chunk) {
+            foreach (DB::table('InternalEx as t')
+                        ->leftJoin('InternalEx_Stautes as s', 's.ConfirmType', '=', 't.ConfirmType')
+                        ->whereIn('t.Code', $chunk)
+                        ->select('t.Code', 't.ConfirmType', 's.SName', 't.RecievedName',
+                                 't.SenderName', 't.RPhone1', 't.OverallVal', 't.ExVal',
+                                 't.InsertDate', 't.BranchRecievedID')
+                        ->get() as $c) {
+                // أحدثُ صفٍّ يفوز إن تكرّر الكود — نظيرُ قاعدة `attachCoreText`.
+                $core[$c->Code] = $c;
+            }
+        }
+
+        /* أسماءُ الفروع المستقبِلة — استعلامٌ واحد كذلك، لا واحدٌ لكل صفّ. */
+        $branchIds = [];
+        foreach ($core as $c) {
+            if (!empty($c->BranchRecievedID)) {
+                $branchIds[(int) $c->BranchRecievedID] = true;
+            }
+        }
+        // ⚠ `CoBranch` لا `BBranchTb`: الثاني فروعُ **بنوك** لا فروعَ صرافة،
+        // واسمُه يوحي بغير ذلك. والمرجعُ نفسُه الذي يستعمله `depositController`
+        // حين يترجم `BranchRecievedID` إلى اسم (`join CoBranch on ID`).
+        $branches = $branchIds === [] ? [] : DB::table('CoBranch')
+            ->whereIn('ID', array_keys($branchIds))
+            ->pluck('BName', 'ID')->all();
+
+        $items = [];
+        foreach ($rows as $r) {
+            $c = $core[$r->transfer_number] ?? null;
+
+            $items[] = [
+                'transfer_number'   => $r->transfer_number,
+                // مبلغُ النسبة احتياطيٌّ فقط: الأصلُ ما كتبته المنظومة.
+                'amount'            => $c !== null && $c->OverallVal !== null
+                    ? (float) $c->OverallVal
+                    : ($r->amount !== null ? (float) $r->amount : null),
+                'commission'        => $c !== null && $c->ExVal !== null ? (float) $c->ExVal : null,
+                'beneficiary'       => $c->RecievedName ?? null,
+                'beneficiary_phone' => $c->RPhone1 ?? null,
+                'sender'            => $c->SenderName ?? null,
+                'branch'            => $c !== null && !empty($c->BranchRecievedID)
+                    ? ($branches[(int) $c->BranchRecievedID] ?? null) : null,
+                // ⚠ الوصفُ كما كتبته المنظومة لا ترجمةً له: الفرقُ بين
+                // «مرسلة مع مندوب» و«غير مسلمه» يعني أين الحوالةُ الآن.
+                'status_label'      => $c->SName ?? null,
+                'core_confirm_type' => $c !== null && $c->ConfirmType !== null
+                    ? (int) $c->ConfirmType : null,
+                // تاريخُ المنظومة هو المرجع؛ ووقتُ النسبة حين يغيب.
+                'date'              => (string) ($c->InsertDate ?? $r->occurred_at),
+                'occurred_at'       => (string) $r->occurred_at,
+                // ⚠ صفٌّ نُسب ثمّ مُسح أصلُه من المنظومة: يُعرَض ولا يُخفى،
+                // ويُعلَّم كي لا يُقرأ غيابُ حالته على أنّه حالةٌ مجهولة.
+                'missing_in_core'   => $c === null,
+            ];
+        }
+
+        return ['items' => $items, 'total' => count($items), 'limit' => $limit];
+    }
+
+    /**
+     * فاتورةُ حوالةٍ صادرة بالرقم — للموظف الذي **أنشأها هو**.
+     *
+     * ⚠ الملكيةُ هنا أضيقُ من ملكية الوكيل عمداً: الوكيلُ يملكها بأثرٍ في
+     * كشفه أو بإنشائها، والموظفُ لا يملكها إلّا بصفٍّ باسمه في
+     * `transfer_attributions`. فحوالةُ زميله — وهي حوالةُ وكيله نفسِه —
+     * لا تُفتح من هنا، تبعاً لقاعدة «الموظف لا يرى عمل زميله».
+     *
+     * ⚠ والفحصُ **قبل** القراءة لا بعدها: قراءةٌ ثمّ ترشيح تعني أنّ الصفَّ
+     * قد غادر القاعدة إلى الذاكرة قبل أن يُسأل عن حقّه فيه.
+     *
+     * ولا تُفرّق النتيجةُ بين «غير موجودة» و«ليست لك» — `null` في الحالتين،
+     * كما في باب الوكيل، كي لا يُستدلّ بوجودها على شيء.
+     */
+    public function outgoingByCode(int $agentId, int $employeeId, string $code): ?object
+    {
+        $code = trim($code);
+        if ($code === '') {
+            return null;
+        }
+
+        $owns = DB::table('transfer_attributions')
+            ->where('agent_id', $agentId)
+            ->where('employee_id', $employeeId)
+            ->where('action', 'CREATED')
+            ->where('transfer_number', $code)
+            ->exists();
+
+        return $owns ? $this->core->outgoingRowByCode($code) : null;
+    }
+
+    /**
      * الأساسُ المشترك: صفوفُ النسب ⇦ أكوادُها ⇦ صفوفُ الدفتر دفعةً واحدة.
      */
     private function byAttribution(int $agentId, callable $filter,
@@ -173,7 +331,11 @@ class EmployeeTransferViews
             $items[] = [
                 'transfer_number' => $r->transfer_number,
                 'action'          => $r->action,
-                'action_label'    => $r->action === 'DELIVER' ? 'سلَّمتُها' : 'أنشأتُها',
+                // ⚠ `DELIVERED` لا `DELIVER`: القيمةُ المكتوبة في
+                // `EmployeeController::deliver` هي `'DELIVERED'`، فالمقارنةُ
+                // القديمة لم تكن تصدُق أبداً — وكلُّ ما سلّمه الموظف كان
+                // يُوسَم «أنشأتُها». عيبُ وسمٍ لا عيبُ بيانات، والصفوفُ سليمة.
+                'action_label'    => $r->action === 'DELIVERED' ? 'سلَّمتُها' : 'أنشأتُها',
                 'amount'          => $r->amount !== null ? (float) $r->amount : null,
                 'occurred_at'     => (string) $r->occurred_at,
                 'by_name'         => $names[$r->employee_id] ?? null,

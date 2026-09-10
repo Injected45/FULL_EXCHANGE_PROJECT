@@ -254,35 +254,11 @@ class AgentIncomingTransfersController extends BaseController
             return $this->sendError('الحوالة غير موجودة.', [], 404);
         }
 
-        $row = \Illuminate\Support\Facades\DB::table('InternalEx as t')
-            ->leftJoin('InternalEx_Stautes as s', 's.ConfirmType', '=', 't.ConfirmType')
-            ->leftJoin('BBranchTb as b', 'b.BranchID', '=', 't.BranchDeliveredID')
-            // مدينة الاستلام من `DeliveryPlace` لا من الفرع (قرار المالك،
-            // 4 سبتمبر 2026): الفرع يُسنَد عند الاعتماد ويكون صفراً قبله،
-            // بينما المدينة يختارها الوكيل لحظة الإنشاء فتوجد دائماً.
-            // تحقّقتُ على كل الصفوف: `DeliveryPlace` مُعرِّف في `CitiesTb`.
-            ->leftJoin('CitiesTb as ct', 'ct.ID', '=', 't.DeliveryPlace')
-            ->where('t.Code', $code)
-            ->selectRaw("t.Code, t.InsertDate, t.SenderName, t.SPhone1,
-                t.RecievedName, t.RPhone1, t.OverallVal, t.ExVal,
-                t.ConfirmType, s.SName AS StatusName,
-                b.BranchName AS DeliveredBranchName,
-                ct.CityName AS DeliveryCityName,
-                -- سبب الإلغاء من موضعه في المنظومة — نفس ترتيب المصادر
-                -- المستعمل في قائمة الواردة، فلا يفترق ما يُعرض هنا عمّا
-                -- يُعرض هناك.
-                COALESCE(
-                    (SELECT TOP 1 r.NewCause
-                       FROM TransCancelRequestTb tc
-                       LEFT JOIN AddCancelReason r ON r.ID = tc.ReasonID
-                      WHERE tc.ISID = t.Code ORDER BY tc.ID DESC),
-                    (SELECT TOP 1 r2.NewCause FROM AddCancelReason r2
-                      WHERE r2.ID = t.AddCancelReason_ID),
-                    NULLIF(LTRIM(RTRIM(t.AddCancelReason_NameFrom_Driver)), '')
-                ) AS cancel_reason,
-                (SELECT TOP 1 tc.Notes FROM TransCancelRequestTb tc
-                  WHERE tc.ISID = t.Code ORDER BY tc.ID DESC) AS cancel_notes")
-            ->first();
+        // ⚠ الاستعلامُ نفسُه انتقل إلى `AgentIncomingTransfersService` ليقرأ
+        // منه بابُ الموظف كذلك — نسخةٌ ثانية منه كانت ستفترق عن هذه عند أوّل
+        // تصحيح، فتُقرأ للحوالة الواحدة فاتورتان مختلفتان. الفحصُ أعلاه
+        // (`ownsOutgoing`) يبقى هنا: ملكيةُ الوكيل غيرُ ملكيةِ الموظف.
+        $row = $this->service->outgoingRowByCode($code);
 
         if (!$row) {
             return $this->sendError('الحوالة غير موجودة.', [], 404);

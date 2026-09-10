@@ -213,24 +213,7 @@ class _Header extends StatelessWidget {
               RiseIn.small(
                 child: Row(
                   children: [
-                    Container(
-                      width: 46,
-                      height: 46,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: R.whiteA(.2),
-                        border: Border.all(color: R.whiteA(.34)),
-                      ),
-                      // حرف من اسم حقيقي فقط — لا حرف من رقم هاتف.
-                      child: initial == null
-                          ? const Icon(Icons.person_outline_rounded,
-                              size: 22, color: Colors.white)
-                          : Text(
-                              initial!,
-                              style: T.kufi(16, FontWeight.w600, color: Colors.white),
-                            ),
-                    ),
+                    BrandAvatar(initial: initial),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -263,10 +246,28 @@ class _Header extends StatelessWidget {
                     Text('رصيد الوكالة',
                         style: T.plex(12, FontWeight.w400, color: R.whiteA(.82))),
                     const SizedBox(height: 13),
+                    /*
+                     * ⚠ مقاساتُ سطر الرصيد — سُلَّمٌ متدرّج لا قفزات.
+                     *
+                     * بلاغُ المالك (10 سبتمبر 2026): «د.ل بحجم صغير جداً
+                     * والرصيد أرقامه كبيرة جداً والعشرية صغيرة جداً … حجم
+                     * صغير أو متوسط متناسق مع بعضه».
+                     *
+                     * وكانت 13 · 44 · 22: الصحيحُ يزيد على الرمز **ثلاثةَ
+                     * أضعافٍ ونصفاً**، فيُقرأ السطرُ ثلاثَ كتلٍ متنافرة لا
+                     * رقماً واحداً. والآن 15 · 30 · 19 — نسبتان متقاربتان
+                     * (٢٫٠ و١٫٦) تجعل الأجزاء الثلاثة تُقرأ رقماً واحداً،
+                     * ويبقى الصحيحُ هو الأبرز بلا أن يسيطر.
+                     *
+                     * ووزنُ الخطّ يتدرّج معها (w600 · w700 · w600): الوزنُ
+                     * الأثقل مع الحجم الأكبر يضاعف التنافر، وقد كان w800.
+                     */
                     if (loading)
                       Container(
-                        width: 180,
-                        height: 40,
+                        width: 150,
+                        // بارتفاع السطر الجديد: هيكلٌ أطول من محتواه يُنزل
+                        // ما تحته ثم يرتفع عند الوصول، فيقفز نصفُ الشاشة.
+                        height: 34,
                         decoration: BoxDecoration(
                           color: R.whiteA(.18),
                           borderRadius: BorderRadius.circular(12),
@@ -283,17 +284,20 @@ class _Header extends StatelessWidget {
                             // رمز العملة أولاً — قرار المالك: الرمز في أقصى
                             // اليسار ثم المبلغ إلى يمينه، في كل شاشة.
                             Text(currency,
-                                style: T.plex(13, FontWeight.w500,
-                                    color: R.whiteA(.78))),
-                            const SizedBox(width: 8),
+                                style: T.plex(15, FontWeight.w600,
+                                    color: R.whiteA(.86))),
+                            const SizedBox(width: 7),
                             Text(
                               Fmt.money(balance ?? 0).split('.').first,
-                              style: T.kufi(44, FontWeight.w800, color: Colors.white),
+                              style: T.kufi(30, FontWeight.w700, color: Colors.white),
                             ),
-                            const SizedBox(width: 8),
+                            // ⚠ بلا فراغٍ قبل الكسر: النقطةُ وما بعدها جزءٌ
+                            // من الرقم نفسِه، وفصلُها بثمانيةِ بكسلات كان
+                            // يجعلها تُقرأ رقماً ثانياً بجانبه.
+                            const SizedBox(width: 2),
                             Text(
                               '.${Fmt.money(balance ?? 0).split('.').last}',
-                              style: T.kufi(22, FontWeight.w600, color: R.whiteA(.82)),
+                              style: T.kufi(19, FontWeight.w600, color: R.whiteA(.88)),
                             ),
                           ],
                         ),
@@ -487,10 +491,18 @@ class MovementRow extends ConsumerStatefulWidget {
     required this.m,
     required this.currency,
     this.showBalance = false,
+    this.mode = TransfersMode.agent,
   });
 
   final Movement m;
   final String currency;
+
+  /// بابُ الخادم الذي تُقرأ منه الفاتورة عند الضغط.
+  ///
+  /// ⚠ البطاقةُ واحدة في تطبيق الوكيل وتطبيق الموظف — أمرُ المالك «نفس طريقة
+  /// العرض» — لكنّ مسارات الوكيل تردّ 403 على جلسة موظف. فالمسارُ وحدَه هو ما
+  /// يتبدّل، ويُمرَّر من القائمة التي بَنَت البطاقة.
+  final TransfersMode mode;
 
   /// «الرصيد بعد الحركة» — في كشف الحساب وحده.
   ///
@@ -526,7 +538,7 @@ class _MovementRowState extends ConsumerState<MovementRow> {
 
     try {
       final t = await ref
-          .read(agentIncomingRepositoryProvider)
+          .read(transfersRepositoryForProvider(widget.mode))
           .findByCode(m.code);
       if (!mounted) return;
 
@@ -537,7 +549,7 @@ class _MovementRowState extends ConsumerState<MovementRow> {
         // كان السهم هنا يقول «لا توجد فاتورة استلام» ويقف، وهو صحيحٌ حرفياً
         // ومُربك عملياً: الحوالة أمام الوكيل في القائمة، فيقرأ الرفض عطباً.
         final out = await ref
-            .read(agentIncomingRepositoryProvider)
+            .read(transfersRepositoryForProvider(widget.mode))
             .findOutgoing(m.code);
         if (!mounted) return;
 

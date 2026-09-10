@@ -302,6 +302,17 @@ Route::get ('device/employee/transfers/mine',
     [ EmployeeController::class , 'myTransfers' ])
     ->middleware('employee:VIEW_OWN_TRANSFERS');
 
+/* «الصادرة» في تبويب الحوالات — ما أنشأه الموظف بحالته في المنظومة.
+   ⚠ القائمةُ قبل الفاتورة: مسارٌ ثابتٌ يسبق مسارَ المعامل الحرّ. */
+Route::get ('device/employee/transfers/outgoing',
+    [ EmployeeController::class , 'outgoingTransfers' ])
+    ->middleware('employee:VIEW_OWN_TRANSFERS');
+
+Route::get ('device/employee/transfers/outgoing/{code}',
+    [ EmployeeController::class , 'outgoingTransferByCode' ])
+    ->middleware('employee:VIEW_OWN_TRANSFERS')
+    ->where('code', '[A-Za-z0-9\-]+');
+
 Route::get ('device/employee/transfers/point-of-sale',
     [ EmployeeController::class , 'posTransfers' ])
     ->middleware('employee:VIEW_POS_TRANSFERS');

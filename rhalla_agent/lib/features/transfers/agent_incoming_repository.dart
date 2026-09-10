@@ -4,6 +4,7 @@ import '../../core/format/fmt.dart';
 import '../../core/net/api_client.dart';
 import '../../core/storage/secure_store.dart';
 import '../../core/net/api_envelope.dart';
+import '../home/home_repository.dart';
 import 'transfers_repository.dart';
 
 /// حوالة واردة للوكيل، كما يحفظها الخادم في `agent_incoming_transfers`.
@@ -187,11 +188,42 @@ enum IncomingTab {
   final String wire;
 }
 
+/// من يسأل الخادم: الوكيل أم الموظف؟
+///
+/// ⚠ **الفرقُ مساراتٌ لا شاشات.** أمرُ المالك (10 سبتمبر 2026): للموظف تبويبُ
+/// حوالاتٍ «نفس تبويب الوكيل … بنفس طريقة العرض ونفس طريقة التسليم ونفسها في
+/// كل شيء». وأقصرُ طريقٍ إلى «نفسها» ليس نسخَ الشاشة — النسخةُ تفترق عن أصلها
+/// عند أوّل تعديل — بل شاشةٌ واحدة تسأل مساراً أو آخر.
+///
+/// وما يفترق فعلاً ثلاثةُ مساراتٍ لا أكثر؛ وما عداها — البطاقةُ والفاتورةُ
+/// والتبويباتُ والبحثُ والشرائح — واحدٌ حرفياً لأنه شيفرةٌ واحدة.
+enum TransfersMode {
+  agent,
+  employee;
+
+  bool get isEmployee => this == TransfersMode.employee;
+}
+
 class AgentIncomingRepository {
-  AgentIncomingRepository(this._api, this._store);
+  AgentIncomingRepository(this._api, this._store, [this.mode = TransfersMode.agent]);
 
   final ApiClient _api;
   final SecureStore _store;
+
+  /// بابُ الخادم الذي تُقرأ منه الحوالات — انظر [TransfersMode].
+  final TransfersMode mode;
+
+  String get _listPath => mode.isEmployee
+      ? '/device/employee/transfers/incoming'
+      : '/agent/incoming-transfers';
+
+  String _deliverPath(int id) => mode.isEmployee
+      ? '/device/employee/transfers/$id/deliver'
+      : '/agent/incoming-transfers/$id/deliver';
+
+  String _outgoingPath(String code) => mode.isEmployee
+      ? '/device/employee/transfers/outgoing/$code'
+      : '/agent/outgoing-transfers/$code';
 
   Future<IncomingPage> page({
     required IncomingTab tab,
@@ -200,7 +232,7 @@ class AgentIncomingRepository {
     int perPage = 20,
   }) async {
     try {
-      final env = await _api.get('/agent/incoming-transfers', query: {
+      final env = await _api.get(_listPath, query: {
         'status': tab.wire,
         if (search.trim().isNotEmpty) 'search': search.trim(),
         'page': page,
@@ -252,7 +284,7 @@ class AgentIncomingRepository {
     if (key.isEmpty) return null;
 
     try {
-      final env = await _api.get('/agent/outgoing-transfers/$key');
+      final env = await _api.get(_outgoingPath(key));
       final j = env.row;
       if (j == null) return null;
       return OutgoingTransfer.fromJson(j);
@@ -268,7 +300,7 @@ class AgentIncomingRepository {
     if (key.isEmpty) return null;
 
     try {
-      final env = await _api.get('/agent/incoming-transfers', query: {
+      final env = await _api.get(_listPath, query: {
         'search': key,
         'per_page': 20,
       });
@@ -296,7 +328,7 @@ class AgentIncomingRepository {
   Future<void> deliver(int id) async {
     final device = await _store.deviceId();
     await _api.post(
-      '/agent/incoming-transfers/$id/deliver',
+      _deliverPath(id),
       headers: {'X-Device-Id': device},
     );
   }
@@ -309,25 +341,46 @@ final agentIncomingRepositoryProvider = Provider<AgentIncomingRepository>(
   ),
 );
 
-/// وسيط طلبٍ واحد — التبويب والبحث معاً، فتغيّر أيّهما يُعيد الجلب.
+/// المستودع بحسب الباب — [TransfersMode.agent] هو نظيرُ المزوّد أعلاه حرفياً.
+///
+/// ⚠ ولم يُستبدَل به: عشراتُ المواضع تقرأ `agentIncomingRepositoryProvider`
+/// بلا معامل، وتغييرُها جميعاً تعديلٌ واسعٌ بلا مقابل. فهذا يُضاف ولا يُبدّل.
+final transfersRepositoryForProvider =
+    Provider.family<AgentIncomingRepository, TransfersMode>(
+  (ref, mode) => AgentIncomingRepository(
+    ref.watch(apiClientProvider),
+    ref.watch(secureStoreProvider),
+    mode,
+  ),
+);
+
+/// وسيط طلبٍ واحد — التبويب والبحث والباب، فتغيّر أيّها يُعيد الجلب.
 class IncomingQuery {
-  const IncomingQuery(this.tab, this.search);
+  const IncomingQuery(this.tab, this.search,
+      [this.mode = TransfersMode.agent]);
 
   final IncomingTab tab;
   final String search;
 
-  @override
-  bool operator ==(Object other) =>
-      other is IncomingQuery && other.tab == tab && other.search == search;
+  /// ⚠ جزءٌ من المفتاح لا وسيطٌ جانبيّ: بدونه يتشارك الوكيلُ والموظفُ نفسَ
+  /// الذاكرة المؤقّتة لنفس التبويب، فيرى الثاني ما جلبه الأوّل.
+  final TransfersMode mode;
 
   @override
-  int get hashCode => Object.hash(tab, search);
+  bool operator ==(Object other) =>
+      other is IncomingQuery &&
+      other.tab == tab &&
+      other.search == search &&
+      other.mode == mode;
+
+  @override
+  int get hashCode => Object.hash(tab, search, mode);
 }
 
 final agentIncomingProvider = FutureProvider.autoDispose
     .family<IncomingPage, IncomingQuery>((ref, q) async {
   return ref
-      .watch(agentIncomingRepositoryProvider)
+      .watch(transfersRepositoryForProvider(q.mode))
       .page(tab: q.tab, search: q.search, perPage: 50);
 });
 
@@ -385,3 +438,58 @@ class OutgoingTransfer {
         cancelNotes: '${j['cancel_notes'] ?? ''}'.trim(),
       );
 }
+
+/// ═══════════════════════════════════════════════════════════════════════
+///  «الصادرة» في تبويب حوالات الموظف — ما أنشأه هو
+/// ═══════════════════════════════════════════════════════════════════════
+///
+/// ⚠ يُعيد [Movement] لا نموذجاً جديداً، **عمداً**: بطاقةُ «صادرة» عند الوكيل
+/// (`MovementRow`) وشرائحُ المراحل (`CoreStage`) مكتوبتان على هذا النموذج.
+/// فنموذجٌ ثانٍ كان يعني بطاقةً ثانية، وبطاقتان تفترقان عند أوّل تعديل —
+/// وأمرُ المالك «بنفس طريقة العرض» لا يُنفَّذ بنسختين.
+///
+/// ── وما لا يأتي من هنا ────────────────────────────────────────────────
+///
+/// ⚠ `balance` **صفرٌ دائماً، ولا يُعرض**: الرصيدُ الجاري رصيدُ الوكالة، وهو
+/// خلف صلاحيةٍ حسّاسة لا تُمنح بضغطةٍ جماعية. وقائمةُ «صادرة» تمرّر
+/// `showBalance: false` أصلاً — عند الوكيل كذلك، فهي قائمةُ حوالاتٍ لا كشفُ
+/// حساب. فلا رقمَ هنا يخصّ الوكالة، إنّما أرقامُ حوالاتٍ كتبها الموظف بيده.
+///
+/// و`agentStatus` يبقى فارغاً لأنّ الحوالةَ الصادرة ليست في دفتر الوارد
+/// أصلاً — لا حالةَ تسليمٍ لها عند هذا الوكيل. والحالةُ المعروضة حالتُها في
+/// المنظومة (`coreConfirmType`)، وهي ما تبني الشرائح.
+final employeeOutgoingProvider =
+    FutureProvider.autoDispose<List<Movement>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  try {
+    final env = await api.get('/device/employee/transfers/outgoing');
+    final data = env.row ?? const {};
+    final items = (data['items'] as List? ?? const []).whereType<Map>();
+
+    return items.map((raw) {
+      final j = raw.cast<String, dynamic>();
+      return Movement(
+        // ⚠ «حوالة محلية» لا «داخلية»: قرار المالك (3 سبتمبر 2026). وهي
+        // الوصف الصحيح — الموظف ينشئها عبر `InternalExchange` وحدَها.
+        title: 'حوالة محلية',
+        date: '${j['date'] ?? ''}'.trim(),
+        amount: Fmt.num_(j['amount']),
+        // صادرةٌ من حساب الوكالة ⇒ خصمٌ لا إيداع.
+        isCredit: false,
+        balance: 0,
+        code: '${j['transfer_number'] ?? ''}'.trim(),
+        coreConfirmType: j['core_confirm_type'] == null
+            ? null
+            : int.tryParse('${j['core_confirm_type']}'),
+        // ⚠ حضورُ المفتاح لا قيمتُه: `null` تعني «لم تصل»، و0 تعني «بلا
+        // عمولة» — والفرقُ مقصودٌ في `Movement` نفسِه.
+        commission: j.containsKey('commission') && j['commission'] != null
+            ? Fmt.num_(j['commission'])
+            : null,
+      );
+    }).toList();
+  } on ApiFailure catch (e) {
+    if (e.isEmptyResult) return const [];
+    rethrow;
+  }
+});

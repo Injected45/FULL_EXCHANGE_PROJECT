@@ -28,9 +28,17 @@ class DeliveryReceiptScreen extends ConsumerStatefulWidget {
     super.key,
     required this.transfer,
     this.commission,
+    this.mode = TransfersMode.agent,
   });
 
   final AgentIncomingTransfer transfer;
+
+  /// بابُ التسليم — الوكيل أو الموظف.
+  ///
+  /// ⚠ الفاتورةُ والزرُّ والتأكيدُ وشاشةُ النجاح واحدةٌ في الوضعين: ما يتبدّل
+  /// مسارُ الخادم وحدَه. وتسليمُ الموظف يُنسَب إليه ونقطةِ بيعه وجهازه ويُكتب
+  /// حركةَ خزينةٍ في ورديته — كلُّ ذلك في الخادم لا هنا.
+  final TransfersMode mode;
 
   /// عمولة معروفة من سياق آخر — تُمرَّر من «آخر العمليات» حيث تُجمع العمولة
   /// من صفوف الحركة. وحين تكون null تُؤخذ عمولة الدفتر.
@@ -189,7 +197,7 @@ class _DeliveryReceiptScreenState extends ConsumerState<DeliveryReceiptScreen>
     setState(() => _sending = true);
     try {
       await ref
-          .read(agentIncomingRepositoryProvider)
+          .read(transfersRepositoryForProvider(widget.mode))
           .deliver(widget.transfer.id);
       if (!mounted) return;
       ref.invalidate(agentIncomingProvider);

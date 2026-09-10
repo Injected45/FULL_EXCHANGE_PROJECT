@@ -368,7 +368,13 @@ class AgentIncomingTransfersService
     public const CANCELLED_TAB = 'CANCELLED';
 
     /** صفحة من حوالات الوكيل بحالةٍ ما. */
-    public function list(int $agentId, ?string $status, ?string $search, int $page, int $perPage): array
+    /**
+     * @param int|null $deliveredByEmployeeId
+     *        حين يُمرَّر، يُقصَر تبويبُ «تم التسليم» على ما سلّمه **هذا الموظف**.
+     *        انظر [scopeDeliveredBy].
+     */
+    public function list(int $agentId, ?string $status, ?string $search, int $page,
+                         int $perPage, ?int $deliveredByEmployeeId = null): array
     {
         /*
          * ⚠ البوّابةُ في **الأساس** لا في الفروع: فرعٌ يُضاف غداً يرثها،
@@ -388,6 +394,7 @@ class AgentIncomingTransfersService
                   $w->whereNull('core_confirm_type')
                     ->orWhereNotIn('core_confirm_type', self::CORE_CANCELLED);
               });
+            self::scopeDeliveredBy($q, $agentId, $deliveredByEmployeeId);
         } elseif ($status === self::PENDING) {
             /*
              * «بانتظار التسليم» = **معتمدةٌ في المنظومة** لا «غيرُ ملغاة».
@@ -536,7 +543,15 @@ class AgentIncomingTransfersService
      * لا تبويب يعدّ الملغاة غيرُ تبويبها: العدد وعدٌ بما في التبويب، وصفٌّ
      * يُعدّ مرّتين يجعل مجموع التبويبات أكبر من عدد الحوالات.
      */
-    public function counts(int $agentId): array
+    /**
+     * ⚠ الحاجزُ نفسُه في العدّاد وفي القائمة — أمرُ المالك (10 سبتمبر 2026):
+     * «في الحوالة الواردة للموظفين لا يظهر له كل الحوالات المسلَّمة في
+     * الوكيل، بل تظهر حوالته المسلَّمة من قِبل الموظف فقط».
+     *
+     * وعدٌّ لا يوافق قائمتَه أسوأُ من عدٍّ غائب: يفتح الموظفُ تبويباً يَعِده
+     * بأربعين ويجد ثلاثاً، فيظنّ الشاشةَ معطوبة أو الحوالاتِ ضائعة.
+     */
+    public function counts(int $agentId, ?int $deliveredByEmployeeId = null): array
     {
         // ⚠ البوّابةُ نفسُها: عدّادٌ يعدّ ما لا يُعرض يُري الوكيل رقماً
         // لا يجد له صفّاً حين يفتح التبويب.
@@ -552,13 +567,14 @@ class AgentIncomingTransfersService
             })
             ->count();
 
-        $delivered = (clone $base)
+        $deliveredQ = (clone $base)
             ->where('status', self::DELIVERED)
             ->where(function ($w) {
                 $w->whereNull('core_confirm_type')
                   ->orWhereNotIn('core_confirm_type', self::CORE_CANCELLED);
-            })
-            ->count();
+            });
+        self::scopeDeliveredBy($deliveredQ, $agentId, $deliveredByEmployeeId);
+        $delivered = $deliveredQ->count();
 
         $cancelled = (clone $base)
             ->whereIn('core_confirm_type', self::CORE_CANCELLED)
@@ -569,6 +585,46 @@ class AgentIncomingTransfersService
             self::DELIVERED => $delivered,
             'CANCELLED'     => $cancelled,
         ];
+    }
+
+    /**
+     * قصرُ «تم التسليم» على تسليمات موظّفٍ بعينه.
+     *
+     * ⚠ أمرُ المالك (10 سبتمبر 2026): الموظف لا يرى تسليمات الوكالة كلَّها،
+     * إنّما ما سلّمه هو. وهو امتدادُ قاعدته المسجّلة في 8 سبتمبر — «الموظفون
+     * لا يرون جلسات بعضهم، وكلُّ موظفٍ يرى جلسته هو، والوكيل يرى الجميع».
+     *
+     * ── لماذا هنا لا في المتحكّم ────────────────────────────────────────
+     *
+     * لأنّ العدّاد والقائمة يمرّان به معاً؛ وترشيحٌ يُكتب في المتحكّم يُنسى
+     * في أحدهما. وحين تكون `$employeeId` فارغةً — أي المستدعي هو الوكيل —
+     * لا يُضاف شرطٌ أصلاً، فمسارُ الوكيل يبقى كما هو حرفياً.
+     *
+     * ── ولماذا `transfer_attributions` ──────────────────────────────────
+     *
+     * لأنها **موضعُ تسجيل من سلَّم** منذ البداية، وليس في `InternalEx` ولا في
+     * دفتر الوكيل عمودٌ يقول ذلك (`changed_by` يحمل رقم الوكيل في المسارين،
+     * فالموظف واجهةٌ له). والفهرسُ `IX_tattr_employee` يخدم هذا الشرط.
+     *
+     * ⚠ واستعلامٌ فرعيّ لا `IN` بقائمةٍ مبنيّة في PHP: قائمةُ أرقامٍ تكبر بلا
+     * حدّ وتقف عند 2100 وسيط في SQL Server، والاستعلامُ الفرعيّ لا يقف.
+     *
+     * وتسليمُ الوكيل نفسِه يُكتب بـ`employee_id = NULL`، فلا يُنسب لأحد —
+     * وهو الصواب: الموظف لم يسلّمه.
+     */
+    private static function scopeDeliveredBy($q, int $agentId, ?int $employeeId): void
+    {
+        if ($employeeId === null) {
+            return;
+        }
+
+        $q->whereIn('transfer_number', function ($sub) use ($agentId, $employeeId) {
+            $sub->from('transfer_attributions')
+                ->select('transfer_number')
+                ->where('agent_id', $agentId)
+                ->where('employee_id', $employeeId)
+                ->where('action', 'DELIVERED');
+        });
     }
 
     /**
@@ -701,5 +757,52 @@ class AgentIncomingTransfersService
 
             return ['changed' => true, 'row' => $fresh];
         });
+    }
+
+    /**
+     * صفُّ حوالةٍ **صادرة** بالرقم — بلا أيّ فحصِ ملكية.
+     *
+     * ⚠ **الملكيةُ مسؤوليةُ المستدعي**، وهي مختلفةٌ بين البابين عمداً:
+     * الوكيلُ يملكها بأثرٍ في كشفه أو بإنشائه لها، والموظفُ يملكها بصفٍّ في
+     * `transfer_attributions` باسمه. فلو وُضع الفحصان هنا لصار على هذه
+     * الدالّة أن تعرف من المستدعي — وهو ما يُنسى عند إضافة بابٍ ثالث.
+     *
+     * ── ولماذا هنا لا في المتحكّم ──────────────────────────────────────
+     *
+     * كان هذا الاستعلامُ مكتوباً داخل `AgentIncomingTransfersController` وحده.
+     * ولمّا احتاجه تطبيقُ الموظف صار الخياران: نسخةٌ ثانية منه — تفترق عن
+     * الأصل عند أوّل تصحيح فتُقرأ فاتورتان مختلفتان للحوالة الواحدة — أو
+     * موضعٌ واحد يقرأ منه البابان. وهذا الثاني.
+     *
+     * ونُقل **حرفياً** كما كان: نفسُ الوصلات، ونفسُ ترتيب مصادر سبب الإلغاء،
+     * ونفسُ الأعمدة بأسمائها. لا تغييرَ في ما يُقرأ، إنّما في موضع قراءته.
+     */
+    public function outgoingRowByCode(string $code): ?object
+    {
+        return DB::table('InternalEx as t')
+            ->leftJoin('InternalEx_Stautes as s', 's.ConfirmType', '=', 't.ConfirmType')
+            ->leftJoin('BBranchTb as b', 'b.BranchID', '=', 't.BranchDeliveredID')
+            // مدينة الاستلام من `DeliveryPlace` لا من الفرع (قرار المالك،
+            // 4 سبتمبر 2026): الفرع يُسنَد عند الاعتماد ويكون صفراً قبله،
+            // بينما المدينة يختارها الوكيل لحظة الإنشاء فتوجد دائماً.
+            ->leftJoin('CitiesTb as ct', 'ct.ID', '=', 't.DeliveryPlace')
+            ->where('t.Code', $code)
+            ->selectRaw("t.Code, t.InsertDate, t.SenderName, t.SPhone1,
+                t.RecievedName, t.RPhone1, t.OverallVal, t.ExVal,
+                t.ConfirmType, s.SName AS StatusName,
+                b.BranchName AS DeliveredBranchName,
+                ct.CityName AS DeliveryCityName,
+                COALESCE(
+                    (SELECT TOP 1 r.NewCause
+                       FROM TransCancelRequestTb tc
+                       LEFT JOIN AddCancelReason r ON r.ID = tc.ReasonID
+                      WHERE tc.ISID = t.Code ORDER BY tc.ID DESC),
+                    (SELECT TOP 1 r2.NewCause FROM AddCancelReason r2
+                      WHERE r2.ID = t.AddCancelReason_ID),
+                    NULLIF(LTRIM(RTRIM(t.AddCancelReason_NameFrom_Driver)), '')
+                ) AS cancel_reason,
+                (SELECT TOP 1 tc.Notes FROM TransCancelRequestTb tc
+                  WHERE tc.ISID = t.Code ORDER BY tc.ID DESC) AS cancel_notes")
+            ->first();
     }
 }

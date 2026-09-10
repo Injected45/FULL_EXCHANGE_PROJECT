@@ -17,15 +17,23 @@ import '../auth/auth_controller.dart';
 /// المحتوى كما هو حرفياً: البطاقةُ الإجمالية وصفوفُ العمولات، بلا نقصٍ.
 
 /// عمولة مُحصّلة.
-/// أعمدة CommtionRetview_get كما رُصدت:
-/// commion · InsertDate · AccIDFrom · AccBranchID · BName · STATUESSTRING
+/// أعمدة CommtionRetview_get كما رُصدت من القاعدة:
+/// commion · InsertDate · AccIDFrom · AccBranchID · BName · STATUESSTRING · ISID
 class Commission {
   const Commission({
     required this.amount,
     required this.date,
     required this.branchName,
     required this.status,
+    this.transferNumber = '',
   });
+
+  /// رقم الحوالة التي نتجت عنها العمولة — `ISID`، بصيغة `1111-1-1`.
+  ///
+  /// ⚠ أمرُ المالك (10 سبتمبر 2026): يُعرَض في صفّ العمولة. وبدونه الصفُّ
+  /// مبلغٌ وتاريخٌ واسمُ فرع — ثلاثةُ صفوفٍ في اليوم الواحد قد تتشابه فيها
+  /// الثلاثة، فلا يُعرف أيُّ حوالةٍ هي، ولا تُراجَع عمولةٌ مشكوكٌ فيها.
+  final String transferNumber;
 
   final double amount;
   final String date;
@@ -38,6 +46,10 @@ class Commission {
         date: '${j['InsertDate'] ?? ''}'.trim(),
         branchName: '${j['BName'] ?? ''}'.trim(),
         status: '${j['STATUESSTRING'] ?? ''}'.trim(),
+        // ⚠ `ISID` هو **رقم الحوالة** في المنظومة (`InternalEx.Code`) —
+        // بهذا الاسم في حركة الخزنة وفي عرض العمولات معاً، بصيغة 1111-1-1.
+        // وبغيره لا يعرف الوكيل عمولةَ أيِّ حوالةٍ يقرأ.
+        transferNumber: '${j['ISID'] ?? ''}'.trim(),
       );
 }
 
@@ -261,10 +273,20 @@ class _CommissionRow extends StatelessWidget {
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: T.name),
                 const SizedBox(height: 7),
                 Directionality(
+                  // ⚠ الرقمُ والتاريخُ مقطعٌ لاتينيُّ الاتجاه: تركُهما لاتجاه
+                  // الفقرة العربية يقلب `1111-1-1` عند العرض.
                   textDirection: TextDirection.ltr,
                   child: Align(
                     alignment: AlignmentDirectional.centerStart,
-                    child: Text(c.date, style: T.meta),
+                    child: Text(
+                        c.transferNumber.isEmpty
+                            ? c.date
+                            // النقطةُ الفاصلة نفسُها المستعملة في بقيّة
+                            // الشاشات بين رقمٍ وتاريخ.
+                            : '${c.transferNumber} · ${c.date}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: T.meta),
                   ),
                 ),
               ],

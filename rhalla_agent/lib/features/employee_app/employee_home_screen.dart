@@ -80,13 +80,35 @@ class _EmployeeHomeScreenState extends ConsumerState<EmployeeHomeScreen> {
           onTap: () => context.push('/send/internal'),
         ),
 
+      /*
+       * ⚠ بابُ الحوالات — وهو **تبويب الوكيل نفسُه** بعين الموظف: واردةٌ
+       * بتبويباتها الثلاثة وبحثها وفاتورتها وتسليمها، وصادرةٌ بشرائح مراحلها.
+       * أمرُ المالك (10 سبتمبر 2026)، والشرحُ في رأس `TransfersScreen`.
+       *
+       * فالعنوان «الحوالات» لا «الحوالات الواردة»: صار فيها الاتجاهان.
+       */
       if (canSeeIncoming)
         _Tile(
-          icon: Icons.call_received_rounded,
-          title: 'الحوالات الواردة',
+          icon: Icons.swap_horiz_rounded,
+          title: 'الحوالات',
           subtitle: p.can('DELIVER_TRANSFER')
-              ? 'اعرض وسجّل التسليم'
-              : 'عرض فقط',
+              ? 'الواردة والصادرة · اعرض وسجّل التسليم'
+              : 'الواردة والصادرة · عرض فقط',
+          onTap: () => context.push('/employee/transfers'),
+        ),
+
+      /*
+       * ⚠ وموظفٌ يُنشئ الحوالات بلا صلاحية عرض الواردة: بابُه إلى «صادرتي»
+       * يبقى مفتوحاً — الشاشةُ نفسُها، وتفتح على القسم الذي يملكه.
+       *
+       * وبدونها كان من يُنشئ الحوالات لا يجد أين يراها: القائمةُ خلف بلاطةٍ
+       * تشترط صلاحيةً أخرى لا علاقة لها بعمله.
+       */
+      if (!canSeeIncoming && p.can('VIEW_OWN_TRANSFERS'))
+        _Tile(
+          icon: Icons.north_east_rounded,
+          title: 'حوالاتي الصادرة',
+          subtitle: 'ما أنشأتَه، بحالته في المنظومة',
           onTap: () => context.push('/employee/transfers'),
         ),
 
@@ -358,18 +380,14 @@ class _Header extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: R.whiteA(.2),
-                      border: Border.all(color: R.whiteA(.34)),
-                    ),
-                    child: Icon(Icons.person_outline_rounded,
-                        size: 22, color: Colors.white),
-                  ),
+                  // ⚠ شعارُ الشركة كما في ترويسة الوكيل — أمرُ المالك
+                  // (10 سبتمبر 2026) شمل التطبيقين: «في الواجهة الرئيسية
+                  // لتطبيق الوكيل والموظف». والموظفُ يقرأ هوية وكيله من
+                  // `device/employee/branding`، فهي التي تظهر له.
+                  //
+                  // وبلا حرفٍ هنا: ترويسةُ الموظف لم تكن تعرض حرفاً أصلاً،
+                  // فيبقى الاحتياطيُّ أيقونتَه المعتادة.
+                  const BrandAvatar(initial: null),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

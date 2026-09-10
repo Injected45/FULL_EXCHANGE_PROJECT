@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -44,6 +45,40 @@ class EmployeeProfile {
   final String? pauseMessage;
 
   bool can(String key) => permissions.contains(key);
+
+  /*
+   * ⚠ مساواةٌ بالقيمة — وهي نصفُ ما يُبقي شاشاتِ الموظف مفتوحة.
+   *
+   * النبضةُ تُعيد الملفَّ نفسَه في الغالب، فبلا هذه المقارنة تكون كلُّ نبضةٍ
+   * «تغيُّراً» يوقظ المُوجِّهَ والشاشات. والقوائمُ تُقارَن عنصراً عنصراً —
+   * `List.==` في دارت مقارنةُ مرجعٍ لا محتوى، والصلاحياتُ تُبنى قائمةً جديدة
+   * من الاستجابة في كل مرّة، فلولا `listEquals` لما تساوت حالتان أبداً.
+   */
+  @override
+  bool operator ==(Object other) =>
+      other is EmployeeProfile &&
+      other.id == id &&
+      other.name == name &&
+      other.phone == phone &&
+      other.activePosId == activePosId &&
+      other.paused == paused &&
+      other.pauseMessage == pauseMessage &&
+      other.openShift == openShift &&
+      listEquals(other.permissions, permissions) &&
+      listEquals(other.pointsOfSale, pointsOfSale);
+
+  @override
+  int get hashCode => Object.hash(
+        id,
+        name,
+        phone,
+        activePosId,
+        paused,
+        pauseMessage,
+        openShift,
+        Object.hashAll(permissions),
+        Object.hashAll(pointsOfSale),
+      );
 
   String get posName {
     for (final p in pointsOfSale) {
@@ -96,6 +131,15 @@ class EmployeePos {
         id: int.tryParse('${j['id'] ?? 0}') ?? 0,
         name: '${j['name'] ?? ''}'.trim(),
       );
+
+  // مساواةٌ بالقيمة — تقوم عليها مساواةُ `EmployeeProfile`، وعليها يقوم
+  // سكونُ المُوجِّه بين النبضات. انظر `EmployeeAuthState.==`.
+  @override
+  bool operator ==(Object other) =>
+      other is EmployeePos && other.id == id && other.name == name;
+
+  @override
+  int get hashCode => Object.hash(id, name);
 }
 
 class OpenShift {
@@ -114,6 +158,16 @@ class OpenShift {
         openingCash: double.tryParse('${j['opening_cash'] ?? 0}') ?? 0,
         startedAt: '${j['started_at'] ?? ''}'.trim(),
       );
+
+  @override
+  bool operator ==(Object other) =>
+      other is OpenShift &&
+      other.id == id &&
+      other.openingCash == openingCash &&
+      other.startedAt == startedAt;
+
+  @override
+  int get hashCode => Object.hash(id, openingCash, startedAt);
 }
 
 /// حالة جلسة الموظف في التطبيق.
@@ -126,6 +180,27 @@ class EmployeeAuthState {
   final EmployeeProfile? profile;
 
   static const initial = EmployeeAuthState(status: EmpSessionStatus.unknown);
+
+  /*
+   * ⚠⚠ **مساواةٌ بالقيمة — وهي ما يُبقي الشاشاتِ مفتوحة.**
+   *
+   * نبضُ `me` يُسند حالةً جديدة كلَّ اثنتي عشرة ثانية. وبلا هذا، كلُّ نبضةٍ
+   * حالةٌ «مختلفة» ولو لم يتغيّر فيها حرف — فيُوقَظ كلُّ من يراقبها، وفيهم
+   * `routerProvider` الذي **يبني `GoRouter` نفسَه**: مُوجِّهٌ جديدٌ كلَّ اثنتي
+   * عشرة ثانية، وكومةُ تنقّلٍ تبدأ من أوّلها، وشاشةُ إنشاء حوالةٍ تُغلق
+   * والموظفُ يكتب فيها. أبلغ المالك عنه في 10 سبتمبر 2026.
+   *
+   * ⚠ والمساواةُ وحدَها لا تكفي: `StateNotifier` يقارن بـ`identical` لا
+   * بـ`==`. فيُمنع الإسنادُ نفسُه حين لا تتغيّر القيمة — انظر `refresh`.
+   */
+  @override
+  bool operator ==(Object other) =>
+      other is EmployeeAuthState &&
+      other.status == status &&
+      other.profile == profile;
+
+  @override
+  int get hashCode => Object.hash(status, profile);
 }
 
 class EmployeeAuthController extends StateNotifier<EmployeeAuthState>
@@ -273,8 +348,22 @@ class EmployeeAuthController extends StateNotifier<EmployeeAuthState>
       final profile = EmployeeProfile.fromJson(env.row ?? const {});
       await _store.writeEmployee(profile.toJson());
       if (!mounted) return;
-      state = EmployeeAuthState(
+
+      /*
+       * ⚠⚠ **لا يُسنَد ما لم يتغيّر.**
+       *
+       * `StateNotifier` يقارن القديمَ بالجديد بـ`identical` لا بـ`==`،
+       * فحالةٌ مساويةٌ تماماً تُوقظ المراقبين لو أُسندت. ومنهم
+       * `routerProvider` الذي يبني `GoRouter` نفسَه — فكانت كلُّ نبضةٍ
+       * تُنشئ مُوجِّهاً جديداً وتُغلق كلَّ شاشةٍ مدفوعة، والموظفُ يكتب في
+       * نموذج حوالة. أبلغ المالك عنه في 10 سبتمبر 2026.
+       *
+       * فالمساواةُ في `EmployeeAuthState` هي المقياس، وهذا السطرُ هو ما
+       * يستعملها؛ وأحدُهما بلا الآخر لا يُصلح شيئاً.
+       */
+      final next = EmployeeAuthState(
           status: EmpSessionStatus.signedIn, profile: profile);
+      if (next != state) state = next;
     } on ApiFailure catch (e) {
       if (e.statusCode == 401) {
         await _store.clearEmployee();
