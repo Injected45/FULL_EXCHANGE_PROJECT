@@ -4,13 +4,13 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/app_version.dart';
 import '../../core/format/fmt.dart';
-import '../../core/net/api_envelope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../auth/delete_account_otp_screen.dart';
 import '../branding/brand_mark.dart';
 
 class AccountScreen extends ConsumerWidget {
@@ -177,39 +177,22 @@ class AccountScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
-    final messenger = ScaffoldMessenger.of(context);
     final ok = await _ask(
       context,
       title: 'حذف الحساب',
       // الخادم يحذف حذفاً ناعماً: Reg='NO' و deleted_at — لا يُزال الصف.
+      // وبعد التأكيد يُطلب رمزُ تحقّقٍ عبر واتساب (أمان أكثر).
       body: 'سيتوقّف حسابك عن العمل ولن تستطيع الدخول. '
-          'لا يمكن التراجع عن هذا من التطبيق — يحتاج مراجعة الفرع.',
-      confirm: 'حذف الحساب',
+          'لا يمكن التراجع عن هذا من التطبيق — يحتاج مراجعة الفرع.\n\n'
+          'سنرسل رمزَ تحقّقٍ إلى هاتفك لتأكيد الحذف.',
+      confirm: 'متابعة',
       danger: true,
     );
-    if (ok != true) return;
-    try {
-      await ref.read(authControllerProvider.notifier).deleteAccount();
-      // عند النجاح يتحوّل الراوتر إلى شاشة الدخول تلقائياً (الحالة signedOut).
-    } on ApiFailure catch (e) {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(e.message,
-              style: T.plex(13, FontWeight.w500, color: Colors.white)),
-          backgroundColor: R.error,
-          behavior: SnackBarBehavior.floating,
-        ));
-    } catch (_) {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text('تعذّر حذف الحساب — تحقّق من الاتصال وأعد المحاولة.',
-              style: T.plex(13, FontWeight.w500, color: Colors.white)),
-          backgroundColor: R.error,
-          behavior: SnackBarBehavior.floating,
-        ));
-    }
+    if (ok != true || !context.mounted) return;
+    // الحذفُ الفعليّ يتمّ في شاشة الرمز بعد تحقّق الخادم منه.
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(builder: (_) => const DeleteAccountOtpScreen()),
+    );
   }
 
   Future<bool?> _ask(

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/net/api_client.dart';
+import '../../core/net/api_envelope.dart';
 import '../../core/storage/secure_store.dart';
 import 'auth_repository.dart';
 
