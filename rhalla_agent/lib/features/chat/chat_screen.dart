@@ -27,6 +27,7 @@ class ChatScreen extends ConsumerStatefulWidget {
     required this.title,
     this.threadId,
     this.asEmployee = false,
+    this.asTab = false,
     this.highlightMessageId,
   });
 
@@ -42,6 +43,13 @@ class ChatScreen extends ConsumerStatefulWidget {
   final int? threadId;
 
   final bool asEmployee;
+
+  /// تُعرض تبويباً في الشريط السفليّ لا شاشةً تُدفع.
+  ///
+  /// ⚠ فبلا زرّ رجوع: `context.pop()` من جذر فرعٍ في الهيكل لا يجد ما يرجع
+  /// إليه، فيبقى الزرُّ معروضاً ولا يفعل شيئاً — وزرٌّ لا يعمل يُقرأ عطباً.
+  /// وهو الفرقُ الوحيد؛ فالشاشةُ هي هي في الوضعين.
+  final bool asTab;
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -671,7 +679,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return Screen(
       child: Column(
         children: [
-          RhallaAppBar(title: widget.title, onBack: () => context.pop()),
+          RhallaAppBar(
+            title: widget.title,
+            onBack: widget.asTab ? null : () => context.pop(),
+          ),
           Expanded(child: _body()),
           if (_replyTo != null)
             _ReplyBar(

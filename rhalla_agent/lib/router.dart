@@ -22,6 +22,8 @@ import 'features/employee_app/employee_lookup_screens.dart';
 import 'features/employee_app/employee_reports_screen.dart';
 import 'features/employee_app/employee_statement_screen.dart';
 import 'features/employee_app/employee_home_screen.dart';
+import 'features/employee_app/employee_hubs.dart';
+import 'features/employee_app/employee_shell.dart';
 import 'features/employee_app/employee_session.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/onboarding_screen.dart';
@@ -71,12 +73,24 @@ String _lastLocation = '/';
 ///
 /// والخادمُ يبقى الحارسَ الأخير (403 عند أوّل نداء)، لكنّ شاشةً تُفتح ثم
 /// تسقط عند الإرسال تُعلّم الموظف أن التطبيق معطوب لا أنه غير مصرَّح.
-bool _sharedWithEmployee(String loc, bool canCreate) {
+bool _sharedWithEmployee(String loc, bool canCreate, bool canExternal) {
   final shared = loc == '/send/internal' ||
       loc == '/send/internal/review' ||
       loc == '/send/internal/done';
 
-  return shared && canCreate;
+  /*
+   * ⚠ والحوالةُ الخارجية مسارٌ ثانٍ مشترك — أمرُ إعادة الهيكلة
+   * (10 سبتمبر 2026): «تُحضَر من تطبيق الوكيل طبق الأصل».
+   *
+   * وبمفتاحها هي (`CREATE_EXTERNAL_TRANSFER`) لا بمفتاح المحلّية: وكيلٌ أذن
+   * بالمحلّية لا يلزم أنه أذن بعبور الحدود والعملات. والحارسُ الحقيقيّ في
+   * الخادم على كلّ مسارٍ من الثلاثة، وهذا الشرطُ يمنع بابَ التطبيق أن يُفتح
+   * على شاشةٍ ستُردّ عند أوّل نداء.
+   */
+  final external =
+      loc == '/send/external' || loc == '/send/external/done';
+
+  return (shared && canCreate) || (external && canExternal);
 }
 
 /*
@@ -159,6 +173,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ref.watch(employeeAuthProvider.select((s) => s.status));
   final empCanCreate = ref.watch(employeeAuthProvider
       .select((s) => s.profile?.can('CREATE_TRANSFER') ?? false));
+  final empCanExternal = ref.watch(employeeAuthProvider
+      .select((s) => s.profile?.can('CREATE_EXTERNAL_TRANSFER') ?? false));
   final employeeIn = empStatus == EmpSessionStatus.signedIn;
 
   return GoRouter(
@@ -197,7 +213,7 @@ final routerProvider = Provider<GoRouter>((ref) {
        */
       if (employeeIn) {
         return (inEmployeeArea && loc != '/employee/activate') ||
-                _sharedWithEmployee(loc, empCanCreate)
+                _sharedWithEmployee(loc, empCanCreate, empCanExternal)
             ? null
             : '/employee/home';
       }
@@ -250,26 +266,89 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const EmployeeActivationScreen(),
       ),
+      /*
+       * ══════════════════════════════════════════════════════════════════
+       *  هيكلُ الموظف — خمسةُ تبويبات (أمرُ إعادة الهيكلة، 10 سبتمبر 2026)
+       * ══════════════════════════════════════════════════════════════════
+       *
+       * `docs/employee-app-ui-restructure.md`. الشجرةُ كاملةً في ترويسة
+       * [EmployeeShell].
+       *
+       * ⚠ **هيكلٌ ثانٍ في المُوجِّه نفسِه، ومفاتيحُه غيرُ مفاتيح هيكل الوكيل.**
+       * `StatefulShellRoute` يحفظ فروعَه بـ`GlobalKey`، ومفتاحٌ واحد في
+       * شجرتين حيّتين في الإطار نفسِه هو بالضبط ما يُنتج «Duplicate GlobalKey».
+       * والهيكلان لا يعيشان معاً أصلاً — `redirect` يحسم أيُّهما قبل كلّ شيء
+       * — لكنّ الاعتماد على ذلك وحدَه رهانٌ على ترتيبِ إطارٍ واحد.
+       *
+       * ⚠ ومساراتُ التبويبات هي المساراتُ القديمة نفسُها (`/employee/home`،
+       * `/employee/reports`، `/employee/cashbox`، `/employee/favorites`):
+       * لم تُبدَّل حتى لا يسقط `redirect` ولا يفقد `app_routes_wiring_check`
+       * أثرَها، وحتى يبقى ما حُفظ في `_lastLocation` صالحاً بعد التحديث.
+       */
+      StatefulShellRoute.indexedStack(
+        builder: (_, _, shell) => EmployeeShell(navigationShell: shell),
+        branches: [
+          // ١ — الحوالات
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/employee/home',
+              builder: (_, _) => const EmployeeHomeScreen(),
+            ),
+          ]),
+          // ٢ — التقارير: رأسُها «حوالات اليوم (الكل)»، وتحتها تقاريرُه.
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/employee/reports',
+              builder: (_, _) => const EmployeeOwnReportsScreen(asTab: true),
+            ),
+          ]),
+          // ٣ — الخزينة: كشفُ الصادر كاملاً، وكشفُ الوارد المسلَّم.
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/employee/cashbox',
+              builder: (_, _) => const EmployeeCashboxScreen(asTab: true),
+            ),
+          ]),
+          // ٤ — مراسلة الوكيل
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/employee/chat',
+              builder: (_, _) => const EmployeeChatTab(),
+            ),
+          ]),
+          // ٥ — المستفيدون: القائمة، وإضافةُ مستفيد.
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/employee/favorites',
+              builder: (_, _) => const EmployeeFavoritesScreen(asTab: true),
+            ),
+          ]),
+        ],
+      ),
+
+      // ── شاشاتُ الموظف المدفوعة فوق الهيكل ────────────────────────────
       GoRoute(
-        path: '/employee/home',
+        // فهرسُ الحوالة المحلّية: إنشاء · حوالاتي · كشف حوالاتي.
+        path: '/employee/local',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const EmployeeHomeScreen(),
+        builder: (_, _) => const EmployeeLocalHubScreen(),
       ),
       GoRoute(
-        // قسمُ تقارير الموظف عن نفسِه — لا تقارير الوكيل عن موظفيه.
-        path: '/employee/reports',
+        // فهرسُ الحوالة الخارجية: إنشاء · حوالاتي · كشف الحوالات.
+        path: '/employee/external',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const EmployeeOwnReportsScreen(),
+        builder: (_, _) => const EmployeeExternalHubScreen(),
+      ),
+      GoRoute(
+        // «حوالاتي» الخارجية — صادرةٌ فقط، فالخارجيةُ لا واردةَ لها.
+        path: '/employee/external/mine',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeExternalMineScreen(),
       ),
       GoRoute(
         path: '/employee/balances',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const EmployeeBalancesScreen(),
-      ),
-      GoRoute(
-        path: '/employee/favorites',
-        parentNavigatorKey: _rootKey,
-        builder: (_, _) => const EmployeeFavoritesScreen(),
       ),
       GoRoute(
         path: '/employee/pos-transfers',
@@ -281,17 +360,37 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const EmployeeSearchScreen(),
       ),
+      /*
+       * كشفُ حوالاته — **شاشةٌ واحدةٌ بثلاثة نطاقات**: الكلّ، والمحلّية،
+       * والخارجية. انظر ترويسة [EmployeeStatementScreen].
+       *
+       * ⚠ ومسارٌ لكلّ نطاق لا معاملٌ في `extra`: `extra` لا ينجو من إعادة
+       * بناء المُوجِّه ولا من رابطٍ يُفتح، فيُبنى الكشفُ بنطاقٍ افتراضيّ
+       * ويظنّ الموظف أنه يقرأ ما طلب.
+       */
       GoRoute(
-        // كشفُ حوالاته — للجرد على نفسه.
-        path: '/employee/statement',
+        path: '/employee/statement/all',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const EmployeeStatementScreen(),
+        builder: (_, _) => const EmployeeStatementScreen(
+          scope: StatementScope.all,
+          title: 'حوالات اليوم — الكل',
+        ),
       ),
       GoRoute(
-        // خزينتُه — مالُ حوالاته: ما قبض وما دفع والفرق. بلا عهدةٍ ولا وردية.
-        path: '/employee/cashbox',
+        path: '/employee/statement/local',
         parentNavigatorKey: _rootKey,
-        builder: (_, _) => const EmployeeCashboxScreen(),
+        builder: (_, _) => const EmployeeStatementScreen(
+          scope: StatementScope.local,
+          title: 'كشف حوالاتي',
+        ),
+      ),
+      GoRoute(
+        path: '/employee/statement/external',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const EmployeeStatementScreen(
+          scope: StatementScope.external,
+          title: 'كشف الحوالات الخارجية',
+        ),
       ),
       GoRoute(
         // «طلباتي» — نتيجةُ ما أرسله الموظف إلى وكيله.

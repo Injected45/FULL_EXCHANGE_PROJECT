@@ -181,19 +181,74 @@ class EmployeeReports
      * وهو لا يُقرأ من `wallet` ولا يُكتب فيه — عهدةٌ تُجرد، لا حسابٌ يُرحَّل.
      *
      * ⚠ ويُقيَّد بالموظف نفسِه دائماً: موظفٌ لا يجرد على زميله.
+     *
+     * ══════════════════════════════════════════════════════════════════════
+     *  المدى والقناة — أمرُ إعادة الهيكلة (10 سبتمبر 2026)
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * الأمرُ نصَّ على الفلتر كاملاً: **اليوم · أسبوع · شهر · الكل · من–إلى**،
+     * وعلى ثلاثة كشوف من هذا الكشف نفسِه — الكلّ، والمحلّية، والخارجية.
+     *
+     * ⚠ **وكشفٌ واحدٌ يُبنى ثلاث مرّات لا ثلاثةُ كشوف.** ثلاثةُ استعلاماتٍ
+     * متشابهة تفترق عند أوّل تعديل، ثمّ يختلف مجموعُ «الكلّ» عن مجموع
+     * شطريه — وهو أسوأُ ما يقع في جرد.
+     *
+     * ⚠ و`days = 0` تعني **الكلّ** لا اليوم: لا حدَّ زمنيّ يُطبَّق. والسقفُ
+     * الوحيدُ الباقي هو `limit(500)` — سقفُ عرضٍ لا سقفُ مدى، وهو معلَنٌ في
+     * الرد (`truncated`) فلا يقرأ الموظف كشفاً ناقصاً ظانّاً أنه تامّ.
+     *
+     * @param int         $days     نافذةُ الأيام، و0 تعني بلا حدّ.
+     * @param string|null $channel  'LOCAL' | 'EXTERNAL' | null (الكلّ).
+     * @param string|null $from     تاريخُ بداية (يُلغي $days حين يُذكر).
+     * @param string|null $to       تاريخُ نهاية — شاملٌ ليومه كلِّه.
      */
-    public function statement(object $employee, int $days = 30): array
-    {
-        $since = now()->subDays(max(1, $days));
-
-        $rows = DB::table('transfer_attributions')
+    public function statement(
+        object $employee,
+        int $days = 30,
+        ?string $channel = null,
+        ?string $from = null,
+        ?string $to = null,
+    ): array {
+        $q = DB::table('transfer_attributions')
             ->where('agent_id', $employee->agent_id)
-            ->where('employee_id', $employee->id)
-            ->where('occurred_at', '>=', $since)
-            ->orderByDesc('occurred_at')
+            ->where('employee_id', $employee->id);
+
+        /*
+         * ⚠ المدى المحدَّد يسبق النافذة: من اختار تاريخين فقد ألغى الشرائح.
+         * والاثنان معاً كانا سيُنتجان تقاطعاً لا يفهمه من طلبهما.
+         */
+        $fromAt = $this->parseDay($from);
+        $toAt   = $this->parseDay($to);
+
+        if ($fromAt || $toAt) {
+            if ($fromAt) {
+                $q->where('occurred_at', '>=', $fromAt->startOfDay());
+            }
+            if ($toAt) {
+                // ⚠ نهايةُ اليوم لا بدايتُه: «إلى 10 سبتمبر» تشمل يومَه،
+                // وإلّا اختفى عملُ آخر يومٍ اختاره الموظف بلا تفسير.
+                $q->where('occurred_at', '<=', $toAt->endOfDay());
+            }
+        } elseif ($days > 0) {
+            $q->where('occurred_at', '>=', now()->subDays($days));
+        }
+
+        /*
+         * ⚠ NULL يُقرأ 'LOCAL': كلُّ صفٍّ كُتب قبل فتح الباب الخارجيّ حوالةٌ
+         * محلّية بالضرورة، ولم يُكتب عليه شيءٌ رجعياً (انظر سكربت النشر).
+         */
+        if ($channel === 'LOCAL') {
+            $q->where(function ($w) {
+                $w->where('channel', 'LOCAL')->orWhereNull('channel');
+            });
+        } elseif ($channel === 'EXTERNAL') {
+            $q->where('channel', 'EXTERNAL');
+        }
+
+        $rows = $q->orderByDesc('occurred_at')
             ->limit(500)
             ->get(['transfer_number', 'action', 'amount', 'recipient_phone',
-                   'occurred_at']);
+                   'channel', 'occurred_at']);
 
         $created   = $rows->where('action', 'CREATED');
         $delivered = $rows->where('action', 'DELIVERED');
@@ -203,20 +258,47 @@ class EmployeeReports
 
         return [
             'days'            => $days,
+            'channel'         => $channel ?? 'ALL',
+            'from'            => $fromAt?->toDateString(),
+            'to'              => $toAt?->toDateString(),
             'created_count'   => $created->count(),
             'created_total'   => round($in, 3),
             'delivered_count' => $delivered->count(),
             'delivered_total' => round($out, 3),
             // ⚠ الصافي = ما قبضه ناقصَ ما دفعه. موجبٌ يعني نقداً عنده.
             'net'             => round($in - $out, 3),
+            // ⚠ يُعلَن بلوغُ السقف: كشفٌ مقصوصٌ صامتاً يُقرأ كشفاً تامّاً،
+            // فيُجرد الدرجُ على مجموعٍ ناقص.
+            'truncated'       => $rows->count() >= 500,
             'items' => $rows->map(fn ($r) => [
                 'transfer_number' => $r->transfer_number,
                 'action'          => $r->action,
                 'amount'          => (float) $r->amount,
                 'recipient_phone' => $r->recipient_phone,
+                'channel'         => $r->channel ?: 'LOCAL',
                 'at'              => $r->occurred_at,
             ])->all(),
         ];
+    }
+
+    /**
+     * يقرأ تاريخاً من الطلب، ويردّ null على ما لا يصلح.
+     *
+     * ⚠ لا يرمي: تاريخٌ مشوّه في الطلب لا يجوز أن يُسقط الكشفَ كلَّه بخطأ
+     * 500 — يُهمَل الفلتر ويُعرض المدى الافتراضيّ.
+     */
+    private function parseDay(?string $v): ?\Illuminate\Support\Carbon
+    {
+        $v = trim((string) $v);
+        if ($v === '') {
+            return null;
+        }
+
+        try {
+            return \Illuminate\Support\Carbon::parse($v);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

@@ -9,6 +9,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import 'employee_add_favorite_screen.dart';
+import 'employee_header.dart';
 import 'employee_session.dart';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -204,8 +206,29 @@ final _favoritesProvider =
   return env.rows;
 });
 
+/// التبويبُ الخامس — **المستفيدون**: القائمة، وإضافةُ مستفيدٍ جديد.
+///
+/// ══════════════════════════════════════════════════════════════════════════
+///  ⚠ «إضافة مستفيد» في هذه المنظومة ليست نموذجَ اسمٍ وهاتف
+/// ══════════════════════════════════════════════════════════════════════════
+///
+/// المفضّلةُ في القاعدة مخزَّنةٌ **لكلّ حوالة** لا لكلّ شخص: العمودُ المفتاحُ
+/// هو `code_Favorite`، ويربطه الإجراءُ المخزَّن بـ`Code` في `InternalEx` و
+/// `ExternalEx` و`TransBetweenAccountsTB`. فلا وجودَ لصفٍّ بلا حوالةٍ خلفه.
+///
+/// ومعنى ذلك أنّ «إضافةَ مستفيدٍ جديد» تعني حرفياً: **اختر حوالةً نفّذتَها
+/// واحفظ مستفيدَها**. وهو ما يفعله الوكيلُ نفسُه من فاتورة الحوالة
+/// (`AddToFavoritesButton`) — القاعدةُ واحدة.
+///
+/// ⚠ ولم يُخترَع نموذجُ إدخالٍ حرّ رغم أن ظاهرَ الطلب يوحي به: صفٌّ يُكتب
+/// بلا `code_Favorite` صحيح لا يظهر في القائمة أصلاً — لأن الإجراءَ يقرأ
+/// بالربط — فيبدو للموظف أنّ الإضافة «لا تعمل»، وهو أسوأُ من بابٍ يقول
+/// بصراحةٍ من أين يُضاف المستفيد.
 class EmployeeFavoritesScreen extends ConsumerStatefulWidget {
-  const EmployeeFavoritesScreen({super.key});
+  const EmployeeFavoritesScreen({super.key, this.asTab = false});
+
+  /// تبويبٌ في الشريط السفليّ — فبلا زرّ رجوع، وبترويسة الموظف فوقه.
+  final bool asTab;
 
   @override
   ConsumerState<EmployeeFavoritesScreen> createState() =>
@@ -220,12 +243,87 @@ class _EmployeeFavoritesScreenState
   Widget build(BuildContext context) {
     final p = ref.watch(employeeAuthProvider).profile;
     final canManage = p?.can('MANAGE_FAVORITES') ?? false;
-    final async = ref.watch(_favoritesProvider);
+    final canView = p?.can('VIEW_FAVORITES') ?? false;
+    // ⚠ ولا يُراقَب المزوّدُ إلّا بصلاحيته: مراقبتُه تُطلقه، فيُرسَل طلبٌ
+    // يُردّ بـ403 لموظفٍ لا يُفترض أن يسأل أصلاً.
+    final async = canView
+        ? ref.watch(_favoritesProvider)
+        : const AsyncValue<List<Map<String, dynamic>>>.data([]);
+
+    /*
+     * ⚠ تبويبٌ بلا صلاحيةٍ يقول ما ينقصه ولا يختفي: تبويبٌ يختفي يجعل الموظف
+     * يظنّ التطبيقَ ناقصاً، وسطرٌ يشرح يحيله إلى وكيله.
+     *
+     * ⚠ **وشرطُ الحجب `!canView && !canManage` لا `!canView` وحدَها.**
+     * موظفٌ مُنح الإدارةَ دون العرض — وهي حالةٌ يقع فيها الوكيل — كان يرى
+     * شاشةَ «تحتاج صلاحية عرض المفضّلة» وحدَها، وبابُ الإضافة الذي مُنحه
+     * فعلاً محجوبٌ خلفها. أي: صلاحيةٌ مُنحت ولا تظهر — وهو بعينه ما يحرسه
+     * `employee_home_permissions_test`.
+     */
+    if (widget.asTab && !canView && !canManage) {
+      return Screen(
+        child: Column(
+          children: [
+            if (p != null) EmployeeHeader(profile: p),
+            // ⚠ `_Empty` قائمةٌ بذاتها — تُمرَّر إلى `Expanded` مباشرةً ولا
+            // تُلَفّ في قائمةٍ ثانية، وإلّا فمِنظارٌ داخل مِنظارٍ بلا ارتفاع.
+            const Expanded(
+              child: _Empty(
+                text: 'تحتاج صلاحية «عرض المفضّلة» لرؤية المستفيدين.\n\n'
+                    'راجع وكيلك.',
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Screen(
       child: Column(
         children: [
-          RhallaAppBar(title: 'المستفيدون', onBack: () => context.pop()),
+          if (widget.asTab && p != null)
+            EmployeeHeader(profile: p)
+          else
+            RhallaAppBar(title: 'المستفيدون', onBack: () => context.pop()),
+
+          /*
+           * «إضافة مستفيد جديد» — الشاشةُ الثانية تحت هذا التبويب كما نصّت
+           * الشجرة. ولا تُعرض لمن لا يملك الإدارة: الخادمُ يردّها بـ403،
+           * وزرٌّ يُفتح ثمّ يُرفض أسوأُ من زرٍّ لا يظهر.
+           */
+          if (canManage)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(R.padScreen, 12, R.padScreen, 0),
+              child: EmployeeTile(
+                icon: Icons.person_add_alt_1_rounded,
+                title: 'إضافة مستفيد جديد',
+                subtitle: 'اختر من حوالاتك واحفظ مستفيدَها',
+                onTap: () async {
+                  await Navigator.of(context, rootNavigator: true).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EmployeeAddFavoriteScreen(),
+                    ),
+                  );
+                  if (mounted) ref.invalidate(_favoritesProvider);
+                },
+              ),
+            ),
+
+          /*
+           * ⚠ القائمةُ لا تُطلَب إلّا بصلاحيتها.
+           *
+           * `favorites` خلف `VIEW_FAVORITES` في الخادم، فمن يملك الإدارةَ
+           * وحدَها كان طلبُه يُردّ بـ403 وتظهر له «تعذّر التحميل» — رسالةُ
+           * عطبٍ عن منعٍ مقصود. والصدقُ أن يُقال له إنّ العرضَ لم يُمنح.
+           */
+          if (!canView)
+            const Expanded(
+              child: _Empty(
+                text: 'لديك «إضافة مستفيد» دون «عرض المفضّلة»، '
+                    'فالقائمة لا تظهر لك.\n\nراجع وكيلك.',
+              ),
+            )
+          else
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async => ref.invalidate(_favoritesProvider),
@@ -237,8 +335,10 @@ class _EmployeeFavoritesScreenState
                 data: (rows) => rows.isEmpty
                     ? const _Empty(text: 'لا مستفيدين محفوظين.')
                     : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(
-                            R.padScreen, 14, R.padScreen, 30),
+                        // ⚠ 110 حين تكون تبويباً: الشريطُ السفليّ يعلو
+                        // المحتوى، وبدونها يبقى آخرُ صفٍّ تحته فلا يُنقر.
+                        padding: EdgeInsets.fromLTRB(R.padScreen, 14,
+                            R.padScreen, widget.asTab ? 110 : 30),
                         itemCount: rows.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 8),
                         itemBuilder: (_, i) {

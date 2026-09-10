@@ -11,6 +11,7 @@ import '../../ui/widgets/ambient.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../employee_app/employee_session.dart';
 import '../favorites/favorites_repository.dart';
 import '../favorites/favorites_screen.dart';
 import '../shell/auto_refresh.dart';
@@ -149,8 +150,24 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
       setState(() => _error = 'أكمل بيانات الحوالة أولاً.');
       return;
     }
+    /*
+     * ⚠ **حسابُ الوكيل غائبٌ في وضع الموظف — ولا يجوز أن يوقف الإرسال.**
+     *
+     * جلسةُ الموظف ليست جلسةَ وكيل، فـ`authControllerProvider.user` فارغٌ
+     * عنده. و`if (user == null) return;` كانت ستجعل زرَّ الإرسال **يُضغط
+     * فلا يقع شيء**: لا خطأٌ يُعرض ولا حوالةٌ تُنشأ — وهو الشكلُ الذي يُقرأ
+     * عطباً في التطبيق لا منعاً، والقاعدةُ في هذا المشروع أنّ حارساً يصمت
+     * أسوأُ من حارسٍ يرفض.
+     *
+     * ⚠ ولا يضيع بذلك شيء: `AccFrom` **يُدهَس في الخادم** بحساب الوكيل قبل
+     * أن يُقرأ (انظر `EmployeeController::createExternalTransfer`)، تماماً
+     * كما يُفعل بـ`AccID` في الحوالة المحلّية. فالقيمةُ المرسلة من هنا لا
+     * تؤثّر في وضع الموظف أصلاً.
+     */
     final user = ref.read(authControllerProvider).user;
-    if (user == null) return;
+    final asEmployee =
+        ref.read(employeeAuthProvider).status == EmpSessionStatus.signedIn;
+    if (user == null && !asEmployee) return;
 
     setState(() {
       _sending = true;
@@ -173,7 +190,7 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
     try {
       final row = await ref
           .read(externalRepositoryProvider)
-          .create(d: draft, accId: user.accId);
+          .create(d: draft, accId: user?.accId ?? 0);
       if (!mounted) return;
       refreshAfterMoneyAction(ref);
       // المُشغِّل يحسب NetTotal/TransPrice بعد الإدراج، والخادم يعيد الصف

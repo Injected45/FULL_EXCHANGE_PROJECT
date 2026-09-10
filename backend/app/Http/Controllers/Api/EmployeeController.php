@@ -684,10 +684,165 @@ class EmployeeController extends BaseController
     {
         [$employee, , ] = $this->ctx($request);
 
+        /*
+         * ⚠ القناةُ تُقرأ من قائمةٍ مغلقة لا كما وصلت: قيمةٌ غريبة تُهمَل
+         * فيُعرض الكلّ — لا تُمرَّر إلى الاستعلام لتقرّر هي ما يُعرض.
+         */
+        $channel = strtoupper(trim((string) $request->query('channel', '')));
+        if (!in_array($channel, ['LOCAL', 'EXTERNAL'], true)) {
+            $channel = null;
+        }
+
         return $this->sendResponse(
             app(EmployeeReports::class)->statement(
-                $employee, (int) $request->query('days', 30)),
+                $employee,
+                (int) $request->query('days', 30),
+                $channel,
+                $request->query('from'),
+                $request->query('to'),
+            ),
             'تم');
+    }
+
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     *  الحوالةُ الخارجية — بابُ الوكيل نفسُه تحت حارس جلسة الموظف
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * أمرُ إعادة الهيكلة (10 سبتمبر 2026): «شاشةُ الحوالة الخارجية غيرُ
+     * موجودةٍ في تطبيق الموظف بعد، فتُحضَر من تطبيق الوكيل **طبق الأصل**».
+     *
+     * ⚠ **وليس هذا اختراعاً ولا منطقاً ماليّاً جديداً.** المسارُ الماليّ هو
+     * `transInsertExternal` نفسُه في `depositController` — الدالّةُ التي
+     * ينفّذ بها الوكيل — تُنادى بهويّة الوكيل عبر `EmployeeActsAsAgent`.
+     * فالسعرُ والعمولةُ وحدودُ التحويل ومهلةُ الدقيقة وفحصُ الرصيد وتوليدُ
+     * الكود كلُّها تجري بشيفرة الوكيل، ويخرج في `ExternalEx` صفٌّ **لا
+     * يُميَّز عن صفّه** — لأنه صفُّه. وهي القاعدةُ نفسُها التي نُفِّذت بها
+     * الحوالةُ المحلّية حين أُذن بها (7 سبتمبر 2026).
+     *
+     * ⚠ ومن نفّذ فعلاً يُسجَّل في `transfer_attributions` وحدها — بجوار
+     * الدفتر لا داخله.
+     */
+
+    /** POST employee/external/services — يتطلّب CREATE_EXTERNAL_TRANSFER */
+    public function externalServices(Request $request)
+    {
+        return $this->refAsAgent($request, 'getServicesExternal');
+    }
+
+    /**
+     * POST employee/external/quote — يتطلّب CREATE_EXTERNAL_TRANSFER
+     *
+     * ⚠ تسعيرٌ للقراءة فقط: يُحاكي حسابَ المحفّز حرفياً ليُقال للزبون الرقمُ
+     * الذي سيُكتب فعلاً. ولا يكتب شيئاً، ولا يحجز شيئاً.
+     */
+    public function externalQuote(Request $request)
+    {
+        return $this->refAsAgent($request, 'externalQuote');
+    }
+
+    /**
+     * POST employee/external/create — يتطلّب CREATE_EXTERNAL_TRANSFER
+     *
+     * بنيتُه بنيةُ [createTransfer] حرفاً بحرف — الحجزُ قبل الكتابة، ثمّ
+     * التنفيذُ بهويّة الوكيل، ثمّ النسبةُ بعد النجاح، ثمّ ختمُ الحجز.
+     *
+     * ⚠ ومهلةُ الدقيقة **لا تُفحص هنا**: قاعدةُ الخارجية تعيش في
+     * `transInsertExternal` نفسِها (‏3 دقائق على `ExternalEx`)، وفحصٌ ثانٍ
+     * بقاعدةٍ أخرى كان سيمنع ما يسمح به الخادم أو يعِد بما يرفضه.
+     */
+    public function createExternalTransfer(Request $request)
+    {
+        [$employee, $session, ] = $this->ctx($request);
+
+        $actor = app(EmployeeActsAsAgent::class);
+
+        $clientId = trim((string) $request->input('client_id', ''));
+        $claimId  = null;
+
+        // ⚠ الترتيب: المفتاحُ المعروف أوّلاً — الضغطةُ المكرّرة تُردّ
+        // بنتيجتها لا برسالة خطأ عن حوالةٍ نجحت للتوّ.
+        if ($clientId !== '') {
+            $prior = $actor->findClaim($employee, $clientId);
+
+            if ($prior) {
+                return $this->sendResponse([
+                    'duplicate'       => true,
+                    'transfer_number' => $prior->transfer_number,
+                    'status'          => $prior->status,
+                ], $prior->transfer_number !== null
+                    ? 'هذه الحوالة أُنشئت بالفعل.'
+                    : 'الطلب قيد التنفيذ — لا تُعد الإرسال.');
+            }
+
+            $claim = $actor->claim($employee, $clientId);
+
+            if (!($claim['ok'] ?? false)) {
+                return $this->sendResponse([
+                    'duplicate'       => true,
+                    'transfer_number' => $claim['transfer_number'] ?? null,
+                    'status'          => $claim['status'] ?? 'PENDING',
+                ], ($claim['transfer_number'] ?? null) !== null
+                    ? 'هذه الحوالة أُنشئت بالفعل.'
+                    : 'الطلب قيد التنفيذ — لا تُعد الإرسال.');
+            }
+
+            $claimId = (int) $claim['claim_id'];
+        }
+
+        $recipientPhone = trim((string) $request->input('RPhone1', ''));
+        $recipientName  = trim((string) $request->input('RecievedName', ''));
+
+        $response = $actor->as((int) $employee->agent_id, function ($agent) use ($request) {
+            /*
+             * ⚠ `AccFrom` يُدهَس بحساب الوكيل قبل أن يُقرأ.
+             *
+             * المُتحقِّقُ يشترطه، والدالّةُ بعده تكتب `$user->AccID` في
+             * الصفّ على أيّ حال — فالقيمةُ الواصلة من التطبيق لا تؤثّر.
+             * وملؤُها هنا يجعل ذلك **صريحاً**: موظفٌ يرسل حساباً آخر لا
+             * يجد إلى ذلك سبيلاً، ولا يظنّ قارئُ الشيفرة أن الحقل يؤثّر.
+             */
+            $request->merge(['AccFrom' => $agent->AccID]);
+
+            return app(depositController::class)->transInsertExternal($request);
+        });
+
+        $payload = json_decode($response->getContent(), true);
+        $ok = ($payload['success'] ?? false) === true;
+
+        if ($ok) {
+            $t = $payload['data']['transfer'] ?? [];
+
+            /*
+             * ⚠ رقمُ الخارجية هو `codeForMobile` — لا `Code`: `ExternalEx`
+             * لا عمودَ بهذا الاسم فيها أصلاً، وقراءةُ عمودٍ غير موجود كانت
+             * ستُسجّل النسبةَ برقمٍ فارغ فلا تُربط بحوالةٍ أبداً.
+             */
+            $actor->attributeCreate(
+                $employee, $session,
+                (string) ($t['codeForMobile'] ?? ''),
+                (float) ($t['CurrRecievedVal'] ?? $request->input('CurrRecievedVal', 0)),
+                $recipientPhone !== '' ? $recipientPhone : null,
+                $recipientName !== '' ? $recipientName : null,
+                'EXTERNAL',
+            );
+
+            $this->log->audit('EMPLOYEE_CREATED_EXTERNAL_TRANSFER',
+                $this->trace($request, $employee, $session) + [
+                    'entity_type' => 'external_transfer',
+                    'entity_id'   => (string) ($t['codeForMobile'] ?? ''),
+                ]);
+        }
+
+        if ($claimId !== null) {
+            $actor->closeClaim(
+                $claimId,
+                $ok ? (string) (($payload['data']['transfer']['codeForMobile'] ?? '')) : null,
+                $ok,
+            );
+        }
+
+        return $response;
     }
 
 
@@ -865,6 +1020,28 @@ class EmployeeController extends BaseController
 
         return $this->sendResponse(
             app(EmployeeTransferViews::class)->outgoing(
+                (int) $employee->agent_id,
+                (int) $employee->id,
+                (int) $request->query('limit', 200),
+            ),
+            'Success');
+    }
+
+    /**
+     * GET employee/external/mine — يتطلّب VIEW_OWN_TRANSFERS
+     *
+     * «حوالاتي» تحت الحوالة الخارجية. نظيرُ [outgoingTransfers] بدفترٍ آخر.
+     *
+     * ⚠ وبـ`VIEW_OWN_TRANSFERS` لا بـ`CREATE_EXTERNAL_TRANSFER`: السؤالُ
+     * هنا «ما حوالاتي؟» لا «هل لي أن أُنشئ؟». وموظفٌ سُحبت منه صلاحيةُ
+     * الإنشاء يبقى مسؤولاً عن حوالاتٍ أنشأها بالأمس ويجب أن يراها.
+     */
+    public function externalMine(Request $request)
+    {
+        [$employee, , ] = $this->ctx($request);
+
+        return $this->sendResponse(
+            app(EmployeeTransferViews::class)->externalOutgoing(
                 (int) $employee->agent_id,
                 (int) $employee->id,
                 (int) $request->query('limit', 200),

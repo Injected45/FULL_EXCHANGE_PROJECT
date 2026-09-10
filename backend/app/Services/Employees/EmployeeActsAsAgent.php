@@ -196,10 +196,17 @@ class EmployeeActsAsAgent
         float $amount,
         ?string $recipientPhone = null,
         ?string $recipientName = null,
+        string $channel = 'LOCAL',
     ): void {
         try {
             DB::table('transfer_attributions')->insert([
                 'action'           => 'CREATED',
+                /*
+                 * ⚠ القناةُ تُكتب لتُقرأ، لا لتُحسب: «حوالاتي الخارجية»
+                 * و«كشف الخارجية» يُفرزان بها. والبديلُ سؤالُ الدفتر عن كلّ
+                 * رقمٍ على حدة — وهو الشكلُ الذي أبطأ كشفَ الحساب 68 ثانية.
+                 */
+                'channel'          => $channel,
                 'transfer_number'  => $transferNumber,
                 'agent_id'         => $employee->agent_id,
                 'employee_id'      => $employee->id,

@@ -52,6 +52,111 @@ class EmployeeTransferViews
     private const MAX_OUTGOING = 500;
 
     /**
+     * يقصر استعلامَ النسب على الحوالة **المحلّية**.
+     *
+     * ⚠ أُضيف يوم فُتح للموظف بابُ الحوالة الخارجية (10 سبتمبر 2026)، وهو
+     * ليس تزيّناً: أكوادُ الخارجية (`codeForMobile`) **لا وجودَ لها في
+     * `InternalEx`**، فبدونه كانت كلُّ حوالةٍ خارجيةٍ تظهر في «صادرتي
+     * المحلّية» بلا مستفيدٍ ولا حالة، معلَّمةً `missing_in_core` — أي
+     * كحوالةٍ مُسح أصلُها من المنظومة. وهو إنذارٌ كاذبٌ عن عطبٍ لم يقع.
+     *
+     * ⚠ و`NULL` محلّيةٌ بالضرورة: كلُّ صفٍّ كُتب قبل فتح ذلك الباب لم يكن
+     * له طريقٌ آخر. ولم يُكتب على تلك الصفوف شيءٌ رجعياً.
+     */
+    private static function onlyLocal($query)
+    {
+        return $query->where(function ($w) {
+            $w->where('channel', 'LOCAL')->orWhereNull('channel');
+        });
+    }
+
+    /**
+     * «حوالاتي الخارجية» — ما أنشأه هذا الموظف عبر القناة الخارجية.
+     *
+     * ⚠ نظيرُ [outgoing] حرفاً بحرف، والفرقُ دفترٌ واحد: `ExternalEx` بدل
+     * `InternalEx`. وشكلُ الصفّ المُعاد **هو هو**، حتى تعرضه الشاشةُ نفسُها
+     * ببطاقتها نفسِها — لا بطاقةٌ ثانية تفترق عن الأولى عند أوّل تعديل.
+     *
+     * ⚠ ولا واردةَ لها: الخارجيةُ تخرج ولا تعود، وقد نصّ الأمرُ على ذلك
+     * صراحةً — «ولا يُعرض تبويبٌ فارغٌ باسم الواردة».
+     */
+    public function externalOutgoing(int $agentId, int $employeeId, int $limit = 200): array
+    {
+        $limit = max(1, min($limit, self::MAX_OUTGOING));
+
+        $rows = DB::table('transfer_attributions')
+            ->where('agent_id', $agentId)
+            ->where('employee_id', $employeeId)
+            ->where('action', 'CREATED')
+            ->where('channel', 'EXTERNAL')
+            ->orderByDesc('occurred_at')
+            ->take($limit)
+            ->get(['transfer_number', 'amount', 'occurred_at']);
+
+        if ($rows->isEmpty()) {
+            return ['items' => [], 'total' => 0, 'limit' => $limit];
+        }
+
+        $codes = $rows->pluck('transfer_number')->filter()->unique()->values()->all();
+
+        /* صفوفُ المنظومة — استعلامٌ واحدٌ لكل ألف، لا واحدٌ لكل صفّ. */
+        $core = [];
+        foreach (array_chunk($codes, 1000) as $chunk) {
+            foreach (DB::table('ExternalEx')
+                        ->whereIn('codeForMobile', $chunk)
+                        ->select('codeForMobile', 'RecievedName', 'RPhone1',
+                                 'SenderName', 'CurrRecievedVal', 'ExVal',
+                                 'CountryIDTo', 'CityIDTo', 'InsertDate')
+                        ->get() as $c) {
+                $core[$c->codeForMobile] = $c;
+            }
+        }
+
+        /* اسمُ الدولة المقصودة — استعلامٌ واحدٌ للصفحة كلِّها. */
+        $countryIds = [];
+        foreach ($core as $c) {
+            if (!empty($c->CountryIDTo)) {
+                $countryIds[(int) $c->CountryIDTo] = true;
+            }
+        }
+        $countries = $countryIds === [] ? [] : DB::table('CountiresTb')
+            ->whereIn('ID', array_keys($countryIds))
+            ->pluck('CName', 'ID')->all();
+
+        $items = [];
+        foreach ($rows as $r) {
+            $c = $core[$r->transfer_number] ?? null;
+
+            $items[] = [
+                'transfer_number'   => $r->transfer_number,
+                'amount'            => $c !== null && $c->CurrRecievedVal !== null
+                    ? (float) $c->CurrRecievedVal
+                    : ($r->amount !== null ? (float) $r->amount : null),
+                'commission'        => $c !== null && $c->ExVal !== null ? (float) $c->ExVal : null,
+                'beneficiary'       => $c->RecievedName ?? null,
+                'beneficiary_phone' => $c->RPhone1 ?? null,
+                'sender'            => $c->SenderName ?? null,
+                // موضعُ «الفرع» في نظيرتها المحلّية — والوجهةُ هنا دولة.
+                'branch'            => $c !== null && !empty($c->CountryIDTo)
+                    ? ($countries[(int) $c->CountryIDTo] ?? null) : null,
+                /*
+                 * ⚠ بلا `status_label`: `ExternalEx` لا تحمل جدولَ حالاتٍ
+                 * نظيرَ `InternalEx_Stautes`. واختلاقُ وصفٍ لها («مرسلة»،
+                 * «قيد التنفيذ») ادّعاءٌ عن حالةٍ لا تقولها القاعدة — وهو
+                 * أسوأُ من غيابه، لأن الموظف يبني عليه كلامَه للزبون.
+                 */
+                'status_label'      => null,
+                'core_confirm_type' => null,
+                'date'              => (string) ($c->InsertDate ?? $r->occurred_at),
+                'occurred_at'       => (string) $r->occurred_at,
+                'missing_in_core'   => $c === null,
+            ];
+        }
+
+        return ['items' => $items, 'total' => count($items), 'limit' => $limit];
+    }
+
+    /**
      * بحثٌ برقم الحوالة — البند: `SEARCH_TRANSFER`.
      *
      * ⚠ يبحث في دفتر **وكيله هو** لا في المنظومة كلِّها: موظّفٌ يبحث برقمٍ
@@ -120,10 +225,11 @@ class EmployeeTransferViews
      */
     private function searchOwnOutgoing(int $agentId, int $employeeId, string $term): array
     {
-        $codes = DB::table('transfer_attributions')
-            ->where('agent_id', $agentId)
-            ->where('employee_id', $employeeId)
-            ->where('action', 'CREATED')
+        $codes = self::onlyLocal(
+                DB::table('transfer_attributions')
+                    ->where('agent_id', $agentId)
+                    ->where('employee_id', $employeeId)
+                    ->where('action', 'CREATED'))
             ->orderByDesc('occurred_at')
             ->take(self::MAX_OUTGOING)
             ->pluck('transfer_number')
@@ -257,10 +363,11 @@ class EmployeeTransferViews
     {
         $limit = max(1, min($limit, self::MAX_OUTGOING));
 
-        $rows = DB::table('transfer_attributions')
-            ->where('agent_id', $agentId)
-            ->where('employee_id', $employeeId)
-            ->where('action', 'CREATED')
+        $rows = self::onlyLocal(
+                DB::table('transfer_attributions')
+                    ->where('agent_id', $agentId)
+                    ->where('employee_id', $employeeId)
+                    ->where('action', 'CREATED'))
             ->orderByDesc('occurred_at')
             ->take($limit)
             ->get(['transfer_number', 'amount', 'occurred_at', 'point_of_sale_id']);

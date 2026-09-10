@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import 'employee_header.dart';
 import 'employee_session.dart';
 
 /// تقاريرُ الموظف — كلُّ تقريرٍ خلف صلاحيته وحدَه.
@@ -25,8 +26,19 @@ import 'employee_session.dart';
 /// ⚠ وباسمٍ صريح: `EmployeeReportsScreen` مأخوذٌ لتقارير **الوكيل** عن
 /// موظفيه في `features/employees/`. وهذه تقاريرُ الموظف عن نفسِه — شاشتان
 /// مختلفتان لجمهورين مختلفين، واسمٌ واحد لهما يخلط بينهما عند أوّل استيراد.
+/// ⚠ وبعد إعادة الهيكلة (10 سبتمبر 2026) صارت **تبويباً** في الشريط السفليّ
+/// لا شاشةً تُدفع، ورأسُها «حوالات اليوم (الكل)» كما نصّ الأمر: محلّيةٌ
+/// وخارجيةٌ معاً، مسلَّمةٌ وغير مسلَّمة، تُعرض كشفاً ويُصدَر منها كشف،
+/// بالفلتر المعروف كاملاً.
+///
+/// ⚠ ولم يسقط منها شيء: التقاريرُ الستّةُ التي كانت هنا باقيةٌ تحته،
+/// و«الأرصدة» انتقلت إليه من الشاشة الرئيسية — لأنها قراءةٌ لا عمل، وهذا
+/// موضعُ القراءات.
 class EmployeeOwnReportsScreen extends ConsumerWidget {
-  const EmployeeOwnReportsScreen({super.key});
+  const EmployeeOwnReportsScreen({super.key, this.asTab = false});
+
+  /// تبويبٌ في الشريط السفليّ — فبلا زرّ رجوع، وبترويسة الموظف فوقه.
+  final bool asTab;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -54,9 +66,25 @@ class EmployeeOwnReportsScreen extends ConsumerWidget {
         icon: Icons.pending_actions_rounded,
         path: '/device/employee/reports/pending',
       ),
+      /*
+       * ⚠ **مفتاحٌ متقاعدٌ كان يحرس تقريراً حيّاً — فأغلقه على الجميع.**
+       *
+       * كان الشرطُ هنا `REPORT_EMPLOYEE_CASHBOX`، وهو من المفاتيح الخمسة
+       * التي خرجت من الكتالوج يوم أُلغيت العهدةُ والوردية (10 سبتمبر 2026).
+       * ومفتاحٌ خارج الكتالوج **لا يُمنح لأحد** — فالبلاطةُ كانت محجوبةً عن
+       * كلّ موظفٍ مهما مُنح.
+       *
+       * والمسارُ في الخادم يحرسه `employee:REPORT_POINT_OF_SALE` وحدَه، وهو
+       * حيٌّ في الكتالوج. فوكيلٌ يمنح «تقرير نقطة البيع» كان يفتح البابَ في
+       * الخادم ولا يظهر في التطبيق شيء — عيبٌ صامتٌ لا يُرى في `analyze`
+       * ولا في تشغيل، ويُقرأ عند الوكيل «المنحُ لا يعمل».
+       *
+       * كشفه `employee_home_permissions_test` بعد أن صار يسأل عن **كلّ**
+       * مفتاحٍ: هل له بابٌ في تبويبه؟
+       */
       const ReportDef(
-        key: 'REPORT_EMPLOYEE_CASHBOX',
-        title: 'تقرير خزينتي',
+        key: 'REPORT_POINT_OF_SALE',
+        title: 'تقرير نقطة البيع',
         subtitle: 'عملي على نقطة بيعي',
         icon: Icons.storefront_outlined,
         path: '/device/employee/reports/point-of-sale',
@@ -78,34 +106,89 @@ class EmployeeOwnReportsScreen extends ConsumerWidget {
       ),
     ];
 
-    final allowed =
-        items.where((r) => p?.can(r.key) ?? false).toList();
+    final allowed = items.where((r) => p?.can(r.key) ?? false).toList();
+
+    /*
+     * ══════════════════════════════════════════════════════════════════
+     *  رأسُ التبويب — «حوالات اليوم (الكل)»
+     * ══════════════════════════════════════════════════════════════════
+     *
+     * ⚠ وهو **الكشفُ نفسُه** الذي يُفتح تحت المحلّية والخارجية، بنطاق
+     * «الكل». لا شاشةَ ثالثة: ثلاثُ شاشاتٍ متشابهة تفترق عند أوّل تعديل،
+     * ثمّ يختلف مجموعُ «الكل» عن مجموع شطريه.
+     *
+     * ⚠ وبـ`VIEW_OWN_TRANSFERS` لا بمفتاح تقرير: هذه حوالاتُه هو، ومفتاحٌ
+     * ثانٍ لبيانٍ يراه أصلاً يجعل الوكيل يمنح أحدهما ظانّاً أنه منع الآخر.
+     */
+    final head = <Widget>[
+      if (p?.can('VIEW_OWN_TRANSFERS') ?? false)
+        EmployeeTile(
+          icon: Icons.today_rounded,
+          title: 'حوالات اليوم — الكل',
+          subtitle: 'محلية وخارجية · مسلَّمة وغير مسلَّمة · كشفٌ يُصدَر',
+          onTap: () => context.push('/employee/statement/all'),
+        ),
+
+      /*
+       * ⚠ «الأرصدة» نزلت إلى هنا من الشاشة الرئيسية ولم تُحذف — شرطُ الأمر:
+       * «لا يُحذف حقلٌ ولا كلمة». وهي قراءةٌ لا عمل، وهذا موضعُ القراءات.
+       */
+      if ((p?.can('VIEW_AGENT_TOTAL_BALANCE') ?? false) ||
+          (p?.can('VIEW_FINANCIAL_SUMMARY') ?? false))
+        EmployeeTile(
+          icon: Icons.account_balance_wallet_outlined,
+          title: (p?.can('VIEW_AGENT_TOTAL_BALANCE') ?? false)
+              ? 'الأرصدة'
+              : 'الملخّص المالي',
+          subtitle: (p?.can('VIEW_AGENT_TOTAL_BALANCE') ?? false)
+              ? ((p?.can('VIEW_FINANCIAL_SUMMARY') ?? false)
+                  ? 'رصيد الوكيل والملخّص اليومي'
+                  : 'رصيد الوكيل')
+              : 'ملخّص يومك',
+          onTap: () => context.push('/employee/balances'),
+        ),
+    ];
+
+    final tiles = <Widget>[
+      ...head,
+      for (final r in allowed)
+        _Tile(
+          def: r,
+          onTap: () => Navigator.of(context, rootNavigator: true)
+              .push(MaterialPageRoute(
+            builder: (_) => EmployeeReportView(def: r),
+          )),
+        ),
+    ];
+
+    // ⚠ `_Msg` قائمةٌ بذاتها لا عنصرٌ داخل قائمة: لفُّها في `ListView` ثانية
+    // يضع مِنظاراً رأسياً داخل مِنظارٍ رأسيّ بلا ارتفاعٍ محدّد، فتسقط
+    // الشاشةُ بـ«Vertical viewport was given unbounded height».
+    final body = tiles.isEmpty
+        ? const _Msg(
+            icon: Icons.lock_outline_rounded,
+            text: 'لا تقارير ممنوحة لك.\n\n'
+                'يمنحها الوكيل من شاشة الصلاحيات.',
+          )
+        : ListView.separated(
+            // ⚠ 110 أسفلَ القائمة حين تكون تبويباً: الشريطُ السفليّ يعلو
+            // المحتوى، وبدونها يبقى آخرُ تقريرٍ تحته فلا يُنقر.
+            padding: EdgeInsets.fromLTRB(
+                R.padScreen, 14, R.padScreen, asTab ? 110 : 30),
+            itemCount: tiles.length,
+            separatorBuilder: (_, _) => const SizedBox(height: R.gapRow),
+            itemBuilder: (_, i) => tiles[i],
+          );
 
     return Screen(
       child: Column(
         children: [
-          RhallaAppBar(title: 'التقارير', onBack: () => context.pop()),
-          Expanded(
-            child: allowed.isEmpty
-                ? const _Msg(
-                    icon: Icons.lock_outline_rounded,
-                    text: 'لا تقارير ممنوحة لك.\n\n'
-                        'يمنحها الوكيل من شاشة الصلاحيات.',
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(
-                        R.padScreen, 14, R.padScreen, 30),
-                    itemCount: allowed.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: R.gapRow),
-                    itemBuilder: (_, i) => _Tile(
-                      def: allowed[i],
-                      onTap: () => Navigator.of(context, rootNavigator: true)
-                          .push(MaterialPageRoute(
-                        builder: (_) => EmployeeReportView(def: allowed[i]),
-                      )),
-                    ),
-                  ),
-          ),
+          if (asTab && p != null)
+            EmployeeHeader(profile: p)
+          else
+            RhallaAppBar(title: 'التقارير', onBack: () => context.pop()),
+          if (asTab) const SizedBox(height: 6),
+          Expanded(child: body),
         ],
       ),
     );

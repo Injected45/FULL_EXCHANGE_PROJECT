@@ -9,6 +9,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
+import 'employee_header.dart';
+import 'employee_session.dart';
 
 /* ══════════════════════════════════════════════════════════════════════════
    خزينتي — مالُ الحوالات، لا عهدةَ ولا وردية
@@ -51,8 +53,25 @@ final _cashboxProvider = FutureProvider.autoDispose
   }
 });
 
+/// أيُّ الكشفين معروضٌ الآن.
+///
+/// ⚠ نصُّ الأمر يفصلهما ولا يوحّدهما، والفرقُ بينهما مقصود:
+///
+///   • **الصادرة** تُعرض **بالكامل** أيّاً كانت حالتُها — مسلَّمةً أو غير
+///     مسلَّمة: قيمتُها دخلت الدرجَ لحظةَ إنشائها، وما بعد ذلك شأنُ الفرع
+///     المستقبِل لا شأنُ درجِ هذا الموظف.
+///   • **الواردة** لا تُعرض إلّا **مسلَّمةً**: المالُ لا يخرج من الدرج إلّا
+///     حين يُدفع فعلاً للمستفيد. وحوالةٌ واردةٌ لم تُسلَّم بعدُ لم تمسّ درجَه.
+///
+/// وسجلُّ النسبة يقول ذلك بنفسه: `CREATED` صادرةٌ بأيّ حال، و`DELIVERED`
+/// لا تُكتب إلّا بعد تسليمٍ وقع. فالفرزُ قراءةٌ لا شرطٌ يُضاف.
+enum _Ledger { outgoing, incoming }
+
 class EmployeeCashboxScreen extends ConsumerStatefulWidget {
-  const EmployeeCashboxScreen({super.key});
+  const EmployeeCashboxScreen({super.key, this.asTab = false});
+
+  /// تبويبٌ في الشريط السفليّ — فبلا زرّ رجوع، وبترويسة الموظف فوقه.
+  final bool asTab;
 
   @override
   ConsumerState<EmployeeCashboxScreen> createState() =>
@@ -61,15 +80,20 @@ class EmployeeCashboxScreen extends ConsumerStatefulWidget {
 
 class _EmployeeCashboxScreenState extends ConsumerState<EmployeeCashboxScreen> {
   int _days = 1;
+  _Ledger _ledger = _Ledger.outgoing;
 
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_cashboxProvider(_days));
+    final p = ref.watch(employeeAuthProvider).profile;
 
     return Screen(
       child: Column(
         children: [
-          RhallaAppBar(title: 'خزينتي', onBack: () => context.pop()),
+          if (widget.asTab && p != null)
+            EmployeeHeader(profile: p)
+          else
+            RhallaAppBar(title: 'خزينتي', onBack: () => context.pop()),
           Padding(
             padding: const EdgeInsets.fromLTRB(R.padScreen, 12, R.padScreen, 0),
             child: Row(
@@ -118,7 +142,12 @@ class _EmployeeCashboxScreenState extends ConsumerState<EmployeeCashboxScreen> {
                   message: '$e',
                   onRetry: () => ref.invalidate(_cashboxProvider(_days)),
                 ),
-                data: (d) => _Body(d: d),
+                data: (d) => _Body(
+                  d: d,
+                  ledger: _ledger,
+                  onLedger: (l) => setState(() => _ledger = l),
+                  bottomPad: widget.asTab ? 110 : 40,
+                ),
               ),
             ),
           ),
@@ -129,16 +158,29 @@ class _EmployeeCashboxScreenState extends ConsumerState<EmployeeCashboxScreen> {
 }
 
 class _Body extends StatelessWidget {
-  const _Body({required this.d});
+  const _Body({
+    required this.d,
+    required this.ledger,
+    required this.onLedger,
+    required this.bottomPad,
+  });
 
   final Map<String, dynamic> d;
+  final _Ledger ledger;
+  final ValueChanged<_Ledger> onLedger;
+  final double bottomPad;
 
   @override
   Widget build(BuildContext context) {
-    final items = ((d['items'] as List?) ?? const [])
+    final all = ((d['items'] as List?) ?? const [])
         .whereType<Map>()
         .map((e) => e.cast<String, dynamic>())
         .toList();
+
+    // ⚠ الفرزُ على `direction` كما كتبه الخادم، لا استنتاجاً من المبلغ أو
+    // من الاسم: صفٌّ ينقصه حقلٌ كان سيُصنَّف بما وقع فيه صدفةً.
+    final wanted = ledger == _Ledger.outgoing ? 'IN' : 'OUT';
+    final items = all.where((m) => '${m['direction']}' == wanted).toList();
 
     final balance = Fmt.num_(d['balance']);
     // ⚠ سالبٌ = دفع من ماله أكثر ممّا قبض، فالوكيلُ مدينٌ له. والإشارةُ تقلب
@@ -146,7 +188,7 @@ class _Body extends StatelessWidget {
     final owed = balance >= 0;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(R.padScreen, 14, R.padScreen, 40),
+      padding: EdgeInsets.fromLTRB(R.padScreen, 14, R.padScreen, bottomPad),
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
         Container(
@@ -227,15 +269,32 @@ class _Body extends StatelessWidget {
         ),
 
         const SizedBox(height: R.gapCard),
-        Row(
-          children: [
-            Text('الحركة', style: T.section),
-            const SizedBox(width: 8),
-            Text('${items.length}',
-                style: T.plex(12, FontWeight.w700, color: R.inkA(.5))),
-          ],
+
+        /*
+         * ══════════════════════════════════════════════════════════════
+         *  كشفان لا كشفٌ واحد — نصُّ الأمر (10 سبتمبر 2026)
+         * ══════════════════════════════════════════════════════════════
+         *
+         * «الخزينة: كشفُ حركة الحوالات الصادرة بالكامل بغضّ النظر عن حالتها،
+         *  وكشفُ حركة الحوالات الواردة المسلَّمة فقط».
+         *
+         * ⚠ والفرقُ بين السطرين مقصودٌ ولا يُوحَّد — انظر [_Ledger].
+         */
+        _LedgerSwitch(
+          current: ledger,
+          onPick: onLedger,
+          outCount: int.tryParse('${d['in_count'] ?? 0}') ?? 0,
+          inCount: int.tryParse('${d['out_count'] ?? 0}') ?? 0,
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
+        Text(
+          ledger == _Ledger.outgoing
+              ? 'كلُّ ما أنشأتَه في هذه المدّة — مسلَّماً كان أو غيرَ مسلَّم.'
+              : 'ما سلَّمتَه فعلاً في هذه المدّة — والوارد غيرُ المسلَّم لم '
+                  'يمسّ درجَك بعد.',
+          style: T.plex(11, FontWeight.w400, color: R.inkA(.5), height: 1.6),
+        ),
+        const SizedBox(height: 12),
 
         if (items.isEmpty)
           GlassCard(
@@ -243,7 +302,10 @@ class _Body extends StatelessWidget {
               children: [
                 Icon(Icons.savings_outlined, size: 34, color: R.inkA(.28)),
                 const SizedBox(height: 12),
-                Text('لا حركة في هذه المدّة.',
+                Text(
+                    ledger == _Ledger.outgoing
+                        ? 'لا حوالات صادرة في هذه المدّة.'
+                        : 'لم تُسلِّم حوالةً واردة في هذه المدّة.',
                     textAlign: TextAlign.center,
                     style: T.plex(13, FontWeight.w500,
                         color: R.inkA(.6), height: 1.7)),
@@ -258,6 +320,102 @@ class _Body extends StatelessWidget {
       ],
     );
   }
+}
+
+/// مبدّلُ الكشفين — الصادرة · الواردة المسلَّمة.
+///
+/// ⚠ ويحمل عدَدَ كلٍّ منهما: الموظف يعرف قبل التبديل هل في الآخر شيءٌ
+/// أصلاً، فلا يُبدّل إلى كشفٍ فارغ ثمّ يعود.
+class _LedgerSwitch extends StatelessWidget {
+  const _LedgerSwitch({
+    required this.current,
+    required this.onPick,
+    required this.outCount,
+    required this.inCount,
+  });
+
+  final _Ledger current;
+  final ValueChanged<_Ledger> onPick;
+
+  /// عددُ ما أنشأه — أي صفوفُ كشف «الصادرة».
+  final int outCount;
+
+  /// عددُ ما سلّمه — أي صفوفُ كشف «الواردة».
+  final int inCount;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(
+            child: _LedgerTab(
+              label: 'كشف الصادرة',
+              count: outCount,
+              active: current == _Ledger.outgoing,
+              onTap: () => onPick(_Ledger.outgoing),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _LedgerTab(
+              label: 'كشف الواردة',
+              count: inCount,
+              active: current == _Ledger.incoming,
+              onTap: () => onPick(_Ledger.incoming),
+            ),
+          ),
+        ],
+      );
+}
+
+class _LedgerTab extends StatelessWidget {
+  const _LedgerTab({
+    required this.label,
+    required this.count,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 10),
+          decoration: BoxDecoration(
+            color: active ? R.primaryA(.12) : R.whiteA(.66),
+            border: Border.all(
+                color: active ? R.primaryA(.45) : R.inkA(.08),
+                width: active ? 1.4 : 1),
+            borderRadius: BorderRadius.circular(R.rPill),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Flexible(
+                child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: T.plex(12,
+                        active ? FontWeight.w700 : FontWeight.w500,
+                        color: active ? R.primaryDark : R.inkA(.6))),
+              ),
+              const SizedBox(width: 6),
+              Directionality(
+                // رقمٌ لاتينيّ في فقرةٍ عربية — يُفرض اتجاهه.
+                textDirection: TextDirection.ltr,
+                child: Text('$count',
+                    style: T.plex(11, FontWeight.w700,
+                        color: active ? R.primaryDark : R.inkA(.45))),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _Stat extends StatelessWidget {

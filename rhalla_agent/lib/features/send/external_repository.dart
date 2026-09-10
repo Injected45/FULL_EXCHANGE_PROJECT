@@ -109,12 +109,44 @@ class ExternalRepository {
   /// الدينار الليبي — العملة المستلَمة من المرسل دائماً.
   static const lydId = 1;
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   *  ⚠ الشاشةُ واحدة، والمسارُ يختلف — كما في الحوالة المحلّية حرفاً بحرف
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * أمرُ إعادة الهيكلة (10 سبتمبر 2026): الحوالةُ الخارجية «تُحضَر من تطبيق
+   * الوكيل **طبق الأصل**». فشاشةُ `SendExternalScreen` هي هي في التطبيقين،
+   * والمختلفُ الحارسُ وحدَه: رمزُ الموظف لا يفتح مسارات الوكيل
+   * (`auth:sanctum`)، فتُنادى نظائرُها تحت `employee:CREATE_EXTERNAL_TRANSFER`.
+   *
+   * ⚠ ولا منطقَ ماليَّ ثانٍ خلف تلك النظائر: الخادمُ ينادي
+   * `transInsertExternal` نفسَها بهويّة الوكيل (`EmployeeActsAsAgent`)،
+   * فيخرج في `ExternalEx` صفٌّ لا يُميَّز عن صفّ الوكيل — لأنه صفُّه.
+   *
+   * ⚠ والتخزينُ يحمل رمزاً واحداً لا اثنين (انظر `SecureStore.readToken`)،
+   * فوجودُ رمز الموظف هو **تعريفُ** الوضع لا تخمينٌ له. وهي القاعدةُ نفسُها
+   * في `SendRepository._asEmployee` — لا طريقةٌ ثانية لمعرفة الوضع.
+   */
+  Future<bool> _asEmployee() async =>
+      (await _api.store.readEmployeeToken())?.isNotEmpty ?? false;
+
+  Future<String> _path(String agentPath, String employeePath) async =>
+      await _asEmployee() ? employeePath : agentPath;
+
+  /// مرجعُ الدول — نقطةُ الوكيل، أو نظيرُها تحت جلسة الموظف.
+  ///
+  /// ⚠ ونقطةُ الموظف هي `ref/countries` نفسُها التي تستعملها الحوالةُ
+  /// المحلّية، لا نقطةٌ ثالثة: قائمتان للدول تفترقان يوماً ما.
+  Future<String> _countriesPath() async =>
+      _path('/device/countries', '/device/employee/ref/countries');
+
   /// الدول التي تقبل حوالة خارجية فعلاً.
   ///
   /// ⚠️ يجب الترشيح بـ `IsService = 1`: بقية الدول تعيد قائمة أنواع خدمة
   /// **فارغة**، فيصل الوكيل إلى طريق مسدود بعد اختيارها.
   Future<List<Ref2>> serviceCountries() async {
-    final env = await _api.post('/device/countries', body: {'country_id': 0});
+    final env =
+        await _api.post(await _countriesPath(), body: {'country_id': 0});
     return env.rows
         .where((r) => '${r['IsService']}' == '1' && '${r['IsActive']}' == '1')
         .map(Ref2.country)
@@ -123,7 +155,8 @@ class ExternalRepository {
 
   /// عملة الوجهة الافتراضية — من `DefualtCurrency` في صف الدولة.
   Future<int> defaultCurrencyOf(int countryId) async {
-    final env = await _api.post('/device/countries', body: {'country_id': 0});
+    final env =
+        await _api.post(await _countriesPath(), body: {'country_id': 0});
     for (final r in env.rows) {
       if ('${r['ID']}' == '$countryId') {
         return int.tryParse('${r['DefualtCurrency']}') ?? 0;
@@ -134,8 +167,10 @@ class ExternalRepository {
 
   Future<List<ServiceType>> services(int countryId) async {
     try {
-      final env = await _api
-          .post('/device/service/external/transfer', body: {'country_id': countryId});
+      final env = await _api.post(
+          await _path('/device/service/external/transfer',
+              '/device/employee/external/services'),
+          body: {'country_id': countryId});
       return env.rows.map(ServiceType.fromJson).toList();
     } on ApiFailure catch (e) {
       if (e.isEmptyResult) return const [];
@@ -149,7 +184,10 @@ class ExternalRepository {
     required double amount,
     required int serviceType,
   }) async {
-    final env = await _api.post('/device/external/quote', body: {
+    final env = await _api.post(
+        await _path(
+            '/device/external/quote', '/device/employee/external/quote'),
+        body: {
       'CountryIDTo': countryIdTo,
       'CurrRecievedVal': amount,
       'ServiceType': serviceType,
@@ -177,7 +215,10 @@ class ExternalRepository {
     String? senderName,
     String? senderPhone,
   }) async {
-    final env = await _api.post('/device/external/insert/transfer', body: {
+    final env = await _api.post(
+        await _path('/device/external/insert/transfer',
+            '/device/employee/external/create'),
+        body: {
       'RecievedCurrencyID': lydId,
       'CountryIDFrom': SendRepository.libyaId,
       'CountryIDTo': d.country.id,

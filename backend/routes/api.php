@@ -184,6 +184,34 @@ Route::get ('device/employee/transfers/search',
     [ EmployeeController::class , 'searchTransfer' ])
     ->middleware('employee:SEARCH_TRANSFER');
 
+/* ⚠ الحوالةُ الخارجية — نظيرُ بابِ الوكيل تحت حارس جلسة الموظف.
+ *
+ * أمرُ إعادة الهيكلة (10 سبتمبر 2026): «تُحضَر من تطبيق الوكيل طبق الأصل».
+ * والقاعدةُ هي قاعدةُ الحوالة المحلّية حرفاً بحرف: لا منطقَ ماليَّ جديد،
+ * تُنادى `transInsertExternal` نفسُها بهويّة الوكيل عبر `EmployeeActsAsAgent`،
+ * ويُسجَّل من نفّذ في `transfer_attributions` بجوار الدفتر لا داخله.
+ *
+ * ⚠ ومفتاحٌ مستقلٌّ عن `CREATE_TRANSFER`: وكيلٌ أذن بالمحلّية لا يلزم أنه
+ * أذن بالخارجية — والإلحاقُ كان سيمنحها بأثرٍ رجعيّ لكل موظفٍ يُنشئ اليوم.
+ */
+Route::post('device/employee/external/services',
+    [ EmployeeController::class , 'externalServices' ])
+    ->middleware('employee:CREATE_EXTERNAL_TRANSFER');
+
+Route::post('device/employee/external/quote',
+    [ EmployeeController::class , 'externalQuote' ])
+    ->middleware('employee:CREATE_EXTERNAL_TRANSFER');
+
+Route::post('device/employee/external/create',
+    [ EmployeeController::class , 'createExternalTransfer' ])
+    ->middleware('employee:CREATE_EXTERNAL_TRANSFER');
+
+/* «حوالاتي» الخارجية — تحت عرض حوالاته هو، لا تحت الإنشاء: من سُحب منه
+   الإنشاءُ يبقى مسؤولاً عمّا أنشأه بالأمس. */
+Route::get ('device/employee/external/mine',
+    [ EmployeeController::class , 'externalMine' ])
+    ->middleware('employee:VIEW_OWN_TRANSFERS');
+
 /*
  * طلباتُ الموافقة التي أنشأها الموظف — قراءةٌ وإلغاءٌ لطلبه هو.
  *
