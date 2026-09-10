@@ -251,6 +251,102 @@ It also asserts the absence of what must not appear: `usesCleartextTraffic="true
 2. **A published privacy policy URL**, plus Play's Data Safety form and Apple's privacy nutrition labels — both must match what the app actually collects (phone number, device id, transfer data).
 3. **iOS needs a Mac** (or a cloud runner) to build; `ios/Podfile` is still generated on first Mac build.
 
+### The audit committee sat, and what came out of it (10 Sep 2026)
+
+«لجنة فحص تطبيق الصرافة» was convened. The full report is
+[docs/reports/2026-09-10-audit-committee.md](docs/reports/2026-09-10-audit-committee.md)
+and the server-side actions the owner's technician must perform are
+[docs/reports/2026-09-10_server_runbook.md](docs/reports/2026-09-10_server_runbook.md).
+**The verdict is `NOT READY FOR PRODUCTION`** and it stands — nothing since has
+changed the four things holding it: no TLS, a test signing key, no privacy
+policy, and the financial-features declaration.
+
+The fixes landed in three commits (`10/09-02`, `10/09-03`, `10/09-05`). The
+report lists them one by one; what is worth carrying here is the shape of them:
+
+- **What was fixed unasked is exactly what is safe to fix unasked** — non-financial
+  defects with a wrong answer and a right one: a dead «حذف الحساب» button, three
+  repositories reporting success on any server rejection (`raw.put` bypasses the
+  envelope decoder — use `_api.put`, which throws), a chat poll that never stopped
+  in the background, `rand()` for OTP, PII in `laravel.log`, OTP rows returned in
+  full to an unauthenticated caller, and a POS update that accepted any `ID`
+  without a branch check (cross-company write — CRITICAL).
+- **What touches money was fixed only under the owner's explicit authorisation**,
+  and even then only as a *guard*, never as arithmetic: double-tap guards on the
+  two money screens, an atomic claim on approval execution
+  (`UPDATE … WHERE status='APPROVED' AND transfer_number IS NULL`), and
+  `transInsert` writing `TransFrom` from the **session's** account rather than the
+  request body — the check had always been on the session, so the body was a way
+  to move money out of a third party's account.
+- **What is left is the owner's, and it is written down rather than done:** the
+  cleartext transport, the exposed `htdocs.rar` on the production server, secret
+  rotation, session expiry, `verify=false` on the WhatsApp channel, and the
+  retention policy the two stores' disclosure forms depend on.
+
+**⚠ Two of those fixes need a coordinated deployment, not just a `git pull`.**
+`device/reActivate` now demands a shared secret (`CUSTOM_X_TOKEN` in the backend
+`.env`, `API_X_TOKEN` in the desktop's `RhallaConfig.ini`) — deploy the backend
+without rebuilding the desktop app and the branch «إعادة التفعيل» button stops
+working. And the throttling added on the OTP and login routes writes its counters
+to the cache store, so `CACHE_STORE=file` must be set on the server or the
+counters land in the production financial database. Both are step-by-step in the
+runbook.
+
+### Remote pause of an employee, and one version number (10 Sep 2026)
+
+The agent can freeze one employee or all of them from the employees screen; the
+frozen employee sees a full-screen «توقّفٌ مؤقّت» and can do nothing until the
+agent lifts it. `2026-09-10_employee_pause_gate.sql` adds `employees.paused_at`
+and a one-row-per-agent `employee_pause_gate` table — additive, idempotent, and
+**no financial table is touched**: it is a flag and a veil, no balance, no entry,
+no commission.
+
+Four decisions in it:
+
+- **The two switches are independent.** Lifting the group pause does not resume an
+  employee the agent had paused individually — otherwise «تشغيل الكل» silently
+  un-punishes the one person the agent meant to keep stopped.
+- **The refusal is in `AuthenticateEmployee`, not in the screen.** The middleware
+  returns 403 `EMPLOYEE_PAUSED` for every *permissioned* route, so a paused
+  employee cannot act from outside the app either. `me`, `logout` and `branding`
+  carry no permission and stay open deliberately — the app must be able to learn
+  its own state and leave; a pause that also blinds the client produces a frozen
+  screen with no explanation.
+- **`EmployeeFreezeGate` is mounted above the `Navigator`** in `main.dart`, like
+  `AmbientBackground` and the lock veil, so it covers whatever screen the employee
+  was on. It appears in employee mode only, because `paused` is only ever set on an
+  employee profile.
+- **Nothing is lost.** The session stays, the device stays bound, the drafts stay;
+  the `me` pulse (12 s) lifts the veil on its own when the agent resumes.
+
+**The version number now has one source and a test that keeps it that way.**
+`core/app_version.dart` holds `kAppVersion` (displayed in the account screen's
+footer beside the developer name) and `pubspec.yaml` holds the number that becomes
+the APK's `versionName`. They had already drifted — the screen said **1.0.1** while
+the built APK said **1.0.0** — which is invisible to `flutter analyze`, to every
+test and to a run, and surfaces as a bug report against a version that was never
+shipped. `store_compliance_test.dart` now reads both files and fails if they
+disagree, and fails if the build number ever goes backwards (Play refuses a
+`versionCode` that does not rise). It was proven by breaking it: both checks fail
+on the drifted pair and pass on the fixed one. **Bump both together, every
+release.** Current: `1.0.1+2`.
+
+Three defects fixed alongside it, each one a thing the app claimed and did not do:
+
+- **Voice notes were recorded as Opus and could not be played back on every
+  device.** They are now AAC-LC in an `.m4a` container — the one encoder Android
+  and iOS both guarantee for recording *and* playback. `ChatService` also accepts
+  `audio/x-m4a` and `audio/m4a`, because `finfo` reports the same file under
+  different names and the upload was being rejected on the server's own sniff.
+- **The employee's transfer list read `rows`/`data` while the server returns
+  `items`** — so the counter showed a number and the list below it was empty.
+- **The chat threads list only refreshed on a manual pull.** It now polls every
+  3 s with `skipLoadingOnRefresh: true` (no spinner flash), stops when
+  backgrounded and pulses once on resume — the same shape as every other poll here.
+
+«عمولاتي» was split out of the limits screen into `reports/commissions_screen.dart`
+with its own route, and the employee cards on the agent's employees screen fold.
+
 ### ⚠⚠ Release APKs could not open a socket at all (9 Sep 2026)
 
 An employee's device reported «تعذّر الاتصال بالخادم» after scanning the QR *and* after typing the code, on a healthy network. It was not the QR, not the code, not the server.
@@ -272,6 +368,33 @@ So every release APK built against `http://102.214.165.242:8080` was incapable o
 **Removing it is one line in the manifest plus one file** — and that is the point of scoping it this way rather than flipping a flag. The real prerequisite for submission is a TLS certificate on the server, not an edit here.
 
 Verified the only way that means anything: `aapt2 dump xmltree` on the built APK shows `networkSecurityConfig` present in the packaged manifest, not merely in the source tree.
+
+#### ⚠ And it happened a second time — `build_apk.bat` now prevents it (10 Sep 2026)
+
+The APK handed over on 10 Sep was built against `http://192.168.1.10:8000/api`
+(this machine's LAN backend, for a phone on the same Wi-Fi) and carried
+`network_security_strict.xml`, which permits **no** cleartext at all. Read back
+out of the packaged APK: no `domain-config`, no host, nothing — so the app could
+not open a socket to the address compiled into it, on any network. Exactly the
+defect above, one day later, for the opposite reason: the safe default had been
+made the default and nothing taught the build script about it.
+
+`build_apk.bat` step 2b used to add the host to the **debug** config only, and
+said in its own comment that a release APK over http "cannot work". That is true
+of a *store* build and false of the test APK the owner actually installs. It now
+picks the config by build type — debug → the debug allow-list, release/profile →
+`src/main/.../network_security_config.xml` — and passes `-PallowCleartext=true`,
+printing that the result is a test APK. The store path is still closed by
+construction: gradle throws if `bundleRelease` runs with the flag, and Play's
+artefact is the bundle.
+
+**⚠ `build_apk.bat` must keep CRLF line endings.** It was LF in the repository and
+had been surviving on luck: `cmd.exe` re-seeks the file by byte offset after each
+command, so an LF-only batch file breaks the moment its content length shifts —
+which it did on the first edit, producing `'e' is not recognized`, `'eok' is not
+recognized` and a bogus "could not detect this machine's LAN address". The file is
+now CRLF. Do not let an editor normalise it back.
+
 
 ### ⚠⚠ The sovereign approval gate — nothing reaches the agent before Rhalla approves it
 

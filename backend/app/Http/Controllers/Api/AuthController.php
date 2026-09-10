@@ -26,8 +26,11 @@ class AuthController extends BaseController
       // التحقق من البيانات المرسلة
       $validator = Validator::make($request->all(), [
           'device_id' => 'required|string|max:255',
+          // ⚠ رمزُ تحقّقٍ إلزاميّ قبل الحذف — تأكيدٌ وأمانٌ أكثر (أمر المالك):
+          // الحذفُ فعلٌ لا يُتراجَع عنه، فلا يقع بضغطةٍ واحدة.
+          'CodeOtp'   => 'required|digits:4',
       ]);
-  
+
       if ($validator->fails()) {
           return response()->json([
               'success' => false,
@@ -59,7 +62,37 @@ class AuthController extends BaseController
               'message' => 'عذرًا، لا يمكن حذف الحساب من هذا الجهاز.'
           ], 422);
       }
-  
+
+      // ⚠ التحقّق من رمز واتساب **على الخادم** لهاتف صاحب الجلسة نفسِه — لا
+      // من هاتفٍ يأتي في الطلب — فلا يُحذف حسابٌ برمزٍ أُرسل لغيره. أحاديُّ
+      // الاستخدام: يُستهلَك فور التحقّق.
+      $digits  = preg_replace('/\D/', '', (string) $user->phone);
+      $phoneTo = '218' . substr($digits, -9);
+
+      $otp = DB::table('Code_OtpTB')
+          ->where('UeserPohone', $phoneTo)
+          ->where('CodeOtp', $request->CodeOtp)
+          ->orderByDesc('ID')
+          ->first();
+
+      if (!$otp) {
+          return response()->json([
+              'success' => false,
+              'message' => 'رمز التحقّق غير صحيح.'
+          ], 422);
+      }
+
+      if (Carbon::parse($otp->ExpeaerTime)->isPast()) {
+          DB::table('Code_OtpTB')->where('ID', $otp->ID)->delete();
+          return response()->json([
+              'success' => false,
+              'message' => 'انتهت صلاحية رمز التحقّق. اطلب رمزاً جديداً.'
+          ], 422);
+      }
+
+      // استهلاك الرمز — أحاديّ الاستخدام مهما جرى بعده.
+      DB::table('Code_OtpTB')->where('UeserPohone', $phoneTo)->delete();
+
       // التحقق إن كان الحساب محذوف مسبقًا
       if ($user->Reg == "NO") {
           return response()->json([

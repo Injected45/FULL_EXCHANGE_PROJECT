@@ -105,29 +105,56 @@ if /i "%MODE%"=="release" if not exist "android\key.properties" (
     exit /b 1
 )
 
-rem ---------- 2b) Cleartext allow-list (debug over http) ------
-rem  Android blocks cleartext HTTP unless the host is listed. Only the
-rem  debug source set carries a config that permits it at all, so this
-rem  applies to debug builds only - a release apk over http:// cannot
-rem  work, and the fix for that is TLS on the server, not an exception.
-set "NSC=android\app\src\debug\res\xml\network_security_config.xml"
-if /i "%MODE%"=="debug" (
-    echo %API_BASE% | findstr /b /i /c:"http://" >nul
-    if not errorlevel 1 (
-        for /f "tokens=2 delims=/" %%h in ("%API_BASE%") do set "APIHOST=%%h"
-        for /f "tokens=1 delims=:" %%h in ("!APIHOST!") do set "APIHOST=%%h"
-        if exist "%NSC%" (
-            rem  -ExecutionPolicy Bypass: this machine's policy is Restricted,
-            rem  so a .ps1 will not run without it. Scoped to this one call.
-            powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\allow_cleartext_host.ps1" -Config "%NSC%" -HostName "!APIHOST!"
-            if errorlevel 1 (
-                echo [ERROR] Could not update %NSC%
-                pause
-                exit /b 1
-            )
-        ) else (
-            echo [WARN] %NSC% is missing - the apk may not be allowed to use http://.
+rem ---------- 2b) Cleartext allow-list (http over any build) ---
+rem  Android blocks cleartext HTTP unless the host is named in a
+rem  network security config. Two files exist:
+rem
+rem    src\debug\...\network_security_config.xml   - debug only
+rem    src\main\...\network_security_config.xml    - the temporary
+rem        exception, and it reaches the APK ONLY with
+rem        -PallowCleartext=true. Without that flag the build gets
+rem        network_security_strict.xml, which permits nothing.
+rem
+rem  ⚠ This block exists because a release APK was handed over that
+rem  could not open a socket at all: it was built against an http://
+rem  LAN address with the strict config, so every screen failed at the
+rem  first request on a perfectly healthy network. That is the second
+rem  time this exact defect shipped (see CLAUDE.md, 9 Sep 2026), and
+rem  both times it was invisible until a real device tried it.
+rem
+rem  The store path stays closed by construction regardless: gradle
+rem  throws if bundleRelease runs with the flag on, and Play's artefact
+rem  is the bundle. So an APK built here is a TEST APK, never a release.
+set "CLEARTEXT="
+set "NSC="
+if /i "%MODE%"=="debug"   set "NSC=android\app\src\debug\res\xml\network_security_config.xml"
+if /i "%MODE%"=="release" set "NSC=android\app\src\main\res\xml\network_security_config.xml"
+if /i "%MODE%"=="profile" set "NSC=android\app\src\main\res\xml\network_security_config.xml"
+
+echo %API_BASE% | findstr /b /i /c:"http://" >nul
+if not errorlevel 1 (
+    for /f "tokens=2 delims=/" %%h in ("%API_BASE%") do set "APIHOST=%%h"
+    for /f "tokens=1 delims=:" %%h in ("!APIHOST!") do set "APIHOST=%%h"
+    if exist "!NSC!" (
+        rem  -ExecutionPolicy Bypass: this machine's policy is Restricted,
+        rem  so a .ps1 will not run without it. Scoped to this one call.
+        powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\allow_cleartext_host.ps1" -Config "!NSC!" -HostName "!APIHOST!"
+        if errorlevel 1 (
+            echo [ERROR] Could not update !NSC!
+            pause
+            exit /b 1
         )
+        if /i not "%MODE%"=="debug" (
+            set "CLEARTEXT=-PallowCleartext=true"
+            echo.
+            echo  ⚠ TEST BUILD: cleartext HTTP is enabled for !APIHOST! only.
+            echo    Everything else still requires TLS, and a store bundle
+            echo    ^(bundleRelease^) refuses to build with this flag at all.
+            echo    Do NOT hand this APK to a store. The real fix is TLS.
+            echo.
+        )
+    ) else (
+        echo [WARN] !NSC! is missing - the apk may not be allowed to use http://.
     )
 )
 
@@ -205,7 +232,7 @@ set "SYMS="
 if /i "%MODE%"=="release" set "SYMS=--split-debug-info=build\symbols"
 
 echo Building %MODE% APK...
-call flutter build apk --%MODE% %SPLIT% %SYMS% --dart-define=API_BASE=%API_BASE%
+call flutter build apk --%MODE% %SPLIT% %SYMS% %CLEARTEXT% --dart-define=API_BASE=%API_BASE%
 if errorlevel 1 (
     echo.
     echo [ERROR] The build failed.

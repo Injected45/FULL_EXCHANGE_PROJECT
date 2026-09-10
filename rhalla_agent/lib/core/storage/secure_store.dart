@@ -36,6 +36,7 @@ class SecureStore {
 
   /// تفضيلُ الفتح بالبصمة. ⚠ تفضيلٌ لا بيانات: لا شيءَ حيويٌّ يُخزَّن.
   static const _kBiometricUnlock = 'biometric_unlock';
+  static const _kSecurityMode = 'security_mode';
 
   final _s = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -247,6 +248,19 @@ class SecureStore {
 
   Future<void> writeBiometricUnlock(bool on) =>
       _s.write(key: _kBiometricUnlock, value: on ? '1' : '0');
+
+  /// وضعُ حماية الدخول — اختيارُ المستخدم لجهازه، لا صلاحيةٌ من الوكيل.
+  /// القيم: `biometric` (بصمة/وجه) · `device` (نمط/رقم الجهاز) · `none` (بلا).
+  /// الافتراضي `biometric` حفاظاً على سلوك القفل القائم لمن لم يختر بعد.
+  Future<String> readSecurityMode() async {
+    final v = await _s.read(key: _kSecurityMode);
+    if (v == 'device' || v == 'none' || v == 'biometric') return v!;
+    // توافقٌ رجعيّ: من كان مفتاحُه القديم مطفأً يبقى بلا قفل بصمة.
+    return (await readBiometricUnlock()) ? 'biometric' : 'biometric';
+  }
+
+  Future<void> writeSecurityMode(String mode) =>
+      _s.write(key: _kSecurityMode, value: mode);
 
   Future<void> signOut() async {
     _tokenCached = false;

@@ -125,6 +125,18 @@ class AppLockController extends StateNotifier<AppLockState>
   final SecureStore _store;
   final LocalAuthentication _auth;
 
+  /// وضعُ الحماية المختار: `biometric` · `device` · `none`. يُقرأ عند الإقلاع
+  /// ويُحدَّث من الإعدادات. `none` يُعطّل القفلَ التلقائيّ، و`device` يسمح
+  /// بنمط/رقم الجهاز بديلاً عن البصمة.
+  String _mode = 'biometric';
+  String get mode => _mode;
+
+  Future<void> setSecurityMode(String mode) async {
+    _mode = mode;
+    await _store.writeSecurityMode(mode);
+    if (mounted) state = state.copyWith(enabled: mode == 'biometric');
+  }
+
   /// حارسُ «مرّةً واحدة» على نداء البصمة.
   ///
   /// ⚠ `authenticate` يُخفق إن نُودي وهو جارٍ، ولمستان على الزرّ تُنتجان
@@ -150,7 +162,8 @@ class AppLockController extends StateNotifier<AppLockState>
 
     try {
       available = await _probeBiometrics();
-      enabled = await _store.readBiometricUnlock();
+      _mode = await _store.readSecurityMode();
+      enabled = _mode == 'biometric';
     } catch (_) {
       // بلا بصمةٍ وبلا تفضيل — والقفلُ يبقى عاملاً بالوقت.
     }
@@ -243,6 +256,10 @@ class AppLockController extends StateNotifier<AppLockState>
     final token = await _store.readToken();
     if (token == null || token.isEmpty) return;
 
+    // ⚠ «بلا حماية دخول»: المستخدم اختار ألّا يُقفَل جهازه. لا قفلَ إذاً —
+    // وهذا اختيارُه لتأمين جهازه بنفسه (أمر المالك).
+    if (_mode == 'none') return;
+
     /*
      * ⚠ ويُعاد سؤالُ النظام عن البصمة عند كل قفل لا عند الإقلاع وحدَه:
      * المستخدم قد يُسجّل بصمةً — أو يمحوها — والتطبيقُ في الخلفية.
@@ -289,12 +306,12 @@ class AppLockController extends StateNotifier<AppLockState>
     try {
       final ok = await _auth.authenticate(
         localizedReason: 'أثبت هويتك لفتح التطبيق',
-        options: const AuthenticationOptions(
+        options: AuthenticationOptions(
           // ⚠ `stickyAuth` حتى لا يُلغى الطلبُ إذا علت نافذةُ نظامٍ عليه.
           stickyAuth: true,
-          // ⚠ الحيويّةُ وحدَها لا رمزُ الجهاز: رمزُ القفل يعرفه من يمسك
-          // الهاتف، وهو من نحتاط منه. والبديلُ عند الفشل مسارُنا نحن.
-          biometricOnly: true,
+          // بصمةٌ فقط في وضع `biometric`؛ وفي وضع `device` نسمح بنمط/رقم
+          // الجهاز بديلاً (اختيارُ المستخدم لتأمين جهازه).
+          biometricOnly: _mode != 'device',
         ),
       );
 

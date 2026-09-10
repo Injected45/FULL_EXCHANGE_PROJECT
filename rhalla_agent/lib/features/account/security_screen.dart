@@ -10,6 +10,7 @@ import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
+import '../security/security_mode_card.dart';
 
 final _deviceIdProvider =
     FutureProvider.autoDispose<String>((ref) => SecureStore().deviceId());
@@ -78,6 +79,9 @@ class SecurityScreen extends ConsumerWidget {
                     ],
                   ),
                 ),
+                const SizedBox(height: R.gapCard),
+
+                const SecurityModeCard(),
                 const SizedBox(height: R.gapCard),
 
                 const WarnBanner(

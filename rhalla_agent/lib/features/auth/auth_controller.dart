@@ -109,10 +109,19 @@ class AuthController extends StateNotifier<AuthState> {
   /// حذفُ الحساب من داخل التطبيق (شرطٌ في المتجرين لتطبيقٍ يُنشئ حساباً).
   /// يرمي [ApiFailure] عند فشل الخادم لتعرضه الشاشة؛ وعند النجاح يُخرج
   /// الوكيلَ كأيّ تسجيل خروج.
-  Future<void> deleteAccount() async {
-    await _repo.deleteAccount();
+  Future<void> deleteAccount(String code) async {
+    await _repo.deleteAccount(code);
     if (!mounted) return;
     state = AuthState(status: AuthStatus.signedOut, onboarded: state.onboarded);
+  }
+
+  /// إرسالُ رمز واتساب إلى هاتف الوكيل نفسِه قبل الحذف.
+  Future<void> requestDeleteOtp() async {
+    final phone = state.user?.phone;
+    if (phone == null || phone.isEmpty) {
+      throw ApiFailure('تعذّر معرفة رقم هاتفك. أعد تسجيل الدخول.');
+    }
+    await _repo.requestOtp(phone);
   }
 }
 

@@ -27,7 +27,7 @@ class ChatThreadsScreen extends ConsumerStatefulWidget {
 class _ChatThreadsScreenState extends ConsumerState<ChatThreadsScreen>
     with WidgetsBindingObserver {
   // ⚠ نبضٌ صامت: كانت القائمة لا تتحدّث إلّا بالسحب اليدويّ، فرسالةٌ جديدة
-  // لا تظهر حتى يسحب المستخدم. الآن تُحدَّث تلقائياً كلّ 5 ثوانٍ — وبلا وميض
+  // لا تظهر حتى يسحب المستخدم. الآن تُحدَّث تلقائياً كلّ 3 ثوانٍ — وبلا وميض
   // لأنّ `skipLoadingOnRefresh` يُبقي القائمةَ معروضةً أثناء التحديث. وتتوقّف
   // في الخلفية وتعود بنبضةٍ فورية عند الرجوع، كبقيّة شاشات النبض.
   Timer? _timer;

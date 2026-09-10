@@ -235,10 +235,12 @@ class AuthRepository {
   /// حذفُ الحساب — يستدعي مسارَ الخادم القائم خلف `auth:sanctum`، الذي يضع
   /// `Reg='NO'` و`deleted_at` ويُلغي الرموز، ثم يمسح الجلسةَ محلياً. الخادمُ
   /// يشترط مطابقةَ الجهاز، فيُرسَل `device_id`.
-  Future<void> deleteAccount() async {
+  Future<void> deleteAccount(String code) async {
     final deviceId = await _store.deviceId();
     await _api.post('/device/dRIVER/Delete_Account', body: {
       'device_id': deviceId,
+      // ⚠ رمزُ واتساب — يتحقّق منه الخادم لهاتف صاحب الجلسة قبل الحذف.
+      'CodeOtp': int.tryParse(code) ?? code,
     });
     await _store.signOut();
   }

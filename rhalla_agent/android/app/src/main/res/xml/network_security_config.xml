@@ -42,6 +42,7 @@
     <!-- خادمُ الإنتاج الحالي — بعنوانه حرفياً، لا نطاقاً ولا نطاقاتٍ فرعية. -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">102.214.165.242</domain>
+        <domain includeSubdomains="false">192.168.1.10</domain>
     </domain-config>
 
     <!-- ⚠ وكلُّ ما عداه يبقى TLS إلزاماً. -->

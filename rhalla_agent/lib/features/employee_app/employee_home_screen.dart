@@ -13,6 +13,7 @@ import '../branding/brand_mark.dart';
 import '../branding/branding_controller.dart';
 import '../chat/chat_screen.dart';
 import 'employee_ledger_view.dart';
+import 'employee_security_screen.dart';
 import 'employee_session.dart';
 
 /// واجهة الموظف — **مبنيّة من صلاحياته وحدها**.
@@ -395,6 +396,18 @@ class _Header extends ConsumerWidget {
                           const _CustodyLine(),
                       ],
                     ),
+                  ),
+                  // زرُّ أمان الجهاز — افتراضيّ لكل موظف، لا صلاحية: يختار به
+                  // حماية دخول جهازه (بصمة · نمط · بلا).
+                  IconButton(
+                    tooltip: 'الأمان',
+                    onPressed: () => Navigator.of(context, rootNavigator: true)
+                        .push(MaterialPageRoute(
+                            builder: (_) => const EmployeeSecurityScreen())),
+                    icon: const Icon(Icons.shield_outlined,
+                        size: 22, color: Colors.white),
+                    constraints:
+                        const BoxConstraints(minWidth: 44, minHeight: 44),
                   ),
                 ],
               ),

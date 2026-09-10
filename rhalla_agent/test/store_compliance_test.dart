@@ -173,4 +173,49 @@ void main() {
       expect(plist, isNot(contains('NSAllowsArbitraryLoads')));
     });
   });
+
+  group('⚠ رقمُ الإصدار — مصدرٌ واحد لا مصدران', () {
+    /*
+     * ⚠ ينكسر صامتاً: `kAppVersion` هو ما **يقرؤه المالك** في شاشة الحساب،
+     * و`pubspec.yaml` هو ما يصير `versionName` في الحزمة وما **يقرؤه المتجر**.
+     * وقد حُدِّث أحدُهما دون الآخر فعلاً (1.0.1 في الشاشة، 1.0.0 في الحزمة):
+     * فالتطبيق يقول للمالك نسخةً وللمتجر أخرى، ولا `flutter analyze` ولا
+     * تشغيلٌ يكشفه — يظهر حين يُبلَّغ عن عيبٍ في «1.0.1» وهي ليست المرفوعة.
+     */
+    late String pubspec;
+    late String appVersion;
+
+    setUpAll(() {
+      pubspec = _f('pubspec.yaml').readAsStringSync();
+      appVersion = _f('lib/core/app_version.dart').readAsStringSync();
+    });
+
+    test('kAppVersion يطابق نسخةَ pubspec', () {
+      final inPub =
+          RegExp(r'^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)', multiLine: true)
+              .firstMatch(pubspec);
+      expect(inPub, isNotNull, reason: 'pubspec.yaml بلا سطر version صحيح');
+
+      final inDart = RegExp(r"kAppVersion\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'")
+          .firstMatch(appVersion);
+      expect(inDart, isNotNull, reason: 'app_version.dart بلا kAppVersion');
+
+      expect(inDart!.group(1), inPub!.group(1),
+          reason: 'الشاشة تعرض ${inDart.group(1)} والحزمة تحمل '
+              '${inPub.group(1)} — حدِّث الاثنين معاً');
+    });
+
+    test('ورقمُ البناء لا يعود إلى الوراء', () {
+      /*
+       * Play يرفض حزمةً بـ`versionCode` أقلَّ أو مساوياً لآخر ما رُفع، وهو
+       * الرقمُ بعد «+» في pubspec. أوّلُ حزمةٍ بُنيت كانت 1، فما بعدها من 2.
+       */
+      final build = int.parse(
+          RegExp(r'^version:\s*[0-9.]+\+([0-9]+)', multiLine: true)
+              .firstMatch(pubspec)!
+              .group(1)!);
+      expect(build, greaterThanOrEqualTo(2),
+          reason: 'رقمُ البناء لا يتكرّر ولا ينقص بين نسختين');
+    });
+  });
 }
