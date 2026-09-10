@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,11 +17,53 @@ import 'starred_screen.dart';
 /// الإدارة في الأعلى دائماً وليست في الترتيب الزمني: هي المحادثة التي يفتحها
 /// الوكيل حين يحتاج مساعدة، وبحثُه عنها بين عشر محادثات موظّفين يجعل الشاشة
 /// تعمل ضدّ سبب وجودها.
-class ChatThreadsScreen extends ConsumerWidget {
+class ChatThreadsScreen extends ConsumerStatefulWidget {
   const ChatThreadsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ChatThreadsScreen> createState() => _ChatThreadsScreenState();
+}
+
+class _ChatThreadsScreenState extends ConsumerState<ChatThreadsScreen>
+    with WidgetsBindingObserver {
+  // ⚠ نبضٌ صامت: كانت القائمة لا تتحدّث إلّا بالسحب اليدويّ، فرسالةٌ جديدة
+  // لا تظهر حتى يسحب المستخدم. الآن تُحدَّث تلقائياً كلّ 5 ثوانٍ — وبلا وميض
+  // لأنّ `skipLoadingOnRefresh` يُبقي القائمةَ معروضةً أثناء التحديث. وتتوقّف
+  // في الخلفية وتعود بنبضةٍ فورية عند الرجوع، كبقيّة شاشات النبض.
+  Timer? _timer;
+  static const _pulse = Duration(seconds: 3);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _timer = Timer.periodic(_pulse, (_) => _poll());
+  }
+
+  void _poll() {
+    if (mounted) ref.invalidate(chatThreadsProvider);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _poll();
+      _timer ??= Timer.periodic(_pulse, (_) => _poll());
+    } else if (state == AppLifecycleState.paused) {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final async = ref.watch(chatThreadsProvider);
 
     return Screen(
@@ -43,6 +87,8 @@ class ChatThreadsScreen extends ConsumerWidget {
           ),
           Expanded(
             child: async.when(
+              // لا وميضَ سبينر عند نبضة التحديث الصامتة — تبقى القائمة معروضة.
+              skipLoadingOnRefresh: true,
               loading: () => Center(
                 child: CircularProgressIndicator(
                     color: R.primary, strokeWidth: 2.4),

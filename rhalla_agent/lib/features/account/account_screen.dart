@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/app_version.dart';
 import '../../core/format/fmt.dart';
 import '../../core/net/api_envelope.dart';
 import '../../core/theme/app_theme.dart';
@@ -11,7 +12,6 @@ import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
 import '../branding/brand_mark.dart';
-import '../branding/branding_controller.dart';
 
 class AccountScreen extends ConsumerWidget {
   const AccountScreen({super.key});
@@ -56,7 +56,7 @@ class AccountScreen extends ConsumerWidget {
                       ),
                       _Row(
                         icon: Icons.speed_outlined,
-                        label: 'السقوف والعمولات',
+                        label: 'سقوف الرحالة',
                         onTap: () => context.push('/limits'),
                       ),
                       _Row(
@@ -130,17 +130,33 @@ class AccountScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                // تذييل الحساب باسم الشركة كذلك — «كل شيء باسمها ظاهرياً»
-                // بقرار المالك. و«رحلة» تبقى: هي اسم التطبيق لا اسم الشركة.
-                Text(
-                  'رحلة · ${ref.watch(brandingControllerProvider).branding.displayName}',
-                  textAlign: TextAlign.center,
-                  style: T.meta,
+                // تذييل: حقوقُ الجهة المطوّرة ورقمُ الإصدار الموثّق
+                // (kAppVersion — مصدرٌ واحد، يتدرّج ولا يتكرّر).
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 16,
+                      height: 16,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: R.inkA(.35)),
+                      ),
+                      child: Text('C',
+                          style: T.plex(8.5, FontWeight.w700, color: R.inkA(.55))),
+                    ),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(kDeveloperName,
+                          textAlign: TextAlign.center, style: T.meta),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Directionality(
                   textDirection: TextDirection.ltr,
-                  child: Text('1.0.0', style: T.meta),
+                  child: Text('v$kAppVersion', style: T.meta),
                 ),
               ],
             ),

@@ -78,6 +78,10 @@ class EmployeesScreen extends ConsumerWidget {
                       R.padScreen, 14, R.padScreen, 120),
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: [
+                    if (rows.isNotEmpty) ...[
+                      _PauseAllBar(allPaused: rows.first.allPaused),
+                      const SizedBox(height: 14),
+                    ],
                     _AddButton(onTap: () => _openAdd(context, ref)),
                     const SizedBox(height: 14),
                     if (rows.isEmpty)
@@ -135,6 +139,112 @@ class _AddButton extends StatelessWidget {
       );
 }
 
+/// شريطُ «إيقاف/تشغيل جميع الموظفين» — سيطرةٌ جماعية فورية عن بُعد.
+///
+/// مستقلٌّ عن الإيقاف الفرديّ: تشغيلُ الكلّ لا يُلغي إيقافَ موظفٍ أوقفتَه
+/// وحده. ولا يمسّ مالاً — تجميدُ واجهةٍ فقط، بلا فقدان شيء.
+class _PauseAllBar extends ConsumerStatefulWidget {
+  const _PauseAllBar({required this.allPaused});
+
+  final bool allPaused;
+
+  @override
+  ConsumerState<_PauseAllBar> createState() => _PauseAllBarState();
+}
+
+class _PauseAllBarState extends ConsumerState<_PauseAllBar> {
+  bool _busy = false;
+
+  Future<void> _toggle() async {
+    final pause = !widget.allPaused;
+    if (pause) {
+      final ok = await showModalBottomSheet<bool>(
+        context: context,
+        useRootNavigator: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => const _ConfirmSheet(
+          title: 'إيقاف جميع الموظفين',
+          body: 'سيتجمّد كلّ موظفيك فوراً ويرون رسالة «تواصل مع الإدارة». '
+              'لا يُفقد شيء، ويعودون فور التشغيل.',
+          confirm: 'إيقاف الكل',
+          danger: true,
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(employeesRepositoryProvider).setPausedAll(paused: pause);
+      if (mounted) ref.invalidate(employeesProvider);
+    } on ApiFailure catch (e) {
+      _snack(e.message);
+    } catch (_) {
+      _snack('تعذّر تنفيذ العملية — تحقّق من الاتصال.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _snack(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content:
+            Text(m, style: T.plex(13, FontWeight.w500, color: Colors.white)),
+        backgroundColor: R.inkA(.92),
+        behavior: SnackBarBehavior.floating,
+      ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final on = widget.allPaused;
+    return GlassCard(
+      child: Row(
+        children: [
+          IconTile(
+            size: 38,
+            background:
+                on ? R.error.withValues(alpha: .12) : R.primaryA(.12),
+            icon: Icon(
+                on
+                    ? Icons.pause_circle_filled_rounded
+                    : Icons.groups_rounded,
+                size: 19,
+                color: on ? R.error : R.primaryDark),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(on ? 'كلّ الموظفين موقوفون' : 'إيقاف جميع الموظفين',
+                    style: T.kufi(14, FontWeight.w700)),
+                const SizedBox(height: 3),
+                Text(
+                    on
+                        ? 'اضغط للتشغيل — يعودون فوراً'
+                        : 'تجميدٌ جماعيّ فوريّ، بلا فقدان شيء',
+                    style:
+                        T.plex(11.5, FontWeight.w400, color: R.inkA(.55))),
+              ],
+            ),
+          ),
+          if (_busy)
+            const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.2))
+          else
+            Switch(value: on, onChanged: (_) => _toggle()),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmployeeCard extends ConsumerStatefulWidget {
   const _EmployeeCard({required this.e});
 
@@ -147,6 +257,9 @@ class _EmployeeCard extends ConsumerStatefulWidget {
 class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
   bool _busy = false;
 
+  /// منطويةٌ افتراضياً — يظهر الاسم فقط، وتنسدل التفاصيل والأزرار بالضغط.
+  bool _expanded = false;
+
   @override
   Widget build(BuildContext context) {
     final e = widget.e;
@@ -156,40 +269,66 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              IconTile(
-                size: 38,
-                background: tone.withValues(alpha: .12),
-                icon: Icon(Icons.badge_outlined, size: 19, color: tone),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(e.fullName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: T.kufi(14.5, FontWeight.w700)),
-                    const SizedBox(height: 3),
-                    Directionality(
-                      textDirection: TextDirection.ltr,
-                      child: Text(Fmt.phone(e.phone),
-                          style: T.plex(12, FontWeight.w500,
-                              color: R.inkA(.55))),
-                    ),
-                  ],
+          // الرأسُ القابل للطيّ: الاسمُ وحدَه، مع مؤشّرِ إيقافٍ إن وُجد.
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(R.rCard),
+            child: Row(
+              children: [
+                IconTile(
+                  size: 38,
+                  background: tone.withValues(alpha: .12),
+                  icon: Icon(Icons.badge_outlined, size: 19, color: tone),
                 ),
-              ),
-              _StatusPill(label: e.status.label, color: tone),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(e.fullName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: T.kufi(14.5, FontWeight.w700)),
+                ),
+                if (e.frozen) ...[
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: R.error.withValues(alpha: .1),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Text('موقوف',
+                        style:
+                            T.plex(10.5, FontWeight.w700, color: R.error)),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                AnimatedRotation(
+                  turns: _expanded ? -0.25 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: Icon(Icons.expand_more_rounded,
+                      size: 22, color: R.inkA(.45)),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 10),
-          Divider(color: R.inkA(.07), height: 1),
-          const SizedBox(height: 10),
 
-          _Line(icon: Icons.storefront_outlined, text: e.posLabel),
+          if (_expanded) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Text(Fmt.phone(e.phone),
+                      style: T.plex(12.5, FontWeight.w500, color: R.inkA(.6))),
+                ),
+                const Spacer(),
+                _StatusPill(label: e.status.label, color: tone),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Divider(color: R.inkA(.07), height: 1),
+            const SizedBox(height: 10),
+
+            _Line(icon: Icons.storefront_outlined, text: e.posLabel),
           const SizedBox(height: 6),
           _Line(
             icon: e.hasDevice
@@ -250,6 +389,18 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
             ],
           ),
 
+          // إيقافٌ مؤقّت (تجميد ناعم) — يختلف عن «الإيقاف» أعلاه: لا يُغلق
+          // الجلسة ولا يفقد شيئاً، ويعود فوراً. سيطرةٌ سريعة عن بُعد.
+          const SizedBox(height: 8),
+          _Action(
+            label: e.paused ? 'تشغيل الموظف' : 'إيقاف مؤقّت',
+            icon: e.paused
+                ? Icons.play_circle_outline_rounded
+                : Icons.pause_circle_outline_rounded,
+            danger: !e.paused,
+            onTap: _busy ? null : _togglePause,
+          ),
+
           // مراسلة الموظّف — من هنا تبدأ المحادثة أوّل مرّة.
           //
           // شاشة الدردشة تعرض المحادثات **القائمة** وحدها، فبلا هذا الزرّ
@@ -290,6 +441,7 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
             danger: true,
             onTap: _busy ? null : _deleteEmployee,
           ),
+          ], // نهاية الجزء المنسدل (if (_expanded))
         ],
       ),
     );
@@ -413,6 +565,23 @@ class _EmployeeCardState extends ConsumerState<_EmployeeCard> {
         employeeName: widget.e.fullName,
       ),
     );
+  }
+
+  Future<void> _togglePause() async {
+    final pause = !widget.e.paused;
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(employeesRepositoryProvider)
+          .setPaused(id: widget.e.id, paused: pause);
+      if (mounted) ref.invalidate(employeesProvider);
+    } on ApiFailure catch (e) {
+      _say(e.message);
+    } catch (_) {
+      _say('تعذّر تنفيذ العملية — تحقّق من الاتصال.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _toggleSuspend() async {

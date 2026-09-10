@@ -44,9 +44,15 @@ class ReportsScreen extends ConsumerWidget {
                       onTap: () => context.push('/statement'),
                     ),
                     _ReportRow(
+                      icon: Icons.trending_up_rounded,
+                      label: 'عمولاتي',
+                      hint: 'إجمالي عمولاتك وتفاصيل كل عملية',
+                      onTap: () => context.push('/commissions'),
+                    ),
+                    _ReportRow(
                       icon: Icons.speed_outlined,
-                      label: 'السقوف والعمولات',
-                      hint: 'ما تستطيع إرساله يومياً وعمولة كل شريحة',
+                      label: 'سقوف الرحالة',
+                      hint: 'ما تستطيع إرساله يومياً وأسبوعياً وشهرياً',
                       onTap: () => context.push('/limits'),
                       last: true,
                     ),

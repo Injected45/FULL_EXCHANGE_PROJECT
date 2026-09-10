@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
 import 'features/alerts/incoming_toast.dart';
 import 'features/branding/branding_controller.dart';
+import 'features/employee_app/employee_freeze_gate.dart';
 import 'features/security/lock_gate.dart';
 import 'router.dart';
 import 'ui/widgets/ambient.dart';
@@ -81,6 +82,9 @@ class RhallaAgentApp extends ConsumerWidget {
                 children: [
                   AmbientBackground(child: child ?? const SizedBox.shrink()),
                   const IncomingToast(),
+                  // شاشةُ تجميدٍ حين يُوقف الوكيلُ الموظف — فوق كلّ شيء،
+                  // وتظهر في وضع الموظف وحده.
+                  const EmployeeFreezeGate(),
                 ],
               ),
             ),

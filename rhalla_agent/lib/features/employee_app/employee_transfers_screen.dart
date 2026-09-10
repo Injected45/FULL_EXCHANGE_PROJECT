@@ -108,7 +108,9 @@ class _EmployeeTransfersScreenState
         query: {'status': _tab.wire, 'per_page': 50},
       );
       final data = env.row ?? const {};
-      final list = ((data['rows'] ?? data['data'] ?? []) as List)
+      // ⚠ الخادم يُعيد الصفوف تحت المفتاح `items` (كما يقرؤها تطبيق الوكيل).
+      // كان الموظف يقرأ `rows`/`data` فقط، فيظهر العدّاد ولا تظهر الحوالات.
+      final list = ((data['items'] ?? data['rows'] ?? data['data'] ?? []) as List)
           .whereType<Map>()
           .map((m) => AgentIncomingTransfer.fromJson(m.cast<String, dynamic>()))
           .toList();

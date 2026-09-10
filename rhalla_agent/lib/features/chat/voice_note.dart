@@ -41,12 +41,15 @@ class VoiceRecorder {
     if (!await _rec.hasPermission()) return false;
 
     final dir = await getTemporaryDirectory();
-    _path = '${dir.path}/vn_${DateTime.now().millisecondsSinceEpoch}.ogg';
+    _path = '${dir.path}/vn_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
+    // ⚠ AAC-LC (m4a) لا Opus: صيغةٌ إلزاميّة في كلّ أجهزة أندرويد وiOS
+    // تسجيلاً وتشغيلاً. كان Opus يُسجَّل على جهازٍ ويعجز جهازٌ آخر عن فكّ
+    // ترميزه، فتصل الرسالة الصوتية ولا تُفتح في اتجاهٍ دون الآخر.
     await _rec.start(
       const RecordConfig(
-        encoder: AudioEncoder.opus,
-        bitRate: 24000,
+        encoder: AudioEncoder.aacLc,
+        bitRate: 32000,
         sampleRate: 16000,
         numChannels: 1,
       ),

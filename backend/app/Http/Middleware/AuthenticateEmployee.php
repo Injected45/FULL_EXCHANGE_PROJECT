@@ -103,6 +103,19 @@ class AuthenticateEmployee
             }
         }
 
+        // بوّابةُ الإيقاف — سيطرةُ الوكيل عن بُعد (فرديّ أو جماعيّ). تمنع كلّ
+        // عملٍ (المسارات ذات الصلاحية) ما دام الموظفُ مُوقَفاً، وتُبقي me/logout/
+        // branding (بلا صلاحية) ليعرف التطبيقُ حالتَه ويخرجَ إن شاء. لا شيءَ
+        // يُفقَد؛ ومعزولٌ عن المال — علامةٌ وبوّابةُ واجهةٍ فقط.
+        if ($permission !== null && $this->isPaused($employee)) {
+            return response()->json([
+                'data' => ['paused' => true],
+                'message' => 'أوقفَ وكيلُك الخدمةَ مؤقتاً. تواصل مع الإدارة.',
+                'key' => 'EMPLOYEE_PAUSED',
+                'success' => false,
+            ], 403);
+        }
+
         DB::table('employee_sessions')->where('id', $session->id)
             ->update(['last_used_at' => now()]);
         DB::table('employees')->where('id', $employee->id)
@@ -114,5 +127,17 @@ class AuthenticateEmployee
         $request->attributes->set('employee_permissions', $granted);
 
         return $next($request);
+    }
+
+    /** هل الموظف مُوقَفٌ — فردياً أو ضمن إيقافٍ جماعيّ لوكيله؟ */
+    private function isPaused(object $employee): bool
+    {
+        if (($employee->paused_at ?? null) !== null) {
+            return true;
+        }
+        return DB::table('employee_pause_gate')
+            ->where('agent_id', $employee->agent_id)
+            ->whereNotNull('all_paused_at')
+            ->exists();
     }
 }

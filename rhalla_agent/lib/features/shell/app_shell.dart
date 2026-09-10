@@ -76,7 +76,7 @@ class _NavBar extends StatelessWidget {
       const _NavItem('التقارير', Icons.assessment_outlined, Icons.assessment_rounded),
       const _NavItem('الدردشة', Icons.chat_bubble_outline_rounded,
           Icons.chat_bubble_rounded),
-      const _NavItem('الحساب', Icons.person_outline_rounded, Icons.person_rounded),
+      const _NavItem('الإعدادات', Icons.settings_outlined, Icons.settings_rounded),
     ];
 
     return DecoratedBox(

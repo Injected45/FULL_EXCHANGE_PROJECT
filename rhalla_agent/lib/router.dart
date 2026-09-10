@@ -34,6 +34,7 @@ import 'features/favorites/favorites_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/legal/terms_screen.dart';
 import 'features/limits/limits_screen.dart';
+import 'features/reports/commissions_screen.dart';
 import 'features/pos/pos_screen.dart';
 import 'features/send/accounts_repository.dart';
 import 'features/send/review_accounts_screen.dart';
@@ -271,6 +272,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/limits',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const LimitsScreen(),
+      ),
+      GoRoute(
+        // «عمولاتي» — فُصلت من «السقوف والعمولات» إلى التقارير (قرار المالك).
+        path: '/commissions',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const CommissionsScreen(),
       ),
       GoRoute(
         path: '/terms',

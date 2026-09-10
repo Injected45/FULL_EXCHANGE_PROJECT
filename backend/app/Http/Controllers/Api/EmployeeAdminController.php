@@ -86,13 +86,19 @@ class EmployeeAdminController extends BaseController
                 $j->on('d.employee_id', '=', 'e.id')->where('d.status', '=', 'ACTIVE');
             })
             ->select([
-                'e.id', 'e.full_name', 'e.phone', 'e.status',
+                'e.id', 'e.full_name', 'e.phone', 'e.status', 'e.paused_at',
                 'e.last_login_at', 'e.last_activity_at', 'e.activated_at',
                 'd.id as device_id', 'd.platform', 'd.model',
                 'd.activated_at as device_activated_at', 'd.last_activity_at as device_last_activity',
             ])
             ->orderByDesc('e.id')
             ->get();
+
+        // الإيقافُ الجماعيّ للوكيل — نفس القيمة تُرفَق بكلّ صفّ ليقرأها زرُّ
+        // «إيقاف الكل»، بينما paused الفرديّ يقود زرَّ كلّ موظف.
+        $allPaused = DB::table('employee_pause_gate')
+            ->where('agent_id', $user->id)
+            ->whereNotNull('all_paused_at')->exists();
 
         $ids = $rows->pluck('id');
 
@@ -110,13 +116,91 @@ class EmployeeAdminController extends BaseController
             ->get()
             ->groupBy('employee_id');
 
-        $out = $rows->map(function ($r) use ($pos, $perms) {
+        $out = $rows->map(function ($r) use ($pos, $perms, $allPaused) {
             $r->points_of_sale = $pos->get($r->id, collect())->values();
             $r->permissions    = $perms->get($r->id, collect())->pluck('permission_key')->values();
+            $r->paused     = $r->paused_at !== null;   // إيقافٌ فرديّ
+            $r->all_paused = $allPaused;               // إيقافٌ جماعيّ للوكيل
             return $r;
         });
 
         return $this->sendResponse($out, 'Success');
+    }
+
+    /* ── بوّابةُ الإيقاف: سيطرةُ الوكيل عن بُعد ─────────────────────────────
+     *
+     * إيقافٌ فرديّ (paused_at على الموظف) أو جماعيّ (employee_pause_gate للوكيل)،
+     * مستقلّان: الموظف مُجمَّدٌ إن أوقفه أحدُهما. تجميدٌ ناعم — لا يُلغي جلسة
+     * ولا يمسّ بياناتٍ ولا مالاً؛ يُرفَع فوراً بالتشغيل، بلا فقدان شيء. */
+
+    /** POST employees/{id}/pause — إيقاف موظفٍ بعينه */
+    public function pause(Request $request, int $id)
+    {
+        return $this->setPaused($request, $id, true);
+    }
+
+    /** POST employees/{id}/resume — تشغيل موظفٍ بعينه */
+    public function resume(Request $request, int $id)
+    {
+        return $this->setPaused($request, $id, false);
+    }
+
+    private function setPaused(Request $request, int $id, bool $paused)
+    {
+        [$user, $err] = $this->admin();
+        if ($err) return $err;
+
+        $employee = $this->ownedEmployee($user->id, $id);
+        if (!$employee) return $this->sendError('الموظف غير موجود.', [], 404);
+
+        DB::table('employees')->where('id', $id)->update([
+            'paused_at'  => $paused ? now() : null,
+            'updated_at' => now(),
+        ]);
+
+        $this->log->audit($paused ? 'EMPLOYEE_PAUSED' : 'EMPLOYEE_RESUMED', [
+            'agent_id' => $user->id, 'employee_id' => $id,
+            'entity_type' => 'employee', 'entity_id' => (string) $id,
+        ]);
+
+        return $this->sendResponse(['paused' => $paused],
+            $paused ? 'أُوقف الموظف مؤقتاً.' : 'أُعيد تشغيل الموظف.');
+    }
+
+    /** POST employees/pause-all — إيقاف كلّ موظفي الوكيل */
+    public function pauseAll(Request $request)
+    {
+        return $this->setPausedAll($request, true);
+    }
+
+    /** POST employees/resume-all — تشغيل كلّ موظفي الوكيل */
+    public function resumeAll(Request $request)
+    {
+        return $this->setPausedAll($request, false);
+    }
+
+    private function setPausedAll(Request $request, bool $paused)
+    {
+        [$user, $err] = $this->admin();
+        if ($err) return $err;
+
+        // upsert لصفّ الوكيل: علامةٌ واحدة تحكم الجميع، دون المساس بالإيقاف
+        // الفرديّ (يبقى مستقلاً، فرفعُ الجماعيّ لا يُشغّل موظفاً أوقفتَه وحده).
+        $exists = DB::table('employee_pause_gate')->where('agent_id', $user->id)->exists();
+        $data = ['all_paused_at' => $paused ? now() : null,
+                 'updated_by' => $user->id, 'updated_at' => now()];
+        if ($exists) {
+            DB::table('employee_pause_gate')->where('agent_id', $user->id)->update($data);
+        } else {
+            DB::table('employee_pause_gate')->insert($data + ['agent_id' => $user->id]);
+        }
+
+        $this->log->audit($paused ? 'EMPLOYEES_PAUSED_ALL' : 'EMPLOYEES_RESUMED_ALL', [
+            'agent_id' => $user->id, 'entity_type' => 'agent', 'entity_id' => (string) $user->id,
+        ]);
+
+        return $this->sendResponse(['all_paused' => $paused],
+            $paused ? 'أُوقف جميع الموظفين مؤقتاً.' : 'أُعيد تشغيل جميع الموظفين.');
     }
 
     /** POST employees */

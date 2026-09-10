@@ -61,12 +61,23 @@ class Employee {
     this.deviceActivatedAt = '',
     this.pointsOfSale = const [],
     this.permissions = const [],
+    this.paused = false,
+    this.allPaused = false,
   });
 
   final int id;
   final String fullName;
   final String phone;
   final EmployeeStatus status;
+
+  /// إيقافٌ فرديّ لهذا الموظف (زرُّه الخاصّ).
+  final bool paused;
+
+  /// إيقافٌ جماعيّ للوكيل (يشمل الجميع) — نفس القيمة على كلّ الموظفين.
+  final bool allPaused;
+
+  /// مُجمَّدٌ فعلياً؟ فرديٌّ أو ضمن الجماعيّ.
+  bool get frozen => paused || allPaused;
 
   final String lastLoginAt;
   final String lastActivityAt;
@@ -115,6 +126,8 @@ class Employee {
         permissions: ((j['permissions'] as List?) ?? const [])
             .map((e) => '$e')
             .toList(),
+        paused: j['paused'] == true,
+        allPaused: j['all_paused'] == true,
       );
 }
 
@@ -333,6 +346,13 @@ class EmployeesRepository {
 
   Future<void> setStatus({required int id, required String status}) =>
       _api.post('/employees/$id/status', body: {'status': status});
+
+  /// بوّابةُ الإيقاف — سيطرةُ الوكيل عن بُعد (تجميدٌ ناعم، بلا فقدان شيء).
+  Future<void> setPaused({required int id, required bool paused}) =>
+      _api.post('/employees/$id/${paused ? 'pause' : 'resume'}');
+
+  Future<void> setPausedAll({required bool paused}) =>
+      _api.post('/employees/${paused ? 'pause-all' : 'resume-all'}');
 
   /// يُعيد الكود ورمز QR **نصّاً صريحاً مرّة واحدة**؛ الخادم لا يحفظ أياً
   /// منهما كذلك ولا يُعيده ثانيةً. لذلك تعرضهما الشاشة فوراً وتقول للوكيل

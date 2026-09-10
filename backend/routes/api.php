@@ -603,6 +603,11 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
       [ EmployeeAdminController::class , 'destroy' ])->whereNumber('id');
 
   Route::post('employees/{id}/status',          [ EmployeeAdminController::class , 'setStatus' ])->whereNumber('id');
+  // بوّابةُ الإيقاف — سيطرةُ الوكيل عن بُعد (الجماعيُّ ثابتٌ فيسبق، ثم الفرديُّ برقم).
+  Route::post('employees/pause-all',            [ EmployeeAdminController::class , 'pauseAll' ]);
+  Route::post('employees/resume-all',           [ EmployeeAdminController::class , 'resumeAll' ]);
+  Route::post('employees/{id}/pause',           [ EmployeeAdminController::class , 'pause' ])->whereNumber('id');
+  Route::post('employees/{id}/resume',          [ EmployeeAdminController::class , 'resume' ])->whereNumber('id');
   Route::post('employees/{id}/activation-code', [ EmployeeAdminController::class , 'issueCode' ])->whereNumber('id');
   Route::post('employees/{id}/activation-code/revoke', [ EmployeeAdminController::class , 'revokeCode' ])->whereNumber('id');
 

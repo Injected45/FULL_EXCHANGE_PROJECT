@@ -284,6 +284,13 @@ class EmployeeController extends BaseController
 
         $shift = $this->cashbox->openShift((int) $employee->id);
 
+        // حالةُ الإيقاف — يقرؤها تطبيقُ الموظف فيعرض شاشةَ التجميد. (المسارُ
+        // بلا صلاحية فلا تحجبه البوّابة، فيعرف الموظفُ حالته دائماً.)
+        $paused = ($employee->paused_at ?? null) !== null
+            || DB::table('employee_pause_gate')
+                ->where('agent_id', $employee->agent_id)
+                ->whereNotNull('all_paused_at')->exists();
+
         return $this->sendResponse([
             'employee' => [
                 'id'    => (int) $employee->id,
@@ -293,6 +300,10 @@ class EmployeeController extends BaseController
             'active_point_of_sale_id' => $session->active_pos_id,
             'points_of_sale'          => $pos,
             'permissions'             => $permissions,
+            'paused'                  => $paused,
+            'pause_message'           => $paused
+                ? 'أوقفَ وكيلُك الخدمةَ مؤقتاً. تواصل مع الإدارة.'
+                : null,
             'open_shift'              => $shift ? [
                 'id'           => (int) $shift->id,
                 'opening_cash' => (float) $shift->opening_cash,

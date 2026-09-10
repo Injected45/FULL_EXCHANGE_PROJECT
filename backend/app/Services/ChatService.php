@@ -52,11 +52,14 @@ class ChatService
         'image/png'  => ['IMAGE', 'png'],
         'image/webp' => ['IMAGE', 'webp'],
         'image/heic' => ['IMAGE', 'heic'],
-        'audio/mp4'  => ['AUDIO', 'm4a'],
-        'audio/aac'  => ['AUDIO', 'aac'],
-        'audio/mpeg' => ['AUDIO', 'mp3'],
-        'audio/ogg'  => ['AUDIO', 'ogg'],
-        'audio/wav'  => ['AUDIO', 'wav'],
+        // ‏m4a/AAC — وصيغُ finfo المختلفة له، كي لا يُرفَض رفعُ رسالةٍ صوتية.
+        'audio/mp4'   => ['AUDIO', 'm4a'],
+        'audio/x-m4a' => ['AUDIO', 'm4a'],
+        'audio/m4a'   => ['AUDIO', 'm4a'],
+        'audio/aac'   => ['AUDIO', 'aac'],
+        'audio/mpeg'  => ['AUDIO', 'mp3'],
+        'audio/ogg'   => ['AUDIO', 'ogg'],
+        'audio/wav'   => ['AUDIO', 'wav'],
         'application/pdf' => ['FILE', 'pdf'],
     ];
 

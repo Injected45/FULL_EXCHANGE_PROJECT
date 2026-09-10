@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/net/api_client.dart';
@@ -23,6 +25,8 @@ class EmployeeProfile {
     this.pointsOfSale = const [],
     this.permissions = const [],
     this.openShift,
+    this.paused = false,
+    this.pauseMessage,
   });
 
   final int id;
@@ -33,6 +37,10 @@ class EmployeeProfile {
   final List<EmployeePos> pointsOfSale;
   final List<String> permissions;
   final OpenShift? openShift;
+
+  /// أوقفَ الوكيلُ الخدمةَ عن هذا الموظف (فردياً أو ضمن إيقافٍ جماعيّ).
+  final bool paused;
+  final String? pauseMessage;
 
   bool can(String key) => permissions.contains(key);
 
@@ -61,6 +69,8 @@ class EmployeeProfile {
       permissions:
           ((j['permissions'] as List?) ?? const []).map((e) => '$e').toList(),
       openShift: shift == null ? null : OpenShift.fromJson(shift),
+      paused: j['paused'] == true,
+      pauseMessage: j['pause_message']?.toString(),
     );
   }
 
@@ -70,6 +80,8 @@ class EmployeeProfile {
         'points_of_sale':
             pointsOfSale.map((p) => {'id': p.id, 'name': p.name}).toList(),
         'permissions': permissions,
+        'paused': paused,
+        'pause_message': pauseMessage,
       };
 }
 
@@ -119,10 +131,22 @@ class EmployeeAuthController extends StateNotifier<EmployeeAuthState> {
   EmployeeAuthController(this._api, this._store)
       : super(EmployeeAuthState.initial) {
     _restore();
+    // نبضٌ دوريّ لـ me: يُبقي حالة الإيقاف (paused) حديثة، فيظهر التجميدُ
+    // خلال ثوانٍ حين يوقفه الوكيل، ويُرفع فور التشغيل — بلا فعلٍ من الموظف.
+    _pauseTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (state.status == EmpSessionStatus.signedIn) refresh();
+    });
   }
 
   final ApiClient _api;
   final SecureStore _store;
+  Timer? _pauseTimer;
+
+  @override
+  void dispose() {
+    _pauseTimer?.cancel();
+    super.dispose();
+  }
 
   /// استعادة الجلسة عند الإقلاع.
   ///
