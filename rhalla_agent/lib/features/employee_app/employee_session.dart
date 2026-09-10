@@ -26,7 +26,6 @@ class EmployeeProfile {
     this.activePosId,
     this.pointsOfSale = const [],
     this.permissions = const [],
-    this.openShift,
     this.paused = false,
     this.pauseMessage,
   });
@@ -38,7 +37,6 @@ class EmployeeProfile {
   final int? activePosId;
   final List<EmployeePos> pointsOfSale;
   final List<String> permissions;
-  final OpenShift? openShift;
 
   /// أوقفَ الوكيلُ الخدمةَ عن هذا الموظف (فردياً أو ضمن إيقافٍ جماعيّ).
   final bool paused;
@@ -63,7 +61,6 @@ class EmployeeProfile {
       other.activePosId == activePosId &&
       other.paused == paused &&
       other.pauseMessage == pauseMessage &&
-      other.openShift == openShift &&
       listEquals(other.permissions, permissions) &&
       listEquals(other.pointsOfSale, pointsOfSale);
 
@@ -75,7 +72,6 @@ class EmployeeProfile {
         activePosId,
         paused,
         pauseMessage,
-        openShift,
         Object.hashAll(permissions),
         Object.hashAll(pointsOfSale),
       );
@@ -89,7 +85,6 @@ class EmployeeProfile {
 
   static EmployeeProfile fromJson(Map<String, dynamic> j) {
     final e = (j['employee'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final shift = (j['open_shift'] as Map?)?.cast<String, dynamic>();
 
     return EmployeeProfile(
       id: int.tryParse('${e['id'] ?? 0}') ?? 0,
@@ -104,7 +99,6 @@ class EmployeeProfile {
           .toList(),
       permissions:
           ((j['permissions'] as List?) ?? const []).map((e) => '$e').toList(),
-      openShift: shift == null ? null : OpenShift.fromJson(shift),
       paused: j['paused'] == true,
       pauseMessage: j['pause_message']?.toString(),
     );
@@ -142,33 +136,6 @@ class EmployeePos {
   int get hashCode => Object.hash(id, name);
 }
 
-class OpenShift {
-  const OpenShift({
-    required this.id,
-    required this.openingCash,
-    required this.startedAt,
-  });
-
-  final int id;
-  final double openingCash;
-  final String startedAt;
-
-  static OpenShift fromJson(Map<String, dynamic> j) => OpenShift(
-        id: int.tryParse('${j['id'] ?? 0}') ?? 0,
-        openingCash: double.tryParse('${j['opening_cash'] ?? 0}') ?? 0,
-        startedAt: '${j['started_at'] ?? ''}'.trim(),
-      );
-
-  @override
-  bool operator ==(Object other) =>
-      other is OpenShift &&
-      other.id == id &&
-      other.openingCash == openingCash &&
-      other.startedAt == startedAt;
-
-  @override
-  int get hashCode => Object.hash(id, openingCash, startedAt);
-}
 
 /// حالة جلسة الموظف في التطبيق.
 enum EmpSessionStatus { unknown, signedOut, signedIn }

@@ -32,11 +32,20 @@ class EmployeePermissions
         'VIEW_POS_TRANSFERS'      => ['transfers', 'عرض حوالات نقطة بيعه'],
         'SEARCH_TRANSFER'         => ['transfers', 'البحث برقم الحوالة'],
 
-        // ── الخزينة والورديات ──────────────────────────────────────
-        'VIEW_OWN_CASHBOX'        => ['cashbox', 'عرض خزينته'],
-        'CASHBOX_ENTRY'           => ['cashbox', 'تسجيل حركة خزينة'],
-        'START_SHIFT'             => ['cashbox', 'بدء وردية'],
-        'CLOSE_SHIFT'             => ['cashbox', 'إقفال وردية'],
+        /* ── الخزينة والورديات: أُلغيت ────────────────────────────────
+         *
+         * أمرُ المالك (10 سبتمبر 2026): «إلغاء نظام الوردية والعهدة ليصبح
+         * حوالات فقط، لتقليل الضغط وتقليل حدوث المشاكل».
+         *
+         * فخرجت مفاتيحُها الأربعة من الكتالوج — `VIEW_OWN_CASHBOX` و
+         * `CASHBOX_ENTRY` و`START_SHIFT` و`CLOSE_SHIFT` — ومعها
+         * `REPORT_EMPLOYEE_CASHBOX` من التقارير. والكتالوجُ هو ما تعرضه
+         * شاشةُ المنح، فلا تظهر فيها بعد اليوم.
+         *
+         * ⚠ وصفوفُ المنح القديمة في `employee_permissions` **لم تُحذف**: لا
+         * مسارَ يفرضها فهي خاملة، وحذفُ صفوفٍ لا يُصلح شيئاً ويمحو أثرَ من
+         * مُنح ماذا ومتى.
+         */
 
         // ── الأرصدة ────────────────────────────────────────────────
         // تُفصّل عمداً: «قسم الأرصدة» ليس صلاحية واحدة (بند 28).
@@ -49,7 +58,6 @@ class EmployeePermissions
         'REPORT_DAILY_TRANSFERS'      => ['reports', 'تقرير حوالات اليوم'],
         'REPORT_DELIVERED_TRANSFERS'  => ['reports', 'تقرير الحوالات المسلَّمة'],
         'REPORT_PENDING_TRANSFERS'    => ['reports', 'تقرير الحوالات بانتظار التسليم'],
-        'REPORT_EMPLOYEE_CASHBOX'     => ['reports', 'تقرير خزينة الموظف'],
         'REPORT_POINT_OF_SALE'        => ['reports', 'تقرير نقطة البيع'],
         'REPORT_AGENT_BALANCE'        => ['reports', 'تقرير رصيد الوكيل'],
         'REPORT_AUDIT'                => ['reports', 'تقرير سجلّ النشاط'],
@@ -68,7 +76,6 @@ class EmployeePermissions
     /** التصنيفات بأسمائها — لترتيب شاشة المنح. */
     public const GROUPS = [
         'transfers' => 'الحوالات',
-        'cashbox'   => 'الخزينة والورديات',
         'balances'  => 'الأرصدة',
         'reports'   => 'التقارير',
         'customers' => 'المستفيدون',
@@ -111,10 +118,6 @@ class EmployeePermissions
     public const LIVE = [
         'VIEW_INCOMING_TRANSFERS',
         'DELIVER_TRANSFER',
-        'VIEW_OWN_CASHBOX',
-        'CASHBOX_ENTRY',
-        'START_SHIFT',
-        'CLOSE_SHIFT',
         'CHAT_WITH_AGENT',
         // الدفعة الأولى من المفاتيح المُعطّلة: قراءةٌ خالصة.
         'SEARCH_TRANSFER',
@@ -138,7 +141,6 @@ class EmployeePermissions
         'REPORT_DAILY_TRANSFERS',
         'REPORT_DELIVERED_TRANSFERS',
         'REPORT_PENDING_TRANSFERS',
-        'REPORT_EMPLOYEE_CASHBOX',
         'REPORT_POINT_OF_SALE',
         'REPORT_AUDIT',
         'VIEW_AGENT_TOTAL_BALANCE',

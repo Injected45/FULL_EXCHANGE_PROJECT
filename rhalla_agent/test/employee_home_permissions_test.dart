@@ -196,17 +196,12 @@ void main() {
     'VIEW_OWN_TRANSFERS',
     'VIEW_POS_TRANSFERS',
     'SEARCH_TRANSFER',
-    'VIEW_OWN_CASHBOX',
-    'CASHBOX_ENTRY',
-    'START_SHIFT',
-    'CLOSE_SHIFT',
     'VIEW_AGENT_TOTAL_BALANCE',
     'VIEW_FINANCIAL_SUMMARY',
     'REPORTS_VIEW',
     'REPORT_DAILY_TRANSFERS',
     'REPORT_DELIVERED_TRANSFERS',
     'REPORT_PENDING_TRANSFERS',
-    'REPORT_EMPLOYEE_CASHBOX',
     'REPORT_POINT_OF_SALE',
     'REPORT_AGENT_BALANCE',
     'REPORT_AUDIT',
@@ -228,12 +223,10 @@ void main() {
     'REPORT_DAILY_TRANSFERS',
     'REPORT_DELIVERED_TRANSFERS',
     'REPORT_PENDING_TRANSFERS',
-    'REPORT_EMPLOYEE_CASHBOX',
     'REPORT_POINT_OF_SALE',
     'REPORT_AGENT_BALANCE',
     'REPORT_AUDIT',
     'MANAGE_FAVORITES',
-    'CLOSE_SHIFT',
   };
 
   testWidgets('بلا صلاحيةٍ واحدة: لافتةٌ ولا بلاطة', (tester) async {
@@ -300,18 +293,6 @@ void main() {
     expect(find.text('الحوالات الواردة'), findsOneWidget);
     expect(find.textContaining('راجع وكيلك'), findsOneWidget,
         reason: 'يقول له ما ينقصه بدل أن يصمت');
-  });
-
-  testWidgets('⚠ و«تسجيل حركة خزينة» وحدَه كذلك', (tester) async {
-    await _mount(tester, const ['CASHBOX_ENTRY']);
-
-    expect(find.text(noPermsBanner), findsNothing);
-    expect(find.text('خزينتي'), findsOneWidget);
-  });
-
-  testWidgets('و«بدء وردية» وحدَها عملٌ كسائره — لا لافتة', (tester) async {
-    await _mount(tester, const ['START_SHIFT']);
-    expect(find.text(noPermsBanner), findsNothing);
   });
 
   testWidgets('⚠ وتقريرٌ مفردٌ بلا بوّابته يقول الحقيقة: لا شيءَ هنا',

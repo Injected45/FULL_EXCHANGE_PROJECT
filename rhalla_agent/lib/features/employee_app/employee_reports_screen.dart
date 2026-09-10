@@ -57,13 +57,6 @@ class EmployeeOwnReportsScreen extends ConsumerWidget {
       const ReportDef(
         key: 'REPORT_EMPLOYEE_CASHBOX',
         title: 'تقرير خزينتي',
-        subtitle: 'الداخل والخارج والصافي',
-        icon: Icons.savings_outlined,
-        path: '/device/employee/reports/cashbox',
-      ),
-      const ReportDef(
-        key: 'REPORT_POINT_OF_SALE',
-        title: 'نقطة البيع',
         subtitle: 'عملي على نقطة بيعي',
         icon: Icons.storefront_outlined,
         path: '/device/employee/reports/point-of-sale',

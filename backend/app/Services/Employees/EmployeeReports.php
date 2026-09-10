@@ -126,43 +126,6 @@ class EmployeeReports
     }
 
     /**
-     * خزينةُ الموظف — الحركاتُ والمحصّلة.
-     *
-     * ⚠ والرصيدُ **يُحسب من الحركات ولا يُقرأ مخزَّناً** — وهو قرارُ الخزينة
-     * منذ نشأتها: رصيدٌ محفوظ ينحرف عن حركاته عند أوّل انقطاع، ثمّ لا يُعرف
-     * أيُّهما الصحيح.
-     */
-    public function cashbox(object $employee, int $days = 7): array
-    {
-        $since = now()->subDays(max(1, $days));
-
-        $rows = DB::table('employee_cashbox_entries')
-            ->where('employee_id', $employee->id)
-            ->where('created_at', '>=', $since)
-            ->orderByDesc('id')
-            ->limit(300)
-            ->get(['direction', 'amount', 'transaction_type', 'notes', 'created_at']);
-
-        $in  = (float) $rows->where('direction', 'IN')->sum('amount');
-        $out = (float) $rows->where('direction', 'OUT')->sum('amount');
-
-        return [
-            'days'  => $days,
-            'in'    => round($in, 3),
-            'out'   => round($out, 3),
-            'net'   => round($in - $out, 3),
-            'count' => $rows->count(),
-            'items' => $rows->map(fn ($r) => [
-                'direction' => $r->direction,
-                'amount'    => (float) $r->amount,
-                'type'      => $r->transaction_type,
-                'note'      => $r->notes,
-                'at'        => $r->created_at,
-            ])->all(),
-        ];
-    }
-
-    /**
      * تقريرُ نقطة البيع — كلُّ من عمل عليها لا الموظفُ وحدَه.
      *
      * ⚠ صلاحيةٌ منفصلة عمداً: من يرى نقطةَ بيعه يرى عملَ زملائه عليها،
@@ -260,21 +223,18 @@ class EmployeeReports
      * الملخّصُ الماليّ للموظف — سطرٌ واحد عن يومه.
      *
      * ⚠ **لا رقمَ جديدٌ يُحسب هنا**: هو تجميعُ ما تُرجعه التقاريرُ نفسُها
-     * (`daily` و`cashbox` و`pending`). فلو اختلف رقمُ الملخّص عن رقم
+     * (`daily` و`pending`). فلو اختلف رقمُ الملخّص عن رقم
      * التقرير لَما عرف الموظف أيَّهما يصدّق — والاثنان من مصدرٍ واحد.
      */
     public function summary(object $employee): array
     {
         $daily   = $this->daily($employee);
-        $cashbox = $this->cashbox($employee, 1);
+
         $pending = $this->pending($employee);
 
         return [
             'today_count'   => $daily['count'],
             'today_total'   => $daily['total'],
-            'cashbox_in'    => $cashbox['in'],
-            'cashbox_out'   => $cashbox['out'],
-            'cashbox_net'   => $cashbox['net'],
             'pending_count' => $pending['count'],
             'pending_total' => $pending['total'],
         ];

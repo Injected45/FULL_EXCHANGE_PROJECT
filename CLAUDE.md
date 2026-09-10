@@ -398,6 +398,51 @@ to the cache store, so `CACHE_STORE=file` must be set on the server or the
 counters land in the production financial database. Both are step-by-step in the
 runbook.
 
+### ⚠⚠ The shift and the custody were removed a few hours after they were finished (10 Sep 2026)
+
+Owner, the same day the automatic-shift work landed: *«في تطبيق الوكيل إلغاء نظام
+الوردية والعهدة ليصبح حوالات فقط لتقليل الضغط وتقليل حدوث المشاكل … وألغِها من
+كل التبعات بالكامل، لا وجود لعهدة أو وردية تفتح وتغلق، ليصبح التطبيق بالكامل
+حوالةً استلمها أو حوالةً سلّمها فقط»*.
+
+**What was deleted, and it is the whole subsystem:**
+
+| Layer | Gone |
+|---|---|
+| Routes (6) | `cashbox` · `cashbox/ledger` · `cashbox/entry` · `shift/start` · `shift/close` · `reports/cashbox`, plus `custody` |
+| Permissions (5) | `VIEW_OWN_CASHBOX` · `CASHBOX_ENTRY` · `START_SHIFT` · `CLOSE_SHIFT` · `REPORT_EMPLOYEE_CASHBOX`, and the whole `cashbox` group |
+| Services | `EmployeeCashboxService`, `EmployeeCashboxLedger`, `EmployeeReports::cashbox`, the cash columns of the agent's employee report and dashboard |
+| Screens | the cashbox screen, the ledger view, both shift screens, the custody block, the shift card |
+| Writes | the three cashbox entries written on create / approve / deliver |
+
+**⚠ Not one table and not one row was dropped.** `employee_cashboxes`,
+`employee_shifts`, `employee_cashbox_entries` and `employee_shift_closings` keep
+their data: those are movements of money that actually happened, and the standing
+rule in this project is that a movement is never edited or deleted. **Its use was
+cancelled; its record was not.** The same for the granted permission rows — no
+route enforces them any more, so they are inert, and deleting them would erase who
+was granted what and when.
+
+**What remains is exactly the sentence he used.** `transfer_attributions` is
+untouched, and it is literally "a transfer he received or a transfer he delivered":
+the agent's employee report now shows delivered count and value, created count and
+value, and nothing else. The employee delete-guard still probes the cashbox tables
+— historical rows still count as a financial footprint, so an employee with past
+cash movements still cannot be deleted.
+
+⚠ **`ensureOpenShift`, added earlier the same day, went with it.** It is worth
+recording why it existed rather than pretending it never did: three transfer paths
+were writing cash entries under `if ($shift)` and silently writing nothing when no
+shift was open, so an employee who never pressed «بدء وردية» had transfers that
+never appeared in his custody. That defect is now moot — there is no custody — but
+the shape of it is not: **a guard that silently does nothing is worse than a
+refusal**, and that lesson outlives the feature.
+
+Verified after removal: `flutter analyze` clean, **214 tests** green (three cashbox
+cases and the ledger suite removed with the feature), `php -l` clean,
+`employee_permissions_wiring_check` PASS, `app_routes_wiring_check` 3/3 over **99
+paths**.
+
 ### The shift opens itself; only the employee closes it (10 Sep 2026)
 
 Owner's order, and his own definition of custody: *«العهدة إمّا قيمةٌ مودعةٌ

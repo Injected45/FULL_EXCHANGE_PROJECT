@@ -11,8 +11,6 @@ use App\Services\Employees\EmployeeLimitPolicy;
 use App\Services\Employees\EmployeeReports;
 use App\Services\Employees\EmployeeApprovalExecutor;
 use App\Services\Employees\EmployeeTransferViews;
-use App\Services\Employees\EmployeeCashboxLedger;
-use App\Services\Employees\EmployeeCashboxService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -34,8 +32,6 @@ class EmployeeController extends BaseController
 {
     public function __construct(
         private AgentIncomingTransfersService $transfers,
-        private EmployeeCashboxService $cashbox,
-        private EmployeeCashboxLedger $ledger,
         private EmployeeAuditLogger $log,
     ) {
     }
@@ -173,54 +169,12 @@ class EmployeeController extends BaseController
             return $this->sendError($result['message'], [], 422);
         }
 
-        /*
-         * ⚠ حركةُ الخزينة بعد نجاح الحوالة لا قبله، ولا تُبطلها إن أخفقت:
-         * المالُ خرج فعلاً، ووصفُه لا يُلغيه. وهو ترتيبُ التسليم نفسُه.
-         */
-        $shift = $this->cashbox->ensureOpenShift(
-            (int) $employee->agent_id, (int) $employee->id,
-            $session->active_pos_id ?? null, $session->device_hash ?? null);
-        if ($shift) {
-            try {
-                $this->cashbox->addEntry([
-                    'agent_id'         => $employee->agent_id,
-                    'employee_id'      => $employee->id,
-                    'cashbox_id'       => $shift->cashbox_id,
-                    'shift_id'         => $shift->id,
-                    'point_of_sale_id' => $session->active_pos_id ?? null,
-                    /* ⚠ نوعٌ مرجعيّ يخصّ الإنشاء وحدَه — لا `INTERNAL_TRANSFER`.
-                     *
-                     * الفهرسُ `UX_entry_reference` فريدٌ على (النوع، الرقم)،
-                     * فلو تشارك الإنشاءُ والتسليمُ نوعاً واحداً لَاصطدم قيدُ
-                     * تسليمِ حوالةٍ أنشأها الموظف نفسُه — وهو أمرٌ عاديّ حين
-                     * تكون نقطةُ الوصول تابعةً للوكيل ذاته — فتُعيد `addEntry`
-                     * «تكرار» بلا إدراج، فيسقط قيدُ الخروج صامتاً وتزيد عهدةُ
-                     * الموظف بقيمة الحوالة. انظر 19_cashbox_ledger.sql.
-                     */
-                    'transaction_type' => 'TRANSFER_CREATED',
-                    'reference_type'   => 'INTERNAL_TRANSFER_CREATED',
-                    'reference_id'     => $result['transfer_number'],
-                    'amount'           => (float) $req->amount,
-                    'direction'        => EmployeeCashboxService::IN,
-                    'notes'            => 'حوالة تجاوزت السقف — بموافقة الوكيل',
-                    'device_hash'      => $session->device_hash ?? null,
-                    'created_by'       => $employee->id,
-                ]);
-            } catch (\Throwable $e) {
-                Log::warning('cashbox entry failed after approved transfer', [
-                    'transfer' => $result['transfer_number'],
-                    'error'    => $e->getMessage(),
-                ]);
-            }
-        }
-
         return $this->sendResponse([
             'transfer_number' => $result['transfer_number'],
             // ⚠ البيانُ الذي طلبه المالك: تُقرأ الحوالةُ فيُعرف أنها مرّت
             // بموافقةٍ ولم تكن ضمن سقف الموظف.
             'note'            => 'حوالة من ضمن السقف بموافقة الوكيل',
-            'cashbox'         => $shift !== null,
-        ], 'نُفِّذت الحوالة ودخلت خزينتك.');
+        ], 'نُفِّذت الحوالة.');
     }
 
     /**
@@ -284,8 +238,6 @@ class EmployeeController extends BaseController
             ->select(['ep.point_of_sale_id as id', 'a.Name_post as name', 'ep.is_primary'])
             ->get();
 
-        $shift = $this->cashbox->openShift((int) $employee->id);
-
         // حالةُ الإيقاف — يقرؤها تطبيقُ الموظف فيعرض شاشةَ التجميد. (المسارُ
         // بلا صلاحية فلا تحجبه البوّابة، فيعرف الموظفُ حالته دائماً.)
         $paused = ($employee->paused_at ?? null) !== null
@@ -306,11 +258,6 @@ class EmployeeController extends BaseController
             'pause_message'           => $paused
                 ? 'أوقفَ وكيلُك الخدمةَ مؤقتاً. تواصل مع الإدارة.'
                 : null,
-            'open_shift'              => $shift ? [
-                'id'           => (int) $shift->id,
-                'opening_cash' => (float) $shift->opening_cash,
-                'started_at'   => $shift->started_at,
-            ] : null,
         ], 'Success');
     }
 
@@ -613,52 +560,6 @@ class EmployeeController extends BaseController
                     'entity_type' => 'transfer',
                     'entity_id'   => (string) ($t['Code'] ?? ''),
                 ]);
-            /*
-             * ⚠ **النقدُ يدخل خزينة الموظف مع كلّ حوالةٍ ينشئها** — أمرُ
-             * المالك (8 سبتمبر 2026): «لا بدّ أن يثبت في خزينةٍ واحدة لنعرف
-             * نجرد على الموظف».
-             *
-             * وكانت الخزينةُ تسجّل التسليمَ `OUT` ولا تسجّل الإنشاءَ `IN`،
-             * فتُقرأ خزينةُ موظفٍ عمل يوماً كاملاً وكأنها لم تستقبل ديناراً
-             * — والمالُ الذي قبضه من الزبائن لا أثرَ له فيها. فالجردُ عليه
-             * كان يقارن نقداً في يده بدفترٍ لا يعرف من أين جاء.
-             *
-             * ⚠ وهي حركةٌ **تشغيليّة في دفتر الموظف وحدَه**: لا تمسّ
-             * `wallet` ولا `InternalEx` ولا حسابَ الوكيل مع الرحالة. عهدةٌ
-             * تُجرد، لا قيدٌ يُرحَّل.
-             *
-             * ⚠ وبعد نجاح الحوالة لا قبله، ولا تُبطلها إن أخفقت: المالُ
-             * تحرّك فعلاً، ووصفُه لا يُلغيه. وهو ترتيبُ التسليم نفسُه.
-             */
-            $shift = $this->cashbox->ensureOpenShift(
-                (int) $employee->agent_id, (int) $employee->id,
-                $session->active_pos_id ?? null, $session->device_hash ?? null);
-            if ($shift) {
-                try {
-                    $this->cashbox->addEntry([
-                        'agent_id'         => $employee->agent_id,
-                        'employee_id'      => $employee->id,
-                        'cashbox_id'       => $shift->cashbox_id,
-                        'shift_id'         => $shift->id,
-                        'point_of_sale_id' => $session->active_pos_id ?? null,
-                        /* ⚠ نوعٌ مرجعيّ يخصّ الإنشاء وحدَه — الشرحُ عند
-                         * نظيره في مسار الموافقة أعلاه. */
-                        'transaction_type' => 'TRANSFER_CREATED',
-                        'reference_type'   => 'INTERNAL_TRANSFER_CREATED',
-                        'reference_id'     => (string) ($t['Code'] ?? ''),
-                        'amount'           => (float) ($t['OverallVal']
-                            ?? $request->input('amount', 0)),
-                        'direction'        => EmployeeCashboxService::IN,
-                        'notes'            => 'قيمة حوالة أنشأها الموظف',
-                        'device_hash'      => $session->device_hash ?? null,
-                        'created_by'       => $employee->id,
-                    ]);
-                } catch (\Throwable $e) {
-                    Log::warning('cashbox entry failed after transfer create', [
-                        'transfer' => $t['Code'] ?? '', 'error' => $e->getMessage(),
-                    ]);
-                }
-            }
 
         }
 
@@ -774,82 +675,6 @@ class EmployeeController extends BaseController
     }
 
     /**
-     * GET device/employee/cashbox/ledger — كشفُ حركة خزينته للجرد.
-     *
-     * ⚠ **مقيَّدٌ بـ`employee_id` من الجلسة لا من الطلب**: كلُّ موظفٍ يرى
-     * كشفَه هو. ولا معامل في هذا النداء يقبل معرّفَ موظف — فلا سبيلَ إلى
-     * كشفِ زميلٍ ولو عُرف رقمُه.
-     *
-     * ⚠ وقراءةٌ خالصة: لا يكتب صفّاً واحداً.
-     */
-    public function cashboxLedger(Request $request)
-    {
-        [$employee, , ] = $this->ctx($request);
-
-        return $this->sendResponse(
-            $this->ledger->ledger($employee, [
-                'from' => $request->query('from'),
-                'to'   => $request->query('to'),
-                'type' => $request->query('type'),
-            ]),
-            'تم'
-        );
-    }
-    /**
-     * GET employee/custody — ما في عهدته الآن، سطرٌ واحد.
-     *
-     * ══════════════════════════════════════════════════════════════════════
-     *  المعنى المحاسبيّ
-     * ══════════════════════════════════════════════════════════════════════
-     *
-     * ⚠ **النقدُ في درج الموظف ليس ملكَه — هو عهدةٌ للوكيل.** فكلُّ دينارٍ
-     * فيه التزامٌ عليه، وحين يسلّمه ينقضي.
-     *
-     *     المتوقَّع = الافتتاحيّ + الداخل − الخارج
-     *
-     * ⚠ **والإشارةُ تقلب المعنى**، وهي ما يجعل الرقم محاسبياً صحيحاً:
-     *
-     *   • موجبٌ ⇦ نقدٌ في يده، **مستحقٌّ عليه** يسلّمه للوكيل.
-     *   • سالبٌ ⇦ دفع أكثر ممّا قبض، **مستحقٌّ له** على الوكيل. وهي حالةٌ
-     *     واقعية: موظفٌ بدأ ورديّته بلا نقدٍ ثمّ سلّم حوالاتٍ من ماله.
-     *
-     * ⚠ **وهو عهدةٌ لا حساب**: لا يُقرأ من `wallet` ولا يُكتب فيه، ولا يظهر
-     * في الشجرة المحاسبية. جردٌ على من يحمل المال، لا قيدٌ يُرحَّل.
-     *
-     * ⚠ ومستقلٌّ عن `cashbox` عمداً: هذا يُسأل مع كلّ فتحٍ للشاشة الرئيسية،
-     * وحملُ `cashbox` قائمةُ الحركات كلِّها. سؤالٌ يتكرّر يجب أن يكون
-     * أرخصَ ما يمكن.
-     */
-    public function custody(Request $request)
-    {
-        [$employee, , ] = $this->ctx($request);
-
-        $shift = $this->cashbox->openShift((int) $employee->id);
-
-        if (!$shift) {
-            /*
-             * ⚠ لا ورديةَ ⇦ لا عهدة. ولا يُعرض صفرٌ: صفرٌ يُقرأ «لا شيء
-             * عليك» وهو غيرُ «لم تبدأ بعد» — والفرقُ بينهما يومُ عملٍ كامل.
-             */
-            return $this->sendResponse([
-                'has_shift' => false,
-                'expected'  => null,
-            ], 'لا وردية مفتوحة.');
-        }
-
-        $c = $this->cashbox->expectedCash((int) $shift->cashbox_id, (int) $shift->id);
-
-        return $this->sendResponse([
-            'has_shift'  => true,
-            'opening'    => round((float) $c['opening'], 3),
-            'in'         => round((float) $c['in'], 3),
-            'out'        => round((float) $c['out'], 3),
-            'expected'   => round((float) $c['expected'], 3),
-            'started_at' => $shift->started_at ?? null,
-        ], 'تم');
-    }
-
-    /**
      * GET employee/statement — كشفُ حساب حوالاته للجرد.
      *
      * ⚠ تحت `VIEW_OWN_TRANSFERS`: من يرى حوالاته يرى كشفَها. ولا صلاحيةَ
@@ -865,16 +690,6 @@ class EmployeeController extends BaseController
             'تم');
     }
 
-    /** GET employee/reports/cashbox — يتطلّب REPORT_EMPLOYEE_CASHBOX */
-    public function reportCashbox(Request $request)
-    {
-        [$employee, , ] = $this->ctx($request);
-
-        return $this->sendResponse(
-            app(EmployeeReports::class)->cashbox($employee, (int) $request->query('days', 7)),
-            'تم',
-        );
-    }
 
     /**
      * GET employee/reports/point-of-sale — يتطلّب REPORT_POINT_OF_SALE
@@ -1177,36 +992,6 @@ class EmployeeController extends BaseController
                 'occurred_at'      => now(),
             ]);
 
-            // الحركة تُسجَّل داخل الوردية المفتوحة وحدها: بلا وردية لا يوجد
-            // افتتاحيّ ولا إقفال، فحركةٌ خارجها لا تدخل في أي معادلة.
-            $shift = $this->cashbox->ensureOpenShift(
-                (int) $employee->agent_id, (int) $employee->id,
-                $posId, $session->device_hash ?? null);
-            if ($shift) {
-                try {
-                    $this->cashbox->addEntry([
-                        'agent_id'         => $employee->agent_id,
-                        'employee_id'      => $employee->id,
-                        'cashbox_id'       => $shift->cashbox_id,
-                        'shift_id'         => $shift->id,
-                        'point_of_sale_id' => $posId,
-                        'transaction_type' => 'TRANSFER_DELIVERY',
-                        'reference_type'   => 'INTERNAL_TRANSFER',
-                        'reference_id'     => $row->transfer_number,
-                        'amount'           => (float) $row->amount,
-                        'direction'        => EmployeeCashboxService::OUT,
-                        'device_hash'      => $session->device_hash,
-                        'created_by'       => $employee->id,
-                    ]);
-                } catch (\Throwable $e) {
-                    // التسليم مُسجَّل في دفتر الوكيل وهو الأهمّ؛ وفشل حركة
-                    // الخزينة يُسجَّل ولا يُبطل التسليم.
-                    Log::warning('cashbox entry failed after delivery', [
-                        'transfer' => $row->transfer_number, 'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
             /*
              * ⚠ الحالتان القديمةُ والجديدة في صفّ التدقيق نفسِه.
              *
@@ -1287,173 +1072,4 @@ class EmployeeController extends BaseController
        الخزينة والورديات
        =================================================================== */
 
-    /** GET employee/cashbox — يتطلّب VIEW_OWN_CASHBOX */
-    public function cashbox(Request $request)
-    {
-        [$employee, $session, ] = $this->ctx($request);
-
-        $shift = $this->cashbox->openShift((int) $employee->id);
-        if (!$shift) {
-            return $this->sendResponse([
-                'open_shift' => null,
-                'summary'    => null,
-                'entries'    => [],
-            ], 'لا توجد وردية مفتوحة.');
-        }
-
-        $calc = $this->cashbox->expectedCash((int) $shift->cashbox_id, (int) $shift->id);
-
-        $entries = DB::table('employee_cashbox_entries')
-            ->where('shift_id', $shift->id)
-            ->orderByDesc('id')
-            ->limit(100)
-            ->get([
-                'id', 'transaction_type', 'reference_type', 'reference_id',
-                'amount', 'direction', 'notes', 'is_reversed', 'reversal_of',
-                'created_at',
-            ]);
-
-        return $this->sendResponse([
-            'open_shift' => [
-                'id'           => (int) $shift->id,
-                'opening_cash' => (float) $shift->opening_cash,
-                'started_at'   => $shift->started_at,
-            ],
-            // المعادلة تُعاد كاملةً لا نتيجتها وحدها: الموظف يرى من أين جاء
-            // الرقم، فلا يفاجئه المتوقّع عند الإقفال.
-            'summary' => [
-                'opening'  => $calc['opening'],
-                'in'       => $calc['in'],
-                'out'      => $calc['out'],
-                'expected' => $calc['expected'],
-            ],
-            'entries' => $entries,
-        ], 'Success');
-    }
-
-    /** POST employee/cashbox/entry — يتطلّب CASHBOX_ENTRY */
-    public function addEntry(Request $request)
-    {
-        [$employee, $session, ] = $this->ctx($request);
-
-        $data = $request->validate([
-            'amount'     => 'required|numeric|min:0.001',
-            'direction'  => 'required|string|in:IN,OUT',
-            'notes'      => 'nullable|string|max:500',
-            'client_ref' => 'nullable|string|max:80',
-        ]);
-
-        /*
-         * ⚠ لا تُردّ حركةٌ بـ«ابدأ وردية أولاً» — أمرُ المالك (10 سبتمبر 2026):
-         * أيُّ حركةٍ تفتح ورديةً إن لم تكن مفتوحة. والصرفُ والقبضُ حركة.
-         *
-         * وكان الرفضُ يعني أنّ الموظف يقبض مالاً من زبونٍ ثم يُخبره التطبيقُ
-         * أنّ عليه إجراءً إدارياً أوّلاً — فيُسجّله متأخّراً أو لا يسجّله.
-         */
-        $shift = $this->cashbox->ensureOpenShift(
-            (int) $employee->agent_id, (int) $employee->id,
-            $session->active_pos_id, $session->device_hash ?? null);
-
-        if (!$shift) {
-            return $this->sendError('تعذّر فتح وردية — أعد المحاولة.', [], 422);
-        }
-
-        try {
-            $res = $this->cashbox->addEntry([
-                'agent_id'         => $employee->agent_id,
-                'employee_id'      => $employee->id,
-                'cashbox_id'       => $shift->cashbox_id,
-                'shift_id'         => $shift->id,
-                'point_of_sale_id' => $session->active_pos_id,
-                'transaction_type' => $data['direction'] === 'IN'
-                    ? 'CASH_RECEIVED' : 'CASH_HANDOVER',
-                'amount'           => $data['amount'],
-                'direction'        => $data['direction'],
-                'notes'            => $data['notes'] ?? null,
-                'client_ref'       => $data['client_ref'] ?? null,
-                'device_hash'      => $session->device_hash,
-                'created_by'       => $employee->id,
-            ]);
-        } catch (\InvalidArgumentException $e) {
-            return $this->sendError($e->getMessage(), [], 422);
-        }
-
-        $calc = $this->cashbox->expectedCash((int) $shift->cashbox_id, (int) $shift->id);
-
-        return $this->sendResponse(
-            ['entry_id' => $res['id'], 'duplicate' => $res['duplicate'], 'summary' => $calc],
-            $res['duplicate'] ? 'الحركة مسجّلة سلفاً.' : 'سُجّلت الحركة.'
-        );
-    }
-
-    /** POST employee/shift/start — يتطلّب START_SHIFT */
-    public function startShift(Request $request)
-    {
-        [$employee, $session, ] = $this->ctx($request);
-
-        $data = $request->validate([
-            'opening_cash'     => 'required|numeric|min:0',
-            'point_of_sale_id' => 'nullable|integer',
-        ]);
-
-        // نقطة البيع تُؤخذ من الجلسة، ولا تُقبل من الطلب إلا إن كانت من
-        // نقاط الموظف فعلاً — وإلا سُجّلت عملياته على نقطة بيع ليست له.
-        $posId = $session->active_pos_id;
-        if (!empty($data['point_of_sale_id'])) {
-            $allowed = DB::table('employee_point_of_sales')
-                ->where('employee_id', $employee->id)
-                ->where('point_of_sale_id', $data['point_of_sale_id'])
-                ->where('is_active', 1)->exists();
-            if (!$allowed) {
-                return $this->sendError('نقطة بيع غير مسموحة لك.', [], 403);
-            }
-            $posId = (int) $data['point_of_sale_id'];
-            DB::table('employee_sessions')->where('id', $session->id)
-                ->update(['active_pos_id' => $posId]);
-        }
-
-        try {
-            $res = $this->cashbox->startShift([
-                'agent_id'         => $employee->agent_id,
-                'employee_id'      => $employee->id,
-                'point_of_sale_id' => $posId,
-                'opening_cash'     => $data['opening_cash'],
-                'device_hash'      => $session->device_hash,
-            ]);
-        } catch (\InvalidArgumentException $e) {
-            return $this->sendError($e->getMessage(), [], 422);
-        }
-
-        return $this->sendResponse(
-            $res,
-            $res['already_open'] ? 'لديك وردية مفتوحة سلفاً.' : 'بدأت الوردية.'
-        );
-    }
-
-    /** POST employee/shift/close — يتطلّب CLOSE_SHIFT */
-    public function closeShift(Request $request)
-    {
-        [$employee, , ] = $this->ctx($request);
-
-        $data = $request->validate([
-            'actual_cash' => 'required|numeric|min:0',
-            'notes'       => 'nullable|string|max:500',
-        ]);
-
-        $shift = $this->cashbox->openShift((int) $employee->id);
-        if (!$shift) {
-            return $this->sendError('لا توجد وردية مفتوحة.', [], 422);
-        }
-
-        try {
-            $res = $this->cashbox->closeShift(
-                (int) $shift->id, (float) $data['actual_cash'],
-                (int) $employee->id, $data['notes'] ?? null
-            );
-        } catch (\InvalidArgumentException $e) {
-            return $this->sendError($e->getMessage(), [], 422);
-        }
-
-        return $this->sendResponse($res, 'أُقفلت الوردية — ' . $res['label']);
-    }
 }

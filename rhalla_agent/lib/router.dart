@@ -22,7 +22,6 @@ import 'features/employee_app/employee_reports_screen.dart';
 import 'features/employee_app/employee_statement_screen.dart';
 import 'features/employee_app/employee_home_screen.dart';
 import 'features/employee_app/employee_session.dart';
-import 'features/employee_app/employee_shift_screens.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/auth/otp_screen.dart';
@@ -300,21 +299,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         // «تبويب مخصّص للحوالات نفس تبويب الوكيل … ونفسها في كل شيء».
         // والشرحُ الكامل في رأس `TransfersScreen`.
         builder: (_, _) => const TransfersScreen(asEmployee: true),
-      ),
-      GoRoute(
-        path: '/employee/cashbox',
-        parentNavigatorKey: _rootKey,
-        builder: (_, _) => const EmployeeCashboxScreen(),
-      ),
-      GoRoute(
-        path: '/employee/shift/start',
-        parentNavigatorKey: _rootKey,
-        builder: (_, _) => const StartShiftScreen(),
-      ),
-      GoRoute(
-        path: '/employee/shift/close',
-        parentNavigatorKey: _rootKey,
-        builder: (_, _) => const CloseShiftScreen(),
       ),
 
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),

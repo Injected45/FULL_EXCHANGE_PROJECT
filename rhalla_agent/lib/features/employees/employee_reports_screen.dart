@@ -186,39 +186,8 @@ class _Dashboard extends StatelessWidget {
                 _MoneyRow(
                   label: 'قيمة ما سُلّم اليوم',
                   value: _n('delivered_today_total'),
-                ),
-                const SizedBox(height: 8),
-                _MoneyRow(
-                  label: 'النقد المتوقّع لدى الموظفين',
-                  value: _n('expected_cash_total'),
                   strong: true,
                 ),
-                if (_i('differences_today') > 0) ...[
-                  const SizedBox(height: 10),
-                  Divider(color: R.inkA(.08), height: 1),
-                  const SizedBox(height: 10),
-                  // الفروق تُبرز لا تُدفن: هي ما يستحقّ نظر الوكيل أوّلاً.
-                  Row(
-                    children: [
-                      Icon(Icons.warning_amber_rounded,
-                          size: 16, color: R.warnIcon),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${_i('differences_today')} إقفال بفرق اليوم',
-                          style: T.plex(12.5, FontWeight.w600,
-                              color: R.warnIcon),
-                        ),
-                      ),
-                      Directionality(
-                        textDirection: TextDirection.ltr,
-                        child: Text(Fmt.money(_n('differences_total')),
-                            style: T.kufi(13, FontWeight.w700,
-                                color: R.warnIcon)),
-                      ),
-                    ],
-                  ),
-                ],
               ],
             ),
           ),
@@ -351,7 +320,6 @@ class _EmployeeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasShift = r['has_open_shift'] == true;
 
     return GlassCard(
       child: Column(
@@ -371,51 +339,24 @@ class _EmployeeRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: T.kufi(14, FontWeight.w700)),
               ),
-              if (hasShift)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: R.primaryA(.10),
-                    border: Border.all(color: R.primaryA(.28)),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  child: Text('وردية مفتوحة',
-                      style: T.plex(10, FontWeight.w600, color: R.primaryDark)),
-                ),
             ],
           ),
           const SizedBox(height: 10),
           Divider(color: R.inkA(.07), height: 1),
           const SizedBox(height: 10),
 
+          /* ⚠ الخزينةُ والورديةُ خرجتا من بطاقة الموظف — أمرُ المالك
+           * (10 سبتمبر 2026): «ألغِها من كلّ التبعات بالكامل … ليصبح التطبيق
+           * بالكامل حوالةً استلمها أو حوالةً سلّمها فقط».
+           *
+           * فبقي ما يصف عملَه بالحوالات وحدَه: كم سلّم وبكم، وكم أنشأ وبكم. */
           _line('حوالات سلّمها', '${_i('delivered_count')}'),
           const SizedBox(height: 6),
           _money('قيمة ما سلّمه', _n('delivered_total')),
           const SizedBox(height: 6),
-          _money('نقد مستلم', _n('cash_in'), tone: R.primaryDark),
+          _line('حوالات أنشأها', '${_i('created_count')}'),
           const SizedBox(height: 6),
-          _money('نقد مسلَّم', _n('cash_out'), tone: R.error),
-          const SizedBox(height: 8),
-          Divider(color: R.inkA(.07), height: 1),
-          const SizedBox(height: 8),
-
-          // بلا وردية لا افتتاحيّ، ورقمُ «متوقّع» بلا افتتاحيّ يضلّل — فيُقال
-          // ذلك صراحةً بدل عرض صفرٍ يبدو حقيقة.
-          if (hasShift)
-            _money('النقد المتوقّع لديه', _n('expected_cash'), strong: true)
-          else
-            Row(
-              children: [
-                Icon(Icons.info_outline_rounded, size: 14, color: R.inkA(.45)),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text('لا وردية مفتوحة — لا يُحسب نقدٌ متوقّع',
-                      style: T.plex(11.5, FontWeight.w400,
-                          color: R.inkA(.5))),
-                ),
-              ],
-            ),
+          _money('قيمة ما أنشأه', _n('created_total')),
         ],
       ),
     );

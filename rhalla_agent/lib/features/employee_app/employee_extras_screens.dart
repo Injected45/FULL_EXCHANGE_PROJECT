@@ -150,12 +150,8 @@ class _Summary extends StatelessWidget {
               children: [
                 _Line('حوالات اليوم',
                     '${Fmt.count(int.tryParse('${d['today_count'] ?? 0}') ?? 0)} · ${Fmt.money(Fmt.num_(d['today_total']))}'),
-                _Line('نقدٌ دخل خزينتي', Fmt.money(Fmt.num_(d['cashbox_in']))),
-                _Line('نقدٌ خرج منها', Fmt.money(Fmt.num_(d['cashbox_out']))),
-                _Line('صافي الخزينة', Fmt.money(Fmt.num_(d['cashbox_net'])),
-                    bold: true),
                 _Line('غير مسلَّمة',
-                    '${Fmt.count(int.tryParse('${d['pending_count'] ?? 0}') ?? 0)} · ${Fmt.money(Fmt.num_(d['pending_total']))}'),
+                    '${Fmt.count(int.tryParse('${d['pending_count'] ?? 0}') ?? 0)} · ${Fmt.money(Fmt.num_(d['pending_total']))}', bold: true),
               ],
             ),
           ),

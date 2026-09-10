@@ -104,27 +104,19 @@ class EmployeeReportsController extends BaseController
             ->selectRaw('employee_id, COUNT(*) AS cnt, ISNULL(SUM(amount),0) AS total')
             ->get()->keyBy('employee_id');
 
-        // حركات الخزينة — المعكوسة وعكسها مستبعدان معاً.
-        $cash = DB::table('employee_cashbox_entries')
-            ->where('agent_id', $user->id)
-            ->whereIn('employee_id', $ids)
-            ->where('is_reversed', 0)
-            ->whereNull('reversal_of')
-            ->whereBetween('created_at', [$from, $to])
-            ->groupBy('employee_id')
-            ->selectRaw("
-                employee_id,
-                ISNULL(SUM(CASE WHEN direction='IN'  THEN amount ELSE 0 END),0) AS cash_in,
-                ISNULL(SUM(CASE WHEN direction='OUT' THEN amount ELSE 0 END),0) AS cash_out
-            ")->get()->keyBy('employee_id');
-
-        // الوردية المفتوحة الآن — منها الافتتاحي للنقد المتوقّع.
-        $openShifts = DB::table('employee_shifts')
-            ->where('agent_id', $user->id)
-            ->whereIn('employee_id', $ids)
-            ->where('status', 'OPEN')
-            ->get(['employee_id', 'opening_cash', 'cashbox_id', 'id'])
-            ->keyBy('employee_id');
+        /*
+         * ⚠ الخزينةُ والورديةُ خرجتا من هذا التقرير — أمرُ المالك
+         * (10 سبتمبر 2026): «ألغِها من كلّ التبعات بالكامل … ليصبح التطبيق
+         * بالكامل حوالةً استلمها أو حوالةً سلّمها فقط».
+         *
+         * فسقطت من كلّ صفّ: `cash_in` و`cash_out` و`has_open_shift` و
+         * `expected_cash`، ومن المجاميع معها. وبقي ما يصف عملَه بالحوالات:
+         * كم سلّم وبكم، وكم أنشأ وبكم.
+         *
+         * ⚠ ولم تُحذف الجداول: `employee_cashbox_entries` و`employee_shifts`
+         * ببياناتها كما هي — حركاتُ مالٍ وقعت فعلاً، ولا تُمحى. أُلغي
+         * استعمالُها لا سجلُّها.
+         */
 
         $rows = [];
         $totals = $this->emptyTotals();
@@ -132,12 +124,6 @@ class EmployeeReportsController extends BaseController
         foreach ($employees as $e) {
             $d = $delivered->get($e->id);
             $c = $created->get($e->id);
-            $m = $cash->get($e->id);
-            $s = $openShifts->get($e->id);
-
-            $cashIn  = (float) ($m->cash_in ?? 0);
-            $cashOut = (float) ($m->cash_out ?? 0);
-            $opening = (float) ($s->opening_cash ?? 0);
 
             $row = [
                 'employee_id'      => (int) $e->id,
@@ -149,20 +135,12 @@ class EmployeeReportsController extends BaseController
                 'delivered_total'  => (float) ($d->total ?? 0),
                 'created_count'    => (int) ($c->cnt ?? 0),
                 'created_total'    => (float) ($c->total ?? 0),
-                'cash_in'          => $cashIn,
-                'cash_out'         => $cashOut,
-                // المتوقّع لا يُحسب إلا لوردية مفتوحة: بلا وردية لا افتتاحيّ،
-                // ورقمٌ بلا افتتاحيّ يضلّل.
-                'has_open_shift'   => $s !== null,
-                'expected_cash'    => $s === null ? null : $opening + $cashIn - $cashOut,
             ];
 
             $totals['delivered_count'] += $row['delivered_count'];
             $totals['delivered_total'] += $row['delivered_total'];
             $totals['created_count']   += $row['created_count'];
             $totals['created_total']   += $row['created_total'];
-            $totals['cash_in']         += $cashIn;
-            $totals['cash_out']        += $cashOut;
 
             $rows[] = $row;
         }
@@ -180,7 +158,7 @@ class EmployeeReportsController extends BaseController
         return [
             'delivered_count' => 0, 'delivered_total' => 0.0,
             'created_count'   => 0, 'created_total'   => 0.0,
-            'cash_in'         => 0.0, 'cash_out'      => 0.0,
+
         ];
     }
 
@@ -301,47 +279,17 @@ class EmployeeReportsController extends BaseController
             ->orderByDesc('occurred_at')->limit(200)
             ->get(['action', 'transfer_number', 'amount', 'point_of_sale_id', 'occurred_at']);
 
-        $entries = DB::table('employee_cashbox_entries')
-            ->where('employee_id', $id)
-            ->whereBetween('created_at', [$from, $to])
-            ->orderByDesc('id')->limit(200)
-            ->get(['id', 'transaction_type', 'reference_id', 'amount', 'direction',
-                   'is_reversed', 'reversal_of', 'notes', 'created_at']);
-
-        $shifts = DB::table('employee_shifts as s')
-            ->leftJoin('employee_shift_closings as c', 'c.shift_id', '=', 's.id')
-            ->where('s.employee_id', $id)
-            ->whereBetween('s.started_at', [$from, $to])
-            ->orderByDesc('s.id')->limit(50)
-            ->get([
-                's.id', 's.opening_cash', 's.status', 's.started_at', 's.ended_at',
-                'c.expected_cash', 'c.actual_cash', 'c.difference', 'c.result',
-            ]);
-
-        $open = DB::table('employee_shifts')
-            ->where('employee_id', $id)->where('status', 'OPEN')->first();
-
-        $expected = null;
-        if ($open) {
-            $sums = DB::table('employee_cashbox_entries')
-                ->where('shift_id', $open->id)
-                ->where('is_reversed', 0)->whereNull('reversal_of')
-                ->selectRaw("
-                    ISNULL(SUM(CASE WHEN direction='IN'  THEN amount ELSE 0 END),0) AS cash_in,
-                    ISNULL(SUM(CASE WHEN direction='OUT' THEN amount ELSE 0 END),0) AS cash_out
-                ")->first();
-            $expected = (float) $open->opening_cash
-                + (float) ($sums->cash_in ?? 0) - (float) ($sums->cash_out ?? 0);
-        }
+        /* ⚠ الخزينةُ والورديةُ خرجتا من كشف الموظف — أمرُ المالك
+         * (10 سبتمبر 2026). فما بقي هو النسبُ وحدَها: ما أنشأ وما سلّم،
+         * وهو تعريفُه للتطبيق كلِّه — «حوالةٌ استلمها أو حوالةٌ سلّمها».
+         *
+         * ولم تُحذف الجداول: بياناتُها قائمة، وإنّما لا تُقرأ من هنا. */
 
         return $this->sendResponse([
             'employee'      => $employee,
             'from'          => $from->toDateTimeString(),
             'to'            => $to->toDateTimeString(),
             'attributions'  => $attributions,
-            'cashbox'       => $entries,
-            'shifts'        => $shifts,
-            'expected_cash' => $expected,
         ], 'Success');
     }
 
@@ -384,30 +332,9 @@ class EmployeeReportsController extends BaseController
                   ->orWhereNotIn('core_confirm_type', [3, 4, 5, 6]);
             })->count();
 
-        // النقد المتوقّع لدى الموظفين — مجموع الورديات المفتوحة وحدها.
-        $openShifts = DB::table('employee_shifts')
-            ->where('agent_id', $user->id)->where('status', 'OPEN')
-            ->get(['id', 'opening_cash']);
-
-        $expectedTotal = 0.0;
-        foreach ($openShifts as $s) {
-            $sums = DB::table('employee_cashbox_entries')
-                ->where('shift_id', $s->id)
-                ->where('is_reversed', 0)->whereNull('reversal_of')
-                ->selectRaw("
-                    ISNULL(SUM(CASE WHEN direction='IN'  THEN amount ELSE 0 END),0) AS cash_in,
-                    ISNULL(SUM(CASE WHEN direction='OUT' THEN amount ELSE 0 END),0) AS cash_out
-                ")->first();
-            $expectedTotal += (float) $s->opening_cash
-                + (float) ($sums->cash_in ?? 0) - (float) ($sums->cash_out ?? 0);
-        }
-
-        // فروق الإقفال غير المطابقة اليوم — ما يستحقّ نظرة الوكيل.
-        $differences = DB::table('employee_shift_closings')
-            ->where('agent_id', $user->id)
-            ->where('result', '<>', 'MATCH')
-            ->whereBetween('closed_at', [$todayFrom, $todayTo])
-            ->selectRaw('COUNT(*) AS cnt, ISNULL(SUM(difference),0) AS total')->first();
+        /* ⚠ الورديةُ والنقدُ المتوقّع وفروقُ الإقفال خرجت من اللوحة — أمرُ
+         * المالك (10 سبتمبر 2026). ولوحةُ الوكيل بعدها تصف ما بقي: نقاطُ
+         * بيعه وموظفوه وما ينتظر التسليم وما سُلِّم اليوم. */
 
         $recent = DB::table('audit_logs')
             ->where('agent_id', $user->id)
@@ -418,13 +345,9 @@ class EmployeeReportsController extends BaseController
             'active_points_of_sale' => $activePos,
             'active_employees'      => (clone $employees)->where('status', 'ACTIVE')->count(),
             'total_employees'       => (clone $employees)->count(),
-            'open_shifts'           => $openShifts->count(),
             'pending_transfers'     => $pending,
             'delivered_today_count' => (int) ($deliveredToday->cnt ?? 0),
             'delivered_today_total' => (float) ($deliveredToday->total ?? 0),
-            'expected_cash_total'   => round($expectedTotal, 3),
-            'differences_today'     => (int) ($differences->cnt ?? 0),
-            'differences_total'     => (float) ($differences->total ?? 0),
             'recent_activity'       => $recent,
         ], 'Success');
     }

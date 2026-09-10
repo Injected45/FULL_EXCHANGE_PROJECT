@@ -212,16 +212,6 @@ Route::get ('device/employee/branding',
  * يستطيع ذلك، ولو كانت كتلةً واحدة لَما استطاع.
  */
 /*
- * ما في عهدة الموظف الآن — يُعرض تحت اسمه في شاشته الرئيسية.
- *
- * ⚠ تحت `VIEW_OWN_CASHBOX`: من يرى خزينتَه يرى ما فيها. ولا صلاحيةَ
- * جديدة لرقمٍ هو خلاصةُ ما يراه أصلاً.
- */
-Route::get ('device/employee/custody',
-    [ EmployeeController::class , 'custody' ])
-    ->middleware('employee:VIEW_OWN_CASHBOX');
-
-/*
  * كشفُ حساب حوالات الموظف — ما أنشأ وما سلّم في كشفٍ واحد، للجرد.
  *
  * ⚠ والنقدُ في يده واحد، فكشفُه واحد: تقريران منفصلان لا يُجرَد عليهما.
@@ -241,10 +231,6 @@ Route::get ('device/employee/reports/delivered',
 Route::get ('device/employee/reports/pending',
     [ EmployeeController::class , 'reportPending' ])
     ->middleware('employee:REPORT_PENDING_TRANSFERS');
-
-Route::get ('device/employee/reports/cashbox',
-    [ EmployeeController::class , 'reportCashbox' ])
-    ->middleware('employee:REPORT_EMPLOYEE_CASHBOX');
 
 Route::get ('device/employee/reports/point-of-sale',
     [ EmployeeController::class , 'reportPointOfSale' ])
@@ -316,29 +302,27 @@ Route::get ('device/employee/transfers/outgoing/{code}',
 Route::get ('device/employee/transfers/point-of-sale',
     [ EmployeeController::class , 'posTransfers' ])
     ->middleware('employee:VIEW_POS_TRANSFERS');
-Route::get ('device/employee/cashbox',
-    [ EmployeeController::class , 'cashbox' ])
-    ->middleware('employee:VIEW_OWN_CASHBOX');
 
-/* كشفُ حركة الخزينة — للجرد: الرصيدُ بعد كل حركة، وفلترةٌ بالتاريخ والنوع.
- *
- * ⚠ الصلاحيةُ نفسُها لأنه السؤالُ نفسُه بتفصيلٍ أوفى — ولا صلاحيةٌ ثانية
- * تجعل موظفاً يرى خزينتَه ولا يرى حركاتها. وقراءةٌ خالصة. */
-Route::get ('device/employee/cashbox/ledger',
-    [ EmployeeController::class , 'cashboxLedger' ])
-    ->middleware('employee:VIEW_OWN_CASHBOX');
+/* ══════════════════════════════════════════════════════════════════════════
+   ⚠ الخزينةُ والورديةُ أُلغيتا من التطبيق — أمرُ المالك (10 سبتمبر 2026)
+   ══════════════════════════════════════════════════════════════════════════
 
-Route::post('device/employee/cashbox/entry',
-    [ EmployeeController::class , 'addEntry' ])
-    ->middleware('employee:CASHBOX_ENTRY');
+   «في تطبيق الوكيل: إلغاء نظام الوردية والعهدة ليصبح حوالات فقط، لتقليل
+   الضغط وتقليل حدوث المشاكل … ليصبح التطبيق بالكامل حوالةً استلمها أو
+   حوالةً سلّمها فقط».
 
-Route::post('device/employee/shift/start',
-    [ EmployeeController::class , 'startShift' ])
-    ->middleware('employee:START_SHIFT');
+   فحُذفت مساراتُها الستّة: `cashbox` و`cashbox/ledger` و`cashbox/entry`
+   و`shift/start` و`shift/close` و`reports/cashbox`. وصلاحياتُها الخمس
+   خرجت من الكتالوج، فلا تظهر في شاشة المنح أصلاً.
 
-Route::post('device/employee/shift/close',
-    [ EmployeeController::class , 'closeShift' ])
-    ->middleware('employee:CLOSE_SHIFT');
+   ⚠ **ولم يُحذف جدولٌ ولا صفّ.** `employee_cashboxes` و`employee_shifts`
+   و`employee_cashbox_entries` و`employee_shift_closings` باقيةٌ ببياناتها:
+   تلك حركاتُ مالٍ وقعت فعلاً، وقاعدةُ المشروع أنّ الحركة لا تُحذف ولا
+   تُعدَّل. أُلغي **استعمالُها**، وبقي **سجلُّها**.
+
+   ومَن نُسب إليه إنشاءُ حوالةٍ أو تسليمُها ما زال مسجَّلاً في
+   `transfer_attributions` — وهو بالضبط «حوالةٌ استلمها أو حوالةٌ سلّمها».
+   ══════════════════════════════════════════════════════════════════════════ */
 
 // دردشة الموظّف مع وكيله. صلاحيةٌ تُمنح كسائرها — لا شيء مفتوح افتراضاً.
 Route::get ('device/employee/chat',
