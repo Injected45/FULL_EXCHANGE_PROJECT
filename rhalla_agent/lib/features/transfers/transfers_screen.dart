@@ -466,6 +466,18 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
     final pending = widget.mode.isEmployee
         ? const <Movement>[]
         : (ref.watch(pendingOutgoingProvider).valueOrNull ?? const []);
+
+    /*
+     * ⚠ والخارجيةُ غيرُ المعتمدة كذلك — أمرُ المالك (11 سبتمبر 2026):
+     * «الحوالات الخارجية الصادرة من تطبيق الوكيل، اجعلها تظهر ضمن الصادرة».
+     *
+     * والمعتمدةُ منها تصل مع الكشف أصلاً باسم «حوالة خارجية صادرة»، فلا
+     * تُجلب هنا — وجلبُها كان سيعرضها **مرّتين**. والفصلُ في الخادم:
+     * `IsConfirmed = 0` وحدَها.
+     */
+    final external = widget.mode.isEmployee
+        ? const <Movement>[]
+        : (ref.watch(externalOutgoingProvider).valueOrNull ?? const []);
     final currency =
         ref.watch(authControllerProvider).user?.currencyCode ?? 'د.ل';
 
@@ -485,6 +497,7 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
         // فور إنشائه حوالة.
         final all = [
           ...pending,
+          ...external,
           ...rowsAll
               .where((m) => m.isTransfer && !m.isCommission && !m.isCredit),
         ];
@@ -547,6 +560,8 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
                               .refresh(statementProvider.future)
                               .then((_) =>
                                   ref.refresh(pendingOutgoingProvider.future))
+                              .then((_) =>
+                                  ref.refresh(externalOutgoingProvider.future))
                               .then((_) {}, onError: (_) {}),
                       color: R.primary,
                       backgroundColor: Colors.white,

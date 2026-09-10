@@ -9,8 +9,9 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
-import '../transfers/receipt.dart';
-import 'employee_header.dart';
+import 'agent_incoming_repository.dart';
+import 'receipt.dart';
+import '../employee_app/employee_header.dart';
 
 /// فاتورةُ حوالةٍ **خارجيةٍ صادرة**.
 ///
@@ -40,20 +41,33 @@ import 'employee_header.dart';
 /// `InternalEx_Stautes`، فتُقرأ حالتُها من أعلامها الثلاثة (ملغاة · مسلَّمة ·
 /// معتمدة) ولا يُكتب وصفٌ لا تقوله القاعدة: الموظف يبني على هذا السطر كلامَه
 /// للزبون.
-class EmployeeExternalReceiptScreen extends ConsumerStatefulWidget {
-  const EmployeeExternalReceiptScreen({super.key, required this.code});
+class ExternalReceiptScreen extends ConsumerStatefulWidget {
+  const ExternalReceiptScreen({
+    super.key,
+    required this.code,
+    this.mode = TransfersMode.agent,
+  });
 
   /// رقمُ الحوالة كما تعرفه المنظومة — `13152-55-6`.
   final String code;
 
+  /// أيُّ بابٍ يُقرأ منه.
+  ///
+  /// ⚠ **الشاشةُ واحدة، والمسارُ يختلف** — القاعدةُ نفسُها في كلّ شاشةٍ
+  /// يتشاركها الوكيل وموظفُه: رمزُ الموظف لا يفتح مسارات الوكيل، ورمزُ
+  /// الوكيل لا يفتح مسارات الموظف. والحارسُ على الطرفين في الخادم:
+  /// الوكيلُ يملكها بحسابه (`AccFrom`)، والموظفُ بصفٍّ باسمه في
+  /// `transfer_attributions`.
+  final TransfersMode mode;
+
   @override
-  ConsumerState<EmployeeExternalReceiptScreen> createState() =>
-      _EmployeeExternalReceiptScreenState();
+  ConsumerState<ExternalReceiptScreen> createState() =>
+      _ExternalReceiptScreenState();
 }
 
-class _EmployeeExternalReceiptScreenState
-    extends ConsumerState<EmployeeExternalReceiptScreen>
-    with ReceiptTools<EmployeeExternalReceiptScreen> {
+class _ExternalReceiptScreenState
+    extends ConsumerState<ExternalReceiptScreen>
+    with ReceiptTools<ExternalReceiptScreen> {
   Future<void> _print() => printReceipt(name: widget.code);
 
   Future<void> _share(ExternalReceipt r) => shareReceipt(
@@ -81,7 +95,8 @@ class _EmployeeExternalReceiptScreenState
 
   @override
   Widget build(BuildContext context) {
-    final async = ref.watch(externalReceiptProvider(widget.code));
+    final async = ref.watch(externalReceiptProvider(
+        ExternalReceiptQuery(widget.code, widget.mode)));
 
     return Screen(
       child: Column(
@@ -411,12 +426,34 @@ class ExternalReceipt {
       );
 }
 
-/// فاتورةُ حوالةٍ خارجيةٍ بالرقم — والخادمُ يحرس ملكيّتَها.
+/// مفتاحُ طلبِ فاتورة — الرقمُ والباب.
+///
+/// ⚠ صنفٌ بمساواةٍ بالقيمة: `family` يقارن مفتاحَه بـ`==`، وصنفٌ بلا `==`
+/// يُنتج مزوّداً جديداً عند كلّ بناءٍ للشاشة — أي طلبَ شبكةٍ عند كلّ إطار.
+class ExternalReceiptQuery {
+  const ExternalReceiptQuery(this.code, this.mode);
+
+  final String code;
+  final TransfersMode mode;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ExternalReceiptQuery &&
+      other.code == code &&
+      other.mode == mode;
+
+  @override
+  int get hashCode => Object.hash(code, mode);
+}
+
+/// فاتورةُ حوالةٍ خارجيةٍ بالرقم — والخادمُ يحرس ملكيّتَها على البابين.
 final externalReceiptProvider =
-    FutureProvider.autoDispose.family<ExternalReceipt, String>(
-        (ref, code) async {
-  final env = await ref
-      .watch(apiClientProvider)
-      .get('/device/employee/external/mine/$code');
+    FutureProvider.autoDispose.family<ExternalReceipt, ExternalReceiptQuery>(
+        (ref, q) async {
+  final path = q.mode.isEmployee
+      ? '/device/employee/external/mine/${q.code}'
+      : '/agent/outgoing-transfers/external/${q.code}';
+
+  final env = await ref.watch(apiClientProvider).get(path);
   return ExternalReceipt.fromJson(env.row ?? const {});
 });

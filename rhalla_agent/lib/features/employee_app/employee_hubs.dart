@@ -9,7 +9,8 @@ import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../chat/chat_screen.dart';
-import 'employee_external_receipt_screen.dart';
+import '../transfers/agent_incoming_repository.dart';
+import '../transfers/external_receipt_screen.dart';
 import 'employee_header.dart';
 import 'employee_session.dart';
 
@@ -294,9 +295,10 @@ class EmployeeExternalMineScreen extends ConsumerWidget {
                               : () => Navigator.of(context,
                                       rootNavigator: true)
                                   .push(MaterialPageRoute(
-                                  builder: (_) =>
-                                      EmployeeExternalReceiptScreen(
-                                          code: items[i].code),
+                                  builder: (_) => ExternalReceiptScreen(
+                                    code: items[i].code,
+                                    mode: TransfersMode.employee,
+                                  ),
                                 )),
                         ),
                       ),

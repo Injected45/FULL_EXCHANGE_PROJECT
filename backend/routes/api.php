@@ -602,6 +602,16 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
   Route::get('agent/outgoing-transfers/pending',
       [ AgentIncomingTransfersController::class , 'pendingOutgoing' ]);
 
+  /* الخارجيةُ غيرُ المعتمدة — تظهر في «صادرة» موسومةً «بانتظار الاعتماد».
+     ⚠ **قبل** مسار `{code}` أدناه: لولا ذلك لالتقط `{code}` كلمةَ `external`
+     وعُوملت رقمَ حوالة، فيُردّ 404 على نقطةٍ مسجَّلة. */
+  Route::get('agent/outgoing-transfers/external',
+      [ AgentIncomingTransfersController::class , 'externalOutgoing' ]);
+
+  Route::get('agent/outgoing-transfers/external/{code}',
+      [ AgentIncomingTransfersController::class , 'externalByCode' ])
+      ->where('code', '[A-Za-z0-9\-]+');
+
   Route::get('agent/outgoing-transfers/{code}',
       [ AgentIncomingTransfersController::class , 'outgoingByCode' ])->where('code', '[A-Za-z0-9-]+');
 

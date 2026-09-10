@@ -16,6 +16,7 @@ import '../branding/brand_mark.dart';
 import '../auth/auth_controller.dart';
 import '../transfers/agent_incoming_repository.dart';
 import '../transfers/delivery_receipt_screen.dart';
+import '../transfers/external_receipt_screen.dart';
 import '../transfers/outgoing_receipt_screen.dart';
 import 'home_repository.dart';
 
@@ -554,6 +555,19 @@ class _MovementRowState extends ConsumerState<MovementRow> {
         if (!mounted) return;
 
         if (out == null) {
+          /*
+           * ⚠ ولا فاتورةَ في `InternalEx` ⇒ قد تكون **خارجية**.
+           *
+           * أمرُ المالك (11 سبتمبر 2026). وحوالةُ الخارج دفترُها `ExternalEx`
+           * لا `InternalEx`، فبحثُها في الأوّل يعود فارغاً دائماً — وكان
+           * الوكيل يضغط حوالتَه الظاهرة أمامه فيُقال له «لا توجد فاتورة»،
+           * فيقرأ ذلك عطباً لا حقيقة.
+           *
+           * ⚠ والمحاولةُ **بعد** الداخلية لا قبلها: أغلبُ الحركات داخلية،
+           * وتقديمُ الخارجية يعني طلبَ شبكةٍ يفشل على كلّ حوالةٍ محلّية.
+           */
+          if (await _openExternal()) return;
+
           _say('لا توجد فاتورة لهذه الحركة.');
           return;
         }
@@ -581,6 +595,32 @@ class _MovementRowState extends ConsumerState<MovementRow> {
     } finally {
       if (mounted) setState(() => _opening = false);
     }
+  }
+
+  /// يفتح فاتورةَ الحوالة الخارجية إن كانت هذه الحركةُ لها. `false` إن لم تكن.
+  ///
+  /// ⚠ **الشاشةُ نفسُها التي يفتحها الموظف** — بابان وحارسان وشاشةٌ واحدة.
+  /// وهي تقرأ بنفسها، فلا يُجلب الصفُّ هنا ثمّ يُمرَّر: طلبان للبيان نفسِه.
+  Future<bool> _openExternal() async {
+    // وجودُها يُتحقَّق بقراءتها: نقطةٌ واحدة تجيب «هل هي لك؟» و«ما بياناتها؟»
+    // معاً، ونداءان لسؤالٍ واحد إهدارٌ لشبكة الوكيل.
+    try {
+      await ref.read(externalReceiptProvider(
+              ExternalReceiptQuery(m.code, widget.mode))
+          .future);
+    } catch (_) {
+      return false;
+    }
+
+    if (!mounted) return false;
+
+    await Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            ExternalReceiptScreen(code: m.code, mode: widget.mode),
+      ),
+    );
+    return true;
   }
 
   void _say(String msg) => ScaffoldMessenger.of(context)

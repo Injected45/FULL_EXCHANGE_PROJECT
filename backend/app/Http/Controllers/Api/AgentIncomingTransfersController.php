@@ -362,4 +362,123 @@ class AgentIncomingTransfersController extends BaseController
 
         return $this->sendResponse($rows, 'Success');
     }
+
+    /**
+     * GET agent/outgoing-transfers/external — الخارجيةُ التي لم تُعتمد بعد.
+     *
+     * ══════════════════════════════════════════════════════════════════════
+     *  أمرُ المالك (11 سبتمبر 2026): «الحوالات الخارجية الصادرة من تطبيق
+     *  الوكيل — اجعلها تظهر في تطبيق الوكيل ضمن الحوالات الصادرة».
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * ── أين كانت تختفي، ولماذا هذه النقطة هي الجواب ─────────────────────
+     *
+     * ⚠ **المعتمدةُ منها كانت تظهر أصلاً**، ولم يكن ذلك واضحاً: كشفُ الحساب
+     * يحملها باسم «حوالة خارجية صادرة» وقيمتِها، وتبويبُ «صادرة» يقرأ الكشف
+     * — قِيس على `13152-55-6`: موجودةٌ فيه بـ1515.
+     *
+     * والغائبُ هو **ما لم يُعتمد بعد**: القيدُ المحاسبيّ لا يُكتب إلّا عند
+     * الاعتماد، فحوالةٌ أنشأها الوكيل قبل دقيقة لا أثرَ لها في الكشف — يبحث
+     * عنها في التطبيق فلا يجدها، فيظنّها لم تقع ويعيدها.
+     *
+     * وهي بعينها الحالةُ التي فُتحت لها [pendingOutgoing] في الحوالة
+     * الداخلية. فهذه نظيرتُها، بدفترها هي.
+     *
+     * ── ولا ازدواج ─────────────────────────────────────────────────────
+     *
+     * ⚠ `IsConfirmed = 0` وحدَها: ما اعتُمد له قيدٌ في الكشف، وإدراجُه هنا
+     * يعرضه **مرّتين** في القائمة نفسها — وهو أسوأُ من غيابه، لأنّ الوكيل
+     * يقرأ حوالتين حيث واحدة.
+     *
+     * ── والشكلُ شكلُ الكشف حرفاً ────────────────────────────────────────
+     *
+     * ⚠ `Values_to` = القيمة **زائدَ العمولة**، و`CommissionAmount` صفر —
+     * لأنّ هذا بالضبط ما يعيده الكشفُ لها بعد الاعتماد (مقيس: 1500 + 15 =
+     * 1515 وعمولةٌ صفر). فالبطاقةُ التي يراها الوكيل قبل الاعتماد هي هي
+     * بعده، ولا يتبدّل رقمٌ تحت عينه بلا سبب يفهمه.
+     *
+     * ⚠ ولا يُقرأ فرعٌ ولا حسابٌ من الطلب: المُرشِّحُ هو حساب الجلسة ومُنشئُها.
+     */
+    public function externalOutgoing(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return $this->sendError('غير مصرّح.', [], 401);
+        }
+
+        $rows = \Illuminate\Support\Facades\DB::table('ExternalEx as t')
+            ->where(function ($w) {
+                // ⚠ غيرُ المعتمدة وحدَها — انظر الشرح أعلاه.
+                $w->whereNull('t.IsConfirmed')->orWhere('t.IsConfirmed', 0);
+            })
+            ->where(function ($w) use ($user) {
+                $w->where('t.uesrID_forminsertmobile', $user->id);
+                if (!empty($user->AccID)) {
+                    $w->orWhere('t.AccFrom', $user->AccID);
+                }
+            })
+            ->orderByDesc('t.ID')
+            ->limit(100)
+            ->selectRaw("
+                'حوالة خارجية صادرة'                                  AS MovementType,
+                'خصم'                                                 AS Type_from,
+                (ISNULL(t.CurrRecievedVal, 0) + ISNULL(t.ExVal, 0))   AS Values_to,
+                0                                                     AS Balnce,
+                t.InsertDate                                          AS InsertDate,
+                t.Code                                                AS Code,
+                t.InsertDate                                          AS TransTime,
+                NULL                                                  AS DeliveryStatus,
+                0                                                     AS CoreConfirmType,
+                0                                                     AS IsCommission,
+                0                                                     AS CommissionAmount
+            ")
+            ->get();
+
+        return $this->sendResponse($rows, 'Success');
+    }
+
+    /**
+     * GET agent/outgoing-transfers/external/{code} — فاتورةُ حوالةٍ خارجية.
+     *
+     * نظيرُ [outgoingByCode] بدفترها هي، وهي **الشاشةُ نفسُها** في التطبيق
+     * التي يفتحها الموظف — بابان وحارسان، وشاشةٌ واحدة.
+     *
+     * ⚠ والملكيةُ تُفحص **قبل** القراءة: `AccFrom` هو حسابُ الوكيل المُرسِل،
+     * فحوالةُ وكيلٍ آخر لا تُفتح من هنا. ولا تُفرَّق النتيجةُ بين «غير موجودة»
+     * و«ليست لك» — 404 في الحالتين، كي لا يُستدلّ بوجودها على شيء.
+     */
+    public function externalByCode(Request $request, string $code)
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return $this->sendError('غير مصرّح.', [], 401);
+        }
+
+        $owns = \Illuminate\Support\Facades\DB::table('ExternalEx')
+            ->where('Code', trim($code))
+            ->where(function ($w) use ($user) {
+                $w->where('uesrID_forminsertmobile', $user->id);
+                if (!empty($user->AccID)) {
+                    $w->orWhere('AccFrom', $user->AccID);
+                }
+            })
+            ->exists();
+
+        if (!$owns) {
+            return $this->sendError('الحوالة غير موجودة.', [], 404);
+        }
+
+        // ⚠ القارئُ نفسُه الذي يقرأ للموظف — لا استعلامٌ ثانٍ يفترق عنه عند
+        // أوّل تعديل فتختلف فاتورةُ الوكيل عن فاتورة موظفه لحوالةٍ واحدة.
+        $row = app(\App\Services\Employees\EmployeeTransferViews::class)
+            ->externalRow(trim($code));
+
+        if (!$row) {
+            return $this->sendError('الحوالة غير موجودة.', [], 404);
+        }
+
+        return $this->sendResponse($row, 'Success');
+    }
 }
