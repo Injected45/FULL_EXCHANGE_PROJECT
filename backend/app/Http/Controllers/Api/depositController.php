@@ -2118,16 +2118,44 @@ return $this->sendResponse( $results , 'Success');
 
 
     $results = DB::select("
-    SELECT 
+    SELECT
         a.ID AS SRID,
         a.ServiceName AS SRNAME,
         a.DisConstant,
         a.CountryID,
-       a.Type_String 
+       a.Type_String
     FROM dbo.ExtTraServiceTypeTb AS a
     WHERE a.CountryID = ?
 ", [$request->country_id]);  // Replace $country_id with your actual variable
 
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     *  ⚠⚠ لا تُعرض خدمةٌ لا تُنفَّذ — أمرُ المالك (11 سبتمبر 2026)
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * «أيُّ عملةٍ بدون سعرٍ امنع ظهورَها في الشاشة … وإذا عملةٌ مسجّلةٌ خطأً
+     *  وتسبّب خسائر فاجعلها في حكم غير المسجَّلة، **ولا تظهر للعميل في الشاشة
+     *  ولا في تنفيذ الحوالة الخارجية**».
+     *
+     * ── وهذا هو البابُ الأوّل، قبل اللوحة وقبل التسعير ─────────────────
+     *
+     * الوكيلُ يختار الخدمةَ من هنا. فخدمةٌ تظهر في هذه القائمة ثمّ تُرفض عند
+     * التسعير هي «الإحراجُ مع الزبائن» الذي نصَّ الأمرُ على منعه: يقول للزبون
+     * «نرسل بالبريد» ثمّ يعود ليقول «لا نستطيع».
+     *
+     * ⚠ والحكمُ من [ExternalPricingGuard] نفسِه لا بشرطٍ يُكتب هنا: القائمةُ
+     * واللوحةُ والتسعيرُ ثلاثتُها تسأل المرجعَ الواحد، فلا يفترق ما يُعرض عمّا
+     * يُنفَّذ ولو تعديلاً واحداً.
+     *
+     * ⚠ ولا يُمَسّ الاستعلامُ الأصليّ ولا أعمدتُه: يُرشَّح ناتجُه فقط، فمن
+     * يستهلك هذه النقطة من خارج هذا التطبيق يجد الشكلَ نفسَه.
+     */
+    $guard = app(\App\Services\ExternalPricingGuard::class);
+
+    $results = array_values(array_filter(
+        $results,
+        fn ($s) => $guard->isAvailable((int) $s->CountryID, (int) $s->SRID)
+    ));
 
     return $this->sendResponse( $results , 'Success');
 

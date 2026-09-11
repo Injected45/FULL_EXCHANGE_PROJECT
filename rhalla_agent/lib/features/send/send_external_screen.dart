@@ -676,10 +676,37 @@ class _ServiceChips extends StatelessWidget {
               child: Text('$e',
                   style: T.plex(12, FontWeight.w500, color: R.errorText)),
             ),
+            /*
+             * ⚠ القائمةُ الفارغةُ صارت حالةً واردة — والرسالةُ تغيّرت معها.
+             *
+             * أمرُ المالك (11 سبتمبر 2026): «أيُّ عملةٍ بدون سعرٍ امنع ظهورَها
+             * … وإذا عملةٌ مسجّلةٌ خطأً وتسبّب خسائر فاجعلها في حكم غير
+             * المسجَّلة». فالخادمُ صار يُسقط من هذه القائمة كلَّ خدمةٍ لا
+             * تُنفَّذ — وقد تُسقطها كلَّها.
+             *
+             * و«لا توجد خدمات لهذه الدولة» كانت تقول إنّ الوجهة نفسَها لا
+             * خدمةَ لها، وهذا غيرُ صحيح: الخدماتُ موجودةٌ وأسعارُها هي التي
+             * تُضبط. فالوكيلُ يحتاج أن يعرف أنّ الأمرَ مؤقّتٌ وأنّ مراجعته
+             * للشركة تحلّه — لا أن يخبر زبونَه بأنّ الدولة غير مخدومة.
+             */
             data: (list) => list.isEmpty
                 ? GlassCard(
-                    child: Text('لا توجد خدمات لهذه الدولة',
-                        style: T.plex(13, FontWeight.w500, color: R.inkA(.55))),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline_rounded,
+                            size: 16, color: R.inkA(.45)),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(
+                            'لا توجد خدمة متاحة لهذه الوجهة حالياً — '
+                            'الأسعار في طور التحديث، راجع الشركة.',
+                            style: T.plex(12.5, FontWeight.w500,
+                                color: R.inkA(.6), height: 1.7),
+                          ),
+                        ),
+                      ],
+                    ),
                   )
                 : Wrap(
                     spacing: 8,

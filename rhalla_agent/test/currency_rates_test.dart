@@ -56,13 +56,31 @@ void main() {
         );
 
     test('⚠ الحالةُ تأتي من الخادم ولا تُشتقّ من غياب الرقم', () {
-      // الغيابُ والتكرارُ كلاهما يعطي `rate == null`، وسببُهما مختلف:
-      // أوّلُهما نقصٌ يُسعَّر، وثانيهما تضاربٌ يُضبط. والوكيلُ ينقل السببَ
-      // إلى الشركة، فسببٌ خاطئ يرسله إلى الباب الخطأ.
       expect(row('NO_PRICE').status, 'NO_PRICE');
       expect(row('AMBIGUOUS').status, 'AMBIGUOUS');
-      expect(row('NO_PRICE').rate, isNull);
-      expect(row('AMBIGUOUS').rate, isNull);
+    });
+
+    test('⚠ لا يدخل اللوحةَ إلّا سعرٌ قابلٌ للتنفيذ', () {
+      // أمرُ المالك (11 سبتمبر 2026): «أيُّ عملةٍ بدون سعرٍ امنع ظهورَها في
+      // الشاشة … والسعرُ الظاهر في الحوالة الخارجية يجب أن يكون ظاهراً في
+      // شاشة الأسعار».
+      expect(row('PRICED', rate: 5.55).isDisplayable, isTrue);
+      expect(row('NO_PRICE').isDisplayable, isFalse);
+      expect(row('AMBIGUOUS').isDisplayable, isFalse);
+    });
+
+    test('⚠ والشرطان معاً — التناقضُ يُحسم بالإخفاء', () {
+      // خادمٌ يعيد PRICED بلا سعر، أو سعراً مع حالةٍ مانعة: كلاهما تناقض،
+      // وترجيحُ أحد طرفيه على لوحةِ أسعارٍ تسعيرٌ بالتخمين.
+      expect(row('PRICED').isDisplayable, isFalse);
+      expect(row('NO_PRICE', rate: 5.55).isDisplayable, isFalse);
+    });
+
+    test('⚠ والصفرُ ليس سعراً', () {
+      // به يستلم المستفيد لا شيء، بينما الهامشُ (مسلَّم − صافي) يساوي صفراً
+      // فيبدو سليماً — فحصُ الهامش وحدَه لا يمسك هذه الحالة.
+      expect(row('PRICED', rate: 0).isDisplayable, isFalse);
+      expect(row('PRICED', rate: -1).isDisplayable, isFalse);
     });
   });
 

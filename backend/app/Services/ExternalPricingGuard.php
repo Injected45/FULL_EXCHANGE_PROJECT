@@ -141,10 +141,103 @@ class ExternalPricingGuard
      */
     public function rate(int $countryId, int $serviceId): ?float
     {
+        return $this->register($countryId, $serviceId)['rate'];
+    }
+
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     *  ⚠⚠ «المسجَّلُ خطأً في حكم غير المسجَّل» — أمرُ المالك 11 سبتمبر 2026
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * «أيُّ عملةٍ بدون سعرٍ امنع ظهورَها في الشاشة، ولا تسمح بظهور إلّا
+     *  العملات المسجّلة بذكاء: إذا عملةٌ مسجّلةٌ خطأً وتسبّب خسائر فاجعلها في
+     *  حكم غير المسجَّلة، ولا تظهر للعميل في الشاشة ولا في تنفيذ الحوالة
+     *  الخارجية. والسعرُ الظاهر في الحوالة الخارجية يجب أن يكون ظاهراً في
+     *  شاشة الأسعار».
+     *
+     * ── قرارٌ واحدٌ يحكم ثلاثةَ أبواب ───────────────────────────────────
+     *
+     * [register] هي **المرجعُ الوحيد** لسؤال «هل هذا الاقتران صالح؟»، وتناديها
+     * ثلاثةُ أبوابٍ لا اثنان:
+     *
+     *   ١) لوحةُ الأسعار    — فلا يُعرض ما لا يُنفَّذ
+     *   ٢) قائمةُ الخدمات   — فلا يُختار ما لن يُقبل
+     *   ٣) التسعيرُ والإنشاء — فلا يُنفَّذ ما ليس على اللوحة
+     *
+     * وثلاثةُ أبوابٍ بثلاثة أحكامٍ تفترق عند أوّل تعديل، ثمّ يرى الوكيلُ خدمةً
+     * في القائمة تختفي من اللوحة وتُردّ عند الإرسال — وهو «الإحراجُ مع الزبائن»
+     * الذي نصَّ الأمرُ على منعه.
+     *
+     * ── وثلاثةُ أسبابٍ تجعل الاقترانَ «غيرَ مسجَّل» ─────────────────────
+     *
+     * ⚠ **حكمٌ بنيويٌّ لا عيّنات.** يُقرأ ما يقرؤه المحرّكُ نفسُه ويُحكم عليه،
+     * ولا يُستنتج من تجريب مبالغ: عيّناتٌ تمرّ قد يفلت منها مبلغٌ لم يُجرَّب،
+     * وقراءةُ المدخلات لا يفلت منها شيء.
+     *
+     *   NO_PRICE        لا صفَّ سعرٍ أصلاً.
+     *
+     *   AMBIGUOUS_PRICE أكثرُ من صفّ. و`SELECT @var =` لا تختار حين تتعدّد
+     *                   الصفوف: تُبقي آخرَ ما يصله المنفّذ. فالسعرُ المنفَّذ
+     *                   رقمٌ لا يعرفه أحدٌ سلفاً — ولا يُعرض ما لا نضمنه.
+     *                   وهو بعينه العطبُ الأصليّ مرفوعاً درجة.
+     *
+     *   BAD_PRICE       سعرٌ صفرٌ أو سالب. ⚠ وهذا **يعبر فحصَ الهامش سليماً**:
+     *                   بسعر صفرٍ يكون المسلَّم صفراً والصافي صفراً والهامشُ
+     *                   صفراً — فيمرّ الفحصُ الحسابيّ بينما المستفيد يستلم
+     *                   لا شيء. فحصُ الهامش وحدَه لا يمسك هذه.
+     *
+     *   BAD_DISCOUNT    حسمٌ سالبٌ في `CATEGORYTYPESDETAILSTB`. وهو بالضبط
+     *                   «مسجَّلةٌ خطأً وتسبّب خسائر»: بالسعر الموحَّد يصير
+     *                   الهامشُ هو الحسم، فحسمٌ سالبٌ = خسارةٌ في كلّ حوالةٍ
+     *                   تقع في تلك الشريحة.
+     */
+    public function register(int $countryId, int $serviceId): array
+    {
+        $key = "$countryId:$serviceId";
+        if (isset($this->memo[$key])) {
+            return $this->memo[$key];
+        }
+
         $rows = $this->prices($countryId, $serviceId);
 
-        return count($rows) === 1 ? (float) $rows[0]->SalePrice : null;
+        $verdict = match (true) {
+            count($rows) === 0 => ['rate' => null, 'reason' => 'NO_PRICE'],
+            count($rows) > 1   => ['rate' => null, 'reason' => 'AMBIGUOUS_PRICE'],
+            (float) $rows[0]->SalePrice <= 0
+                               => ['rate' => null, 'reason' => 'BAD_PRICE'],
+            $this->hasNegativeDiscount($serviceId)
+                               => ['rate' => null, 'reason' => 'BAD_DISCOUNT'],
+            default            => ['rate' => (float) $rows[0]->SalePrice, 'reason' => null],
+        };
+
+        return $this->memo[$key] = $verdict;
     }
+
+    /** هل الاقترانُ صالحٌ للعرض وللتنفيذ معاً؟ */
+    public function isAvailable(int $countryId, int $serviceId): bool
+    {
+        return $this->register($countryId, $serviceId)['rate'] !== null;
+    }
+
+    /**
+     * حسمٌ سالبٌ في أيّ شريحةٍ من شرائح هذه الخدمة.
+     *
+     * ⚠ `SalePrice_mo_Value` تطرح الحسمَ من قيمة الحوالة، فالحسمُ السالب
+     * **يزيدها** — أي يُسلَّم للمستفيد أكثرُ ممّا قُبض مقوَّماً، وهي الخسارة
+     * بعينها. ويقع مهما كان السعرُ صحيحاً، فلا يمسكه فحصُ السعر.
+     */
+    private function hasNegativeDiscount(int $serviceId): bool
+    {
+        $row = DB::selectOne(
+            'SELECT COUNT(*) AS n FROM CATEGORYTYPESDETAILSTB WHERE CATID = ? AND DisVal < 0',
+            [$serviceId]
+        );
+
+        return ((int) ($row->n ?? 0)) > 0;
+    }
+
+    /** ذاكرةُ الطلب الواحد — اللوحةُ تسأل عن كلّ اقترانٍ مرّاتٍ لا مرّة. */
+    private array $memo = [];
 
     /**
      * ما يستلمه المستفيد — **من دالّة المنظومة، لا من حسابٍ موازٍ**.
@@ -156,8 +249,28 @@ class ExternalPricingGuard
      */
     public function net(int $countryId, float $amount, int $serviceId, int $isPrivate): float
     {
+        /*
+         * ⚠⚠ **الصبُّ الصريح `DECIMAL(18,3)` ليس تجميلاً — بدونه ينهار النداء.**
+         *
+         * توقيعُ الدالّة `@value as int`. والسائقُ يربط عدد PHP العشريَّ
+         * **نصّاً**، فيصل SQL Server السلسلةُ '60.4' ويحاول تحويلها إلى `int`
+         * مباشرةً فيرمي:
+         *
+         *   SQLSTATE[22018] Conversion failed when converting the nvarchar
+         *   value '60.4' to data type int
+         *
+         * أي أنّ **كلَّ مبلغٍ كسريّ** — و60.50 د.ل مبلغٌ عاديّ عند الشبّاك —
+         * كان يُسقط التسعيرة بخطأ 500. وهو عطبٌ قائمٌ من قبلُ في
+         * `externalQuote` لا شيءٌ استُحدث هنا.
+         *
+         * ⚠ والصبُّ إلى `DECIMAL` **يطابق المحفّز حرفاً بحرف**: هو يمرّر
+         * `A.[CurrRecievedVal]` وهو عمودٌ عشريّ، فيحوّله SQL Server إلى `int`
+         * تحويلاً رقمياً (بالتقريب) لا نصّياً. فلو صببتُ إلى `INT` في PHP
+         * لاختلف التقريبُ عن تقريب المحرّك — وعدنا إلى «معروضٌ يخالف المنفَّذ»
+         * من بابٍ آخر.
+         */
         $row = DB::selectOne(
-            'SELECT ISNULL(dbo.SalePrice_mo_Value(?, ?, ?, ?), 0) AS NetTotal',
+            'SELECT ISNULL(dbo.SalePrice_mo_Value(?, CAST(? AS DECIMAL(18,3)), ?, ?), 0) AS NetTotal',
             [$countryId, $amount, $serviceId, $isPrivate]
         );
 
@@ -176,8 +289,8 @@ class ExternalPricingGuard
      */
     public function evaluate(int $countryId, int $serviceId, float $amount, int $isPrivate = 0): array
     {
-        $rows = $this->prices($countryId, $serviceId);
-        $rate = count($rows) === 1 ? (float) $rows[0]->SalePrice : null;
+        $reg  = $this->register($countryId, $serviceId);
+        $rate = $reg['rate'];
 
         /*
          * ⚠ **خدمةٌ بلا سعرٍ تُمنع، ولا يُستعار لها سعرُ خدمةٍ أخرى.**
@@ -191,7 +304,7 @@ class ExternalPricingGuard
         if ($rate === null) {
             return [
                 'ok'        => false,
-                'reason'    => count($rows) > 1 ? 'AMBIGUOUS_PRICE' : 'NO_PRICE',
+                'reason'    => $reg['reason'],
                 'rate'      => null,
                 'delivered' => 0.0,
                 'net'       => 0.0,

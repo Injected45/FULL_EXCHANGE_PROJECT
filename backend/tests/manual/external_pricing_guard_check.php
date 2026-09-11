@@ -111,24 +111,64 @@ $check(
         : implode(' · ', array_slice($blocked, 0, 4))
 );
 
-/* ── ٣) خدمةٌ بلا سعرٍ تُمنع، ولا تستعير سعرَ جارتها ──────────────────── */
-$unpriced = [];
+/* ── ٣) ما لا يُنفَّذ لا يُعرض، وما يُعرض يُنفَّذ — في ثلاثة أبواب ──────
+ *
+ * أمرُ المالك (11 سبتمبر 2026): «أيُّ عملةٍ بدون سعرٍ امنع ظهورَها في الشاشة
+ * … ولا تظهر للعميل في الشاشة ولا في تنفيذ الحوالة الخارجية. والسعرُ الظاهر
+ * في الحوالة الخارجية يجب أن يكون ظاهراً في شاشة الأسعار».
+ *
+ * فيُقاس على ثلاثة أبوابٍ لا على واحد: اللوحة · قائمةُ الخدمات · التسعير.
+ * والفحصُ يطابق **مجموعاتِها الثلاث** لا عيّناتٍ منها.
+ */
+$onBoard = [];
+foreach ($board as $r) {
+    $onBoard[$r['country_id'] . ':' . $r['service_id']] = $r['rate'];
+}
+
+$offered = [];   // ما تعيده قائمةُ الخدمات بعد الترشيح
+$priceable = []; // ما يقبله التسعير
 foreach ($services as $s) {
-    if ($guard->rate((int) $s->CountryID, (int) $s->ID) === null) {
-        $v = $guard->evaluate((int) $s->CountryID, (int) $s->ID, 100.0);
-        $unpriced[] = [trim($s->ServiceName), $s->CountryID, $v['ok'], $v['reason']];
+    $key = $s->CountryID . ':' . $s->ID;
+    if ($guard->isAvailable((int) $s->CountryID, (int) $s->ID)) {
+        $offered[$key] = true;
+    }
+    if ($guard->evaluate((int) $s->CountryID, (int) $s->ID, 100.0)['ok']) {
+        $priceable[$key] = true;
     }
 }
-$allRefused = true;
-foreach ($unpriced as $u) {
-    if ($u[2] !== false || $u[3] !== 'NO_PRICE') { $allRefused = false; }
+
+$diff = array_merge(
+    array_map(fn ($k) => "$k على اللوحة ولا يُعرض في القائمة", array_diff_key($onBoard, $offered) ? array_keys(array_diff_key($onBoard, $offered)) : []),
+    array_map(fn ($k) => "$k في القائمة وليس على اللوحة", array_keys(array_diff_key($offered, $onBoard))),
+    array_map(fn ($k) => "$k يُسعَّر وليس على اللوحة", array_keys(array_diff_key($priceable, $onBoard))),
+);
+
+$check(
+    '3. ⚠⚠ الأبوابُ الثلاثة تتّفق: اللوحة = القائمة = ما يُسعَّر',
+    $diff === [],
+    $diff === []
+        ? count($onBoard) . ' اقتراناً متاحاً في الثلاثة'
+        : implode(' · ', $diff)
+);
+
+/* ── ٣ب) والمرفوضُ مرفوضٌ في الثلاثة، ومعه سببُه ──────────────────────── */
+$rejected = [];
+foreach ($services as $s) {
+    $reg = $guard->register((int) $s->CountryID, (int) $s->ID);
+    if ($reg['rate'] !== null) { continue; }
+
+    $key = $s->CountryID . ':' . $s->ID;
+    $rejected[] = trim($s->ServiceName) . " (بلد {$s->CountryID}) — {$reg['reason']}";
+
+    // لا على اللوحة، ولا في القائمة، ولا يُسعَّر.
+    if (isset($onBoard[$key]) || isset($offered[$key]) || isset($priceable[$key])) {
+        $diff[] = "$key مرفوضٌ ومع ذلك ظهر";
+    }
 }
 $check(
-    '3. ⚠ الاقترانُ غيرُ المسعَّر يُمنع بـNO_PRICE',
-    $allRefused,
-    $unpriced === []
-        ? 'لا اقترانَ غيرَ مسعَّرٍ اليوم'
-        : implode(' · ', array_map(fn ($u) => "$u[0] (بلد $u[1])", $unpriced))
+    '3ب. ⚠ والمرفوضُ غائبٌ عن الثلاثة ومعه سببُه',
+    $diff === [],
+    $rejected === [] ? 'لا اقترانَ مرفوضاً اليوم' : implode(' · ', $rejected)
 );
 
 /* ── ٤) العتبةُ محصورةٌ بين الضجيج والخسارة الحقيقية ─────────────────────
@@ -144,6 +184,43 @@ $check(
     '4. ⚠ العتبةُ تمرّر ضجيجَ الفاصلة العائمة وتمنع أصغرَ خسارةٍ مقيسة',
     (-2.9e-13 >= -$eps) && (-5.0 < -$eps) && ($eps > 0) && ($eps < 0.01),
     "EPSILON = $eps"
+);
+
+/* ── ٤ب) المبالغُ الكسرية تُسعَّر ولا تنهار ─────────────────────────────
+ *
+ * ⚠ توقيعُ `SalePrice_mo_Value` هو `@value as int`، والسائقُ يربط عدد PHP
+ * العشريَّ **نصّاً** — فيصل SQL Server السلسلةُ '60.4' ويرمي:
+ *   SQLSTATE[22018] Conversion failed … '60.4' to data type int
+ *
+ * أي أنّ كلَّ مبلغٍ كسريّ كان يُسقط التسعيرة بخطأ 500، و60.50 د.ل مبلغٌ عاديّ
+ * عند الشبّاك. والعلاجُ صبٌّ صريحٌ إلى `DECIMAL` — وهو أيضاً ما يجعل الحارسَ
+ * يطابق المحفّز، إذ يمرّر المحفّزُ عموداً عشرياً فيحوّله المحرّكُ رقمياً.
+ *
+ * ⚠ والتحويلُ **يقتطع ولا يقرّب** (مقيس: 60.9 تعطي صافيَ 60 نفسَه)، والاقتطاعُ
+ * يصغّر الصافيَ — أي لصالح الشركة دائماً، فلا يولّد هامشاً سالباً.
+ */
+$fracFail = null;
+$fracBlocked = [];
+$fracCount = 0;
+foreach ($services as $s) {
+    if (!$guard->isAvailable((int) $s->CountryID, (int) $s->ID)) { continue; }
+    for ($i = 0; $i < 40; $i++) {
+        $a = round(1 + $i * 0.37, 2);
+        $fracCount++;
+        try {
+            $v = $guard->evaluate((int) $s->CountryID, (int) $s->ID, $a);
+            if (!$v['ok']) { $fracBlocked[] = "{$s->ID}@$a"; }
+        } catch (\Throwable $e) {
+            $fracFail ??= "{$s->ID}@$a: " . $e->getMessage();
+        }
+    }
+}
+$check(
+    '4ب. ⚠ المبلغُ الكسريّ يُسعَّر ولا يُمنع ولا ينهار',
+    $fracFail === null && $fracBlocked === [],
+    $fracFail ?? ($fracBlocked === []
+        ? "$fracCount عيّنةً كسرية"
+        : 'مُنع: ' . implode(' ', array_slice($fracBlocked, 0, 5)))
 );
 
 /* ── ٥) الصفرُ يمرّ ───────────────────────────────────────────────────
@@ -279,6 +356,48 @@ $check(
     '8. ⚠ لا دالّةَ تقرأ جدولَ الأسعار خارجَ الحارس إلّا باستثناءٍ مُسمّى',
     $rogue === [],
     $rogue === [] ? 'نظيف — والاستثناءان مُسمّيان بسببهما' : implode(' · ', $rogue)
+);
+
+/* ── ١٠) شرطُ الحسم السالب يصل فعلاً — لا يمرّ لأنه لا يرى شيئاً ────────
+ *
+ * ⚠ قاعدةٌ مكتوبةٌ في هذا المشروع: «فحصٌ لا يطابق شيئاً يبدو تماماً كفحصٍ
+ * ناجح». و`hasNegativeDiscount` تعيد `false` اليوم لكلّ خدمة — وهو الصواب،
+ * لكنّه أيضاً ما ستعيده لو كان الاستعلامُ يقرأ جدولاً خاطئاً أو عموداً خاطئاً.
+ *
+ * فيُشغَّل الاستعلامُ نفسُه بالإشارة مقلوبة: إن وجد صفوفاً بحسمٍ **موجب**
+ * فالمسارُ سليمٌ ويصل إلى الجدول والعمود الصحيحين، والفرقُ الوحيدُ بينهما
+ * إشارةٌ واحدة.
+ */
+$negNow = 0;
+$posNow = 0;
+foreach ($services as $s) {
+    $negNow += (int) DB::selectOne(
+        'SELECT COUNT(*) n FROM CATEGORYTYPESDETAILSTB WHERE CATID = ? AND DisVal < 0',
+        [$s->ID]
+    )->n;
+    $posNow += (int) DB::selectOne(
+        'SELECT COUNT(*) n FROM CATEGORYTYPESDETAILSTB WHERE CATID = ? AND DisVal >= 0',
+        [$s->ID]
+    )->n;
+}
+$check(
+    '10. ⚠ شرطُ الحسم السالب يقرأ الجدولَ فعلاً (لا يمرّ فراغاً)',
+    $negNow === 0 && $posNow > 0,
+    "شرائحُ حسمٍ موجبة=$posNow  سالبة=$negNow"
+);
+
+/* ── ١١) والصفرُ سعراً يُرفض ولو كان هامشُه صفراً ──────────────────────
+ *
+ * ⚠ الحالةُ التي **يعبرها فحصُ الهامش سليماً**: بسعر صفرٍ يكون المسلَّم صفراً
+ * والصافي صفراً والهامشُ صفراً — فيُقبل حسابياً بينما المستفيد يستلم لا شيء.
+ * يُقاس هنا على المنطق لا على صفٍّ في القاعدة، إذ لا صفَّ بسعر صفرٍ اليوم.
+ */
+$zeroMarginPasses = (0.0 - 0.0) >= -$eps;          // الهامشُ وحدَه يقبلها
+$zeroPriceRejected = !((0.0) > 0);                  // وشرطُ السعر يرفضها
+$check(
+    '11. ⚠ سعرُ الصفر يُرفض بشرطِ السعر لا بفحص الهامش',
+    $zeroMarginPasses && $zeroPriceRejected,
+    'الهامشُ يقبلها والسعرُ يرفضها — ولهذا لا يكفي فحصُ الهامش وحدَه'
 );
 
 /* ── ٩) لم يتحرّك شيءٌ ماليّ ──────────────────────────────────────────── */
