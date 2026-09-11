@@ -303,58 +303,91 @@ class _ProfileHeader extends StatelessWidget {
             end: -30,
             child: const BrandWatermark(size: 220),
           ),
+          /*
+           * ══════════════════════════════════════════════════════════════
+           *  ترويسةُ الحساب — أمرُ المالك (11 سبتمبر 2026)
+           * ══════════════════════════════════════════════════════════════
+           *
+           * «الدائرةُ تعرض شعار الوكيل · الاسمُ كما هو · وحقلُ ACC يكون أمام
+           *  اسم الوكيل على نفس السطر، في حقلٍ يشمل الاسمَ مع ACC بالكامل بلا
+           *  فاصلٍ بينهما — منسّقاً لا مكدّساً كلٌّ في سطر».
+           *
+           * ── ما كان، ولماذا بدا مكدّساً ────────────────────────────────
+           *
+           * كانت ثلاثةَ كتلٍ فوق بعضها: الاسمُ، ثمّ الصفة، ثمّ حبّةٌ منفصلة
+           * لرقم الحساب. فأخذت الترويسةُ ثلاثةَ أسطرٍ لثلاث معلوماتٍ يقرؤها
+           * الوكيل في نظرةٍ واحدة.
+           *
+           * فصارت **حقلاً واحداً** يحمل الاسمَ ورقمَ الحساب على سطرٍ واحد،
+           * والصفةُ سطرٌ صغيرٌ تحتهما **داخل الحقل نفسِه** — فلم تُحذف كلمة،
+           * وسقط سطرٌ كامل من الارتفاع.
+           *
+           * ⚠ والدائرةُ صارت [BrandAvatar] — **العنصرُ نفسُه** الذي يحمل
+           * الشعار في ترويستَي الرئيسية عند الوكيل والموظف، لا دائرةٌ رابعة
+           * تُرسم هنا. فشعارٌ يُحفظ يظهر في الثلاث معاً، والحرفُ احتياطُه حين
+           * لا شعار.
+           */
           RiseIn.small(
             child: Row(
               children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: R.whiteA(.2),
-                    border: Border.all(color: R.whiteA(.34)),
-                  ),
-                  child: initial == null
-                      ? const Icon(Icons.person_outline_rounded,
-                          size: 22, color: Colors.white)
-                      : Text(initial!,
-                          style:
-                              T.kufi(16, FontWeight.w600, color: Colors.white)),
-                ),
+                BrandAvatar(initial: initial),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              T.kufi(16, FontWeight.w600, color: Colors.white)),
-                      const SizedBox(height: 8),
-                      Text(role,
-                          style: T.plex(11.5, FontWeight.w400,
-                              color: R.whiteA(.82))),
-                      if (accId != null) ...[
-                        const SizedBox(height: 11),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: R.whiteA(.18),
-                            border: Border.all(color: R.whiteA(.3)),
-                            borderRadius: BorderRadius.circular(99),
-                          ),
-                          child: Directionality(
-                            textDirection: TextDirection.ltr,
-                            child: Text('ACC $accId',
-                                style: T.kufi(12, FontWeight.w600,
-                                    color: Colors.white, spacing: .72)),
-                          ),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
+                    decoration: BoxDecoration(
+                      color: R.whiteA(.16),
+                      border: Border.all(color: R.whiteA(.28)),
+                      borderRadius: BorderRadius.circular(R.rCard),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            // ⚠ الاسمُ يتقلّص ولا يدفع الرقمَ خارج الشاشة:
+                            // اسمُ شركةٍ طويل كان سيزيح `ACC` إلى حافّةٍ
+                            // مقصوصة على الهواتف الضيّقة.
+                            Flexible(
+                              child: Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: T.kufi(15.5, FontWeight.w700,
+                                    color: Colors.white),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            /*
+                             * ⚠ بلا فاصلٍ بينهما كما نصّ الأمر — لا خطٌّ ولا
+                             * نقطة. والرقمُ يُميَّز بوزنه ولونه لا بحاجز.
+                             *
+                             * وباتجاهٍ لاتينيّ مفروض: «ACC 530» مقطعٌ لاتينيّ
+                             * في فقرةٍ عربية، وبغيره تقلبه الفقرةُ فيُقرأ
+                             * «530 ACC».
+                             */
+                            Directionality(
+                              textDirection: TextDirection.ltr,
+                              child: Text(
+                                accId == null ? '—' : 'ACC $accId',
+                                style: T.kufi(12.5, FontWeight.w700,
+                                    color: R.whiteA(.9), spacing: .6),
+                              ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 3),
+                        // الصفةُ باقيةٌ — داخل الحقل لا فوقه، فلا تأخذ سطراً
+                        // مستقلاً ولا تسقط من الشاشة.
+                        Text(role,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.plex(11, FontWeight.w400,
+                                color: R.whiteA(.72))),
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ],
