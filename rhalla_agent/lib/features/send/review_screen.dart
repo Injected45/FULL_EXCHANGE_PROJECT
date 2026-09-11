@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -15,12 +14,12 @@ import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../auth/auth_controller.dart';
 import '../employee_app/employee_session.dart';
-import '../auth/auth_repository.dart';
 import '../shell/auto_refresh.dart';
 import 'limit_dialog.dart';
 import 'send_layout.dart';
 import 'pending_approval_sheet.dart';
 import 'send_repository.dart';
+import 'transfer_otp.dart';
 import 'transfer_summary.dart';
 
 /// شاشة تأكيد الحوالة الداخلية — تعرض ما سيُخصم، ثم تطلب رمز تحقّق.
@@ -42,8 +41,18 @@ class ReviewTransferScreen extends ConsumerStatefulWidget {
 }
 
 class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
-  /// أربع خانات: الخادم يولّد rand(1000, 9999)، و checkOtp يتحقق digits:4.
-  static const _otpLength = 4;
+  /*
+   * ⚠ بطاقةُ الرمز ومنطقُه خرجا إلى [TransferOtpPanel] — أمرُ المالك
+   * (11 سبتمبر 2026) بتوحيد المراسم على القناتين والبابين.
+   *
+   * أربعُ حالاتٍ تحتاجها: الوكيلُ داخلياً وخارجياً، والموظفُ داخلياً
+   * وخارجياً. ونسخةٌ لكلّ واحدةٍ منها تعني أربعَ بطاقاتٍ تفترق عند أوّل
+   * تعديلٍ في المهلة أو الطول أو نصّ الخطأ.
+   *
+   * وما بقي في هذه الشاشة هو **إنشاءُ الحوالة** وحدَه — لأنّ الداخلية
+   * والخارجية تُنشآن بنقطتين مختلفتين. فما وُحِّد هو المراسم، لا المال.
+   */
+  final _otp = TransferOtpController();
 
   /// مفتاحُ هذه المحاولة — ثابتٌ ما دامت الشّاشة قائمة.
   ///
@@ -53,25 +62,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
   final String _clientId = 'tx-${DateTime.now().microsecondsSinceEpoch}'
       '-${Random().nextInt(0x7fffffff).toRadixString(36)}';
 
-  /// مهلة إعادة الإرسال. صلاحية الرمز نفسه ثلاث دقائق (ExpeaerTime).
-  static const _resendAfter = 60;
-
-  final _otpCtl = TextEditingController();
-  final _otpFocus = FocusNode();
-
-  String _code = '';
-  String? _otpError;
-  bool _requesting = false;
   bool _sending = false;
-
-  /// صار الرمز مستهلَكاً: checkOtp يضع ISActive=1 عند أول مطابقة ناجحة،
-  /// فإن فشل إنشاء الحوالة بعدها لا ينفع الرمز مرّةً ثانية — والوكيل يحتاج
-  /// رمزاً جديداً لا محاولةً ثانية بالرمز ذاته.
-  bool _spent = false;
-
-
-  int _left = 0;
-  Timer? _timer;
 
   /// وقت فتح الشاشة — ثابتٌ لا يقفز مع كل إعادة بناء.
   final String _stamp = Fmt.nowStamp();
@@ -79,120 +70,33 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _requestOtp());
+    // جاهزيةُ الرمز وانشغالُه يحكمان زرَّ الأسفل — فيُعاد البناء عند تغيّرهما.
+    _otp.addListener(_onOtp);
+  }
+
+  void _onOtp() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
-    _otpCtl.dispose();
-    _otpFocus.dispose();
+    _otp.removeListener(_onOtp);
+    _otp.dispose();
     super.dispose();
   }
 
-  void _startTimer() {
-    _timer?.cancel();
-    setState(() => _left = _resendAfter);
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) return t.cancel();
-      setState(() => _left--);
-      if (_left <= 0) t.cancel();
-    });
-  }
-
-  Future<void> _requestOtp() async {
+  /*
+   * إنشاءُ الحوالة — **بعد** أن يقبل الخادمُ الرمز.
+   *
+   * ⚠ لا تحقّقَ هنا: [TransferOtpPanel] تتولّاه ثمّ تنادي هذه. والرمزُ
+   * استُهلك على الخادم لحظةَ قبوله، فأيُّ فشلٍ بعد هذا السطر يستلزم رمزاً
+   * جديداً — وهو ما تقوله البطاقةُ بنفسها («استُهلك الرمز»).
+   */
+  Future<void> _createTransfer() async {
+    if (_sending) return;
     final user = ref.read(authControllerProvider).user;
-    // ⚠ الموظفُ بلا حساب وكيلٍ في جلسته، ورمزُه يُطلَب بلا هاتفٍ من الهاتف:
-    // نقطتُه تقرأ رقمَه من جلسته. فشرطُ `user == null` كان يمنع طلبَ الرمز
-    // عنه أصلاً — أي زرٌّ لا يفعل شيئاً.
-    if ((user == null && !_asEmployee) || _requesting) return;
 
-    setState(() {
-      _requesting = true;
-      _otpError = null;
-    });
-
-    try {
-      await ref.read(authRepositoryProvider).requestTransferOtp(
-            asEmployee: _asEmployee,
-            agentPhone: user?.phone,
-          );
-      if (!mounted) return;
-      setState(() {
-        _requesting = false;
-        _spent = false;
-        _code = '';
-        _otpCtl.clear();
-      });
-      _startTimer();
-    } on ApiFailure catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _requesting = false;
-        _otpError = e.message;
-        _left = 0;
-      });
-    }
-  }
-
-  /// الموافقة الآلية عند اكتمال الرمز.
-  ///
-  /// المهلة القصيرة ليست تجميلاً: بدونها تتحرّك الشاشة قبل أن يرى الوكيل
-  /// خانته الأخيرة تمتلئ، فلا يعرف أضغَط شيئاً أم أخطأ. ونعيد فحص الطول
-  /// بعدها لأنه قد يكون حذف رقماً في أثنائها.
-  Future<void> _autoConfirm() async {
-    await Future.delayed(const Duration(milliseconds: 180));
-    if (!mounted || _code.length != _otpLength) return;
-    await _confirm();
-  }
-
-  Future<void> _confirm() async {
-    // حارسٌ صريح لا يتّكل على تعطيل الزرّ. الإرسال صار آلياً، وحدث onChanged
-    // مكرَّر — أو لصقٌ، أو ضغطة على الزرّ في أثناء الإرسال — كان سينشئ
-    // حوالتين لا واحدة. وهذا مالٌ لا يُسترجع.
-    if (_sending || _spent) return;
-    final employee = _asEmployee;
-    final user = ref.read(authControllerProvider).user;
-    // ⚠ الرمزُ شرطٌ على الاثنين الآن — أمرُ المالك (11 سبتمبر 2026). وحسابُ
-    // الوكيل يبقى شرطاً على الوكيل وحدَه: الموظفُ ليس له حسابٌ في جلسته.
-    if (_code.length != _otpLength) return;
-    if (!employee && user == null) return;
-
-    setState(() {
-      _sending = true;
-      _otpError = null;
-    });
-    FocusScope.of(context).unfocus();
-
-    /*
-     * 1) التحقّق من الرمز على الخادم. لا يُقارَن هنا — العميل لا يعرفه.
-     *
-     * ⚠ **ولم يعد يُتخطّى في وضع الموظف** — أمرُ المالك (11 سبتمبر 2026).
-     * كان يُتخطّى لأنّ الرمز يذهب إلى هاتف الوكيل وهو غائبٌ عن الشبّاك؛
-     * وصار يذهب إلى **هاتف الموظف المعتمد** — الرقمُ الذي فتح به التطبيق
-     * أصلاً. فالسياسةُ واحدةٌ للاثنين، والموظفُ لا ينتظر أحداً.
-     */
-    try {
-      await ref.read(authRepositoryProvider).verifyTransferOtp(
-            asEmployee: employee,
-            agentPhone: user?.phone,
-            code: _code,
-          );
-    } on ApiFailure catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _sending = false;
-        _otpError = e.message;
-        _code = '';
-        _otpCtl.clear();
-      });
-      return;
-    }
-
-    // 2) الرمز صحيح ⇒ استُهلك على الخادم. أيّ فشلٍ بعد هذا السطر يستلزم
-    //    رمزاً جديداً، لا إعادة محاولة بالرمز ذاته.
-    if (!mounted) return;
-    _spent = true;
+    setState(() => _sending = true);
 
     try {
       // ⚠ في وضع الموظف يُملأ `AccID` في الخادم من حساب وكيله ويُدهَس
@@ -216,7 +120,6 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
        * شاشته — والطلبُ محفوظٌ عند وكيله لا يحتاج إعادةَ إدخال.
        */
       if (!mounted) return;
-      _timer?.cancel();
       setState(() => _sending = false);
       await showModalBottomSheet<void>(
         context: context,
@@ -240,13 +143,10 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
       context.go(asEmployee ? '/employee/home' : '/');
     } on ApiFailure catch (e) {
       if (!mounted) return;
-      _timer?.cancel();
-      setState(() {
-        _sending = false;
-        _code = '';
-        _otpCtl.clear();
-        _left = 0; // إعادة الإرسال متاحة فوراً — الرمز السابق مات
-      });
+      // ⚠ الرمزُ استُهلك على الخادم قبل هذا النداء، والبطاقةُ تقول ذلك
+      // بنفسها («استُهلك الرمز — اطلب رمزاً جديداً»). فلا يُمسح حقلٌ هنا
+      // ولا يُعاد ضبطُ مؤقّت: حالةُ الرمز صارت ملكَ البطاقة وحدَها.
+      setState(() => _sending = false);
 
       final short = InsufficientFunds.from(e);
       if (short != null) {
@@ -287,7 +187,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
     }
   }
 
-  bool get _busy => _sending || _requesting;
+  bool get _busy => _sending || _otp.busy;
 
   /// وضعُ الموظف — يغيّر خطوةَ التأكيد وحدها، لا شيئاً في الحوالة.
   bool get _asEmployee =>
@@ -315,7 +215,8 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
    * فالسياسةُ واحدةٌ الآن، والحمايةُ حقيقيةٌ لا صورية: الرمزُ يصل إلى من
    * يقف أمام الزبون، لا إلى هاتفٍ في مكتبٍ آخر.
    */
-  bool get _ready => !_busy && !_spent && _code.length == _otpLength;
+  // الجاهزيةُ تقولها البطاقة: هي التي تعرف طولَ الرمز واستهلاكَه.
+  bool get _ready => !_sending && _otp.ready;
 
   @override
   Widget build(BuildContext context) {
@@ -394,9 +295,13 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                    * ورقمُ الموظف عنده. وعرضُ رقم الوكيل لموظفٍ ينتظر رمزاً
                    * على هاتفه هو كان سيجعله ينتظر رسالةً لن تصله.
                    */
-                  child: _otpCard(_asEmployee
-                      ? (ref.watch(employeeAuthProvider).profile?.phone ?? '')
-                      : (user?.phone ?? '')),
+                  // ⚠ البطاقةُ المشتركة — تتولّى الطلبَ والمؤقّتَ والحقلَ
+                  // والتحقّق، ثمّ تنادي الإنشاء. والهاتفُ المعروض تقرؤه من
+                  // الجلسة بنفسها، فلا يُمرَّر من هنا.
+                  child: TransferOtpPanel(
+                    controller: _otp,
+                    onVerified: _createTransfer,
+                  ),
                 ),
 
                 /*
@@ -454,8 +359,8 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                   child: PrimaryButton(
                     height: kButtonHeight,
                     label: 'تأكيد وإرسال',
-                    loading: _sending,
-                    onPressed: _ready ? _confirm : null,
+                    loading: _busy,
+                    onPressed: _ready ? _otp.submit : null,
                   ),
                 ),
               ],
@@ -495,145 +400,6 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
           ],
         ),
       );
-  Widget _otpCard(String phone) => GlassCard(
-        padding: kCardPad,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('رمز التحقّق', style: T.kufi(15, FontWeight.w600)),
-            const SizedBox(height: 4),
-            Text.rich(
-              TextSpan(
-                style: T.plex(12.5, FontWeight.w400,
-                    color: R.inkA(.58), height: 1.5),
-                children: [
-                  const TextSpan(text: 'أرسلنا رمزاً من 4 أرقام إلى رقمك '),
-                  // عازل يونيكود حتى لا يختلّ ترتيب الرقم داخل جملة عربية.
-                  TextSpan(
-                    text: '\u{2066}${Fmt.phone(phone)}\u{2069}',
-                    style: T.plex(12.5, FontWeight.w600, color: R.ink),
-                  ),
-                  const TextSpan(text: ' عبر واتساب.'),
-                ],
-              ),
-            ),
-            const SizedBox(height: kGap),
-            _OtpField(
-              length: _otpLength,
-              code: _code,
-              controller: _otpCtl,
-              focusNode: _otpFocus,
-              enabled: !_busy && !_spent,
-              onChanged: (v) {
-                setState(() {
-                  _code = v;
-                  _otpError = null;
-                });
-                // موافقةٌ آلية عند اكتمال الخانات الأربع — بلا ضغط زرّ.
-                // «الصحيح والمطابق» يقرّره الخادم لا التطبيق: العميل لا يعرف
-                // الرمز أصلاً، فالاكتمال يبدأ التحقّق، والتحقّق هو من يوافق.
-                if (v.length == _otpLength) _autoConfirm();
-              },
-            ),
-            const SizedBox(height: kGap),
-            _otpStatus(),
-          ],
-        ),
-      );
-
-  Widget _otpStatus() {
-    // الإرسال بلا ضغطة زرّ يوجب إشارةً صريحة: بدونها يظنّ الوكيل أن الرمز
-    // لم يُقبَل فيمسحه ويعيد كتابته والحوالة في طريقها.
-    if (_sending) {
-      return Row(
-        children: [
-          const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2)),
-          const SizedBox(width: 10),
-          Text('جارٍ التحقّق وإرسال الحوالة…',
-              style: T.plex(12, FontWeight.w600, color: R.primary)),
-        ],
-      );
-    }
-
-    if (_requesting) {
-      return Row(
-        children: [
-          const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2)),
-          const SizedBox(width: 10),
-          Text('جارٍ إرسال الرمز…',
-              style: T.plex(12, FontWeight.w500, color: R.inkA(.55))),
-        ],
-      );
-    }
-
-    if (_otpError != null) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.error_outline_rounded, size: 15, color: R.error),
-          const SizedBox(width: 7),
-          Expanded(
-            child: Text(_otpError!,
-                style:
-                    T.plex(12, FontWeight.w500, color: R.error, height: 1.5)),
-          ),
-        ],
-      );
-    }
-
-    if (_spent) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.info_outline_rounded, size: 15, color: R.warnIcon),
-          const SizedBox(width: 7),
-          Expanded(
-            child: Text('استُهلك الرمز — اطلب رمزاً جديداً لإعادة المحاولة.',
-                style:
-                    T.plex(12, FontWeight.w500, color: R.warnInk, height: 1.5)),
-          ),
-        ],
-      );
-    }
-
-    if (_left > 0) {
-      final m = (_left ~/ 60).toString().padLeft(2, '0');
-      final s = (_left % 60).toString().padLeft(2, '0');
-      return Row(
-        children: [
-          Icon(Icons.schedule_rounded, size: 15, color: R.inkA(.4)),
-          const SizedBox(width: 7),
-          Text('الوقت المتبقّي لإعادة الإرسال',
-              style: T.plex(12, FontWeight.w400, color: R.inkA(.55))),
-          const Spacer(),
-          Directionality(
-            textDirection: TextDirection.ltr,
-            child: Text('$m:$s',
-                style: T.kufi(13, FontWeight.w700, color: R.inkA(.7))),
-          ),
-        ],
-      );
-    }
-
-    return Align(
-      alignment: AlignmentDirectional.centerStart,
-      child: TextButton(
-        onPressed: _sending ? null : _requestOtp,
-        style: TextButton.styleFrom(
-          minimumSize: const Size(44, 40),
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-        ),
-        child: Text('إعادة إرسال الرمز',
-            style: T.plex(13, FontWeight.w600, color: R.primary)),
-      ),
-    );
-  }
 }
 
 /// «رصيد غير كافٍ» — مبنيّة من الحقول التي يعيدها الخادم داخل `message`.
@@ -749,64 +515,3 @@ class _InsufficientSheet extends StatelessWidget {
       );
 }
 
-/// خانات الرمز الأربع فوق حقلٍ شفّاف يلتقط لوحة المفاتيح.
-///
-/// `OtpBoxes` عرضٌ فقط — لا يقبل إدخالاً. وشاشة الدخول تستعمل لوحة أرقام
-/// خاصة، لكنها هنا كانت ستزاحم مُلخّص الحوالة على الشاشة، فالمُلخَّص هو
-/// ما يجب أن يراه الوكيل قبل أن يؤكّد.
-class _OtpField extends StatelessWidget {
-  const _OtpField({
-    required this.length,
-    required this.code,
-    required this.controller,
-    required this.focusNode,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  final int length;
-  final String code;
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final bool enabled;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) => Stack(
-        children: [
-          OtpBoxes(value: code, length: length),
-          Positioned.fill(
-            child: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              enabled: enabled,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
-              autofocus: false,
-              showCursor: false,
-              enableInteractiveSelection: false,
-              // WesternDigits أولاً: المرشّح بعده يسمح بـ [0-9] فقط، فلو
-              // سبقه لحذف الرقم الهندي قبل أن يُحوَّل — ولبدت لوحة المفاتيح
-              // وكأنها لا تكتب شيئاً.
-              inputFormatters: [
-                WesternDigits(),
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(length),
-              ],
-              style: const TextStyle(color: Colors.transparent, fontSize: 2),
-              cursorColor: Colors.transparent,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                counterText: '',
-                contentPadding: EdgeInsets.zero,
-                filled: false,
-              ),
-              onChanged: onChanged,
-            ),
-          ),
-        ],
-      );
-}

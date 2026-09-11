@@ -52,6 +52,31 @@ class FakeAuthRepo implements AuthRepository {
   @override
   Future<AgentUser?> restore() async => null;
 
+  /*
+   * ⚠ لا تكفي `noSuchMethod` هنا — وهي أخفقت فعلاً.
+   *
+   * بعد أن صار رمزُ التحقّق شرطاً على الوكيل والموظف معاً (11 سبتمبر 2026)،
+   * صارت [TransferOtpPanel] تطلب الرمزَ **دائماً** عند ظهورها. وكانت شاشةُ
+   * المراجعة قبلها تخرج مبكراً لأنّ `user` فارغةٌ في الاختبار، فلا تُنادى
+   * النقطةُ أصلاً.
+   *
+   * و`noSuchMethod` تعيد `null`، والبطاقةُ تنتظر `Future` فعلاً — فيُرمى
+   * `NoSuchMethodError` قبل أن تُبنى الشاشة، ويسقط فحصُ التخطيط لسببٍ لا
+   * علاقةَ له بالتخطيط.
+   */
+  @override
+  Future<void> requestTransferOtp({
+    required bool asEmployee,
+    String? agentPhone,
+  }) async {}
+
+  @override
+  Future<void> verifyTransferOtp({
+    required bool asEmployee,
+    String? agentPhone,
+    required String code,
+  }) async {}
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
