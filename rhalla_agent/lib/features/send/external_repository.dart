@@ -101,6 +101,65 @@ class ExternalDraft {
   double get total => amountLyd + commission;
 }
 
+/// ما تحمله شاشةُ «تمّت الحوالة الخارجية».
+///
+/// ══════════════════════════════════════════════════════════════════════════
+///  أمرُ المالك (11 سبتمبر 2026)
+/// ══════════════════════════════════════════════════════════════════════════
+///
+/// «عند تنفيذ حوالة خارجية أريد أن تظهر شاشةُ تمّت الحوالة بنجاح **مثل شكل
+///  ومظهر الداخلية** مع اختلاف البيانات: حيث الخارجية تُظهر سعرَ الصرف
+///  والقيمةَ بالعملة المحلية وكم بالعملة المحوَّل لها، واسمَ الخدمة والدولة
+///  والمدينة أو الخدمة حسب الاختيار من إنشاء الحوالة».
+///
+/// ⚠ وموضعُه هنا لا في شاشة النموذج: صار **شاشتان** تبنيانه — شاشةُ المراجعة
+/// تبنيه بعد الإنشاء، والشاشةُ التي تعرضه. وصنفٌ خاصٌّ داخل إحداهما لا
+/// تراه الأخرى.
+class ExternalDoneArgs {
+  const ExternalDoneArgs({
+    required this.code,
+    required this.favoriteCode,
+    required this.name,
+    required this.phone,
+    required this.amount,
+    required this.commission,
+    required this.net,
+    required this.rate,
+    required this.currencyCode,
+    this.country = '',
+    this.city = '',
+    this.service = '',
+  });
+
+  /// الرمز المعروض للوكيل والمستفيد.
+  final String code;
+
+  /// `ExternalEx.Code` — **وليس** رمز الموبايل. المفضّلة تُخزَّن به لأن
+  /// `Favorites_GetByUserID` يربط `code_Favorite` بعمود `Code` وحده، فحفظ
+  /// رمز الموبايل يعني صفّاً لا يظهر في القائمة أبداً.
+  final String favoriteCode;
+  final String name;
+  final String phone;
+
+  /// المقبوضُ بالدينار، والعمولة — بالعملة المحلّية.
+  final double amount;
+  final double commission;
+
+  /// ما يستلمه المستفيد بعملة الوجهة — من الصف المُدرَج.
+  final double net;
+
+  /// سعرُ الصرف كما كتبه المحفّز بعد الإدراج.
+  final double rate;
+  final String currencyCode;
+
+  /// الوجهةُ كما اختارها المُرسِل في النموذج.
+  final String country;
+  final String city;
+  final String service;
+
+  double get total => amount + commission;
+}
+
 class ExternalRepository {
   ExternalRepository(this._api);
 
@@ -209,11 +268,23 @@ class ExternalRepository {
   ///   CurrRecievedVal = المبلغ بالدينار · Commition → يُخزَّن ExVal
   ///
   /// `AccFrom` مطلوب في التحقق لكن الإدراج يستعمل `$user->AccID` — يُرسل ولا يؤثّر.
+  /// [clientId] مفتاحُ الطلب — يمنع ازدواجَ الحوالة عند تكرار الضغط أو
+  /// إعادة الإرسال بعد انقطاع.
+  ///
+  /// ⚠ **كان غائباً عن هذا المسار وحدَه.** نقطةُ الموظف
+  /// (`employee/external/create`) تقرأ `client_id` وتحجزه في
+  /// `employee_transfer_claims` قبل أيّ كتابةٍ مالية — تماماً كنقطة الحوالة
+  /// المحلّية — لكنّ التطبيق لم يكن يرسله، فكان الحارسُ قائماً في الخادم
+  /// ومعطَّلاً من الطرف الآخر.
+  ///
+  /// ويُولّد **مرّةً لكلّ محاولة** في شاشة المراجعة لا عند كلّ نداء: مفتاحٌ
+  /// جديد مع كلّ إعادةٍ يُبطل الحمايةَ من أصلها.
   Future<Map<String, dynamic>> create({
     required ExternalDraft d,
     required int accId,
     String? senderName,
     String? senderPhone,
+    String? clientId,
   }) async {
     final env = await _api.post(
         await _path('/device/external/insert/transfer',
@@ -237,6 +308,7 @@ class ExternalRepository {
       if (senderPhone != null && senderPhone.trim().isNotEmpty)
         'SPhone1': senderPhone.trim(),
       if (d.notes != null && d.notes!.trim().isNotEmpty) 'Notes': d.notes!.trim(),
+      if (clientId != null && clientId.isNotEmpty) 'client_id': clientId,
     });
 
     final p = env.payload;

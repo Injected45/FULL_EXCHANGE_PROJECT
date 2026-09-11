@@ -14,9 +14,7 @@ import '../auth/auth_controller.dart';
 import '../employee_app/employee_session.dart';
 import '../favorites/favorites_repository.dart';
 import '../favorites/favorites_screen.dart';
-import '../shell/auto_refresh.dart';
 import 'external_repository.dart';
-import 'limit_dialog.dart';
 import 'send_repository.dart';
 
 class SendExternalScreen extends ConsumerStatefulWidget {
@@ -166,32 +164,45 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
     }
   }
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   *  ⚠ لم يعد هذا الزرُّ يُنشئ الحوالة — أمرُ المالك (11 سبتمبر 2026)
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * «ننشئ شاشةَ مراجعةٍ للحوالة الخارجية لنتمكّن من إرسال الرمز والتحقّق
+   *  **بنفس آليّة الداخلية**».
+   *
+   * فصار يبني المسودّة ويدفع [ReviewExternalScreen] — كما يفعل زرُّ الحوالة
+   * المحلّية حرفاً بحرف. والإنشاءُ يقع هناك **بعد قبول الخادم للرمز**.
+   *
+   * ⚠ ولا يُمَسّ بذلك مالٌ ولا قيد: نداءُ الإنشاء هو هو بمعاملاته كما هي،
+   * انتقل موضعُه فقط. ولا استعلامَ جديداً ولا جدولَ ولا عمود.
+   *
+   * ⚠ و`_sending` بقيت هنا: الشاشةُ تُقفل أزرارَها أثناء بناء المسودّة
+   * والانتقال، فضغطتان متسارعتان لا تفتحان شاشتَي مراجعة.
+   */
   Future<void> _send() async {
-    // حارسٌ صريح لا يتّكل على تعطيل الزرّ: ضغطةٌ مزدوجة أو حدثٌ مكرّر في أثناء
-    // الإرسال كان سينشئ حوالتين لا واحدة — وهذا مالٌ لا يُسترجع (نمطُ review_screen).
+    // حارسٌ صريح لا يتّكل على تعطيل الزرّ: ضغطةٌ مزدوجة أو حدثٌ مكرّر كان
+    // سيفتح شاشتَي مراجعة، ولكلٍّ منهما مفتاحُ طلبٍ مستقلّ.
     if (_sending) return;
     if (!_valid) {
       setState(() => _error = 'أكمل بيانات الحوالة أولاً.');
       return;
     }
+
     /*
      * ⚠ **حسابُ الوكيل غائبٌ في وضع الموظف — ولا يجوز أن يوقف الإرسال.**
      *
      * جلسةُ الموظف ليست جلسةَ وكيل، فـ`authControllerProvider.user` فارغٌ
-     * عنده. و`if (user == null) return;` كانت ستجعل زرَّ الإرسال **يُضغط
-     * فلا يقع شيء**: لا خطأٌ يُعرض ولا حوالةٌ تُنشأ — وهو الشكلُ الذي يُقرأ
-     * عطباً في التطبيق لا منعاً، والقاعدةُ في هذا المشروع أنّ حارساً يصمت
-     * أسوأُ من حارسٍ يرفض.
+     * عنده. و`if (user == null) return;` كانت ستجعل الزرَّ **يُضغط فلا يقع
+     * شيء** — والقاعدةُ في هذا المشروع أنّ حارساً يصمت أسوأُ من حارسٍ يرفض.
      *
-     * ⚠ ولا يضيع بذلك شيء: `AccFrom` **يُدهَس في الخادم** بحساب الوكيل قبل
-     * أن يُقرأ (انظر `EmployeeController::createExternalTransfer`)، تماماً
-     * كما يُفعل بـ`AccID` في الحوالة المحلّية. فالقيمةُ المرسلة من هنا لا
-     * تؤثّر في وضع الموظف أصلاً.
+     * ⚠ ولا يضيع بذلك شيء: `AccFrom` **يُدهَس في الخادم** بحساب الجلسة قبل
+     * أن يُقرأ.
      */
-    final user = ref.read(authControllerProvider).user;
     final asEmployee =
         ref.read(employeeAuthProvider).status == EmpSessionStatus.signedIn;
-    if (user == null && !asEmployee) return;
+    if (ref.read(authControllerProvider).user == null && !asEmployee) return;
 
     setState(() {
       _sending = true;
@@ -218,45 +229,10 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
       quote: _quote,
     );
 
-    try {
-      final row = await ref
-          .read(externalRepositoryProvider)
-          .create(d: draft, accId: user?.accId ?? 0);
-      if (!mounted) return;
-      refreshAfterMoneyAction(ref);
-      // المُشغِّل يحسب NetTotal/TransPrice بعد الإدراج، والخادم يعيد الصف
-      // بعدها — فهذه أرقام ما كُتب فعلاً، لا تقدير العميل.
-      context.pushReplacement('/send/external/done', extra: _DoneArgs(
-        code: '${row['codeForMobile'] ?? row['Code'] ?? ''}',
-        favoriteCode: '${row['Code'] ?? ''}'.trim(),
-        name: draft.receiverName,
-        phone: draft.receiverPhone,
-        amount: draft.amountLyd,
-        commission: draft.commission,
-        net: Fmt.num_(row['NetTotal']),
-        rate: Fmt.num_(row['TransPrice']),
-        currencyCode: _quote?.currencyCode ?? '',
-      ));
-    } on ApiFailure catch (e) {
-      if (!mounted) return;
-      // تجاوز السقف حدٌّ لا خطأ — حوار في وسط الشاشة، ولا يُكتب في _error
-      // كي لا يبقى نصّاً أحمر أسفل النموذج بعد إغلاق الحوار.
-      final overLimit = TransferLimitExceeded.from(e);
-      setState(() {
-        _sending = false;
-        _error = overLimit == null ? e.message : null;
-      });
-      if (overLimit != null) await showLimitExceededDialog(context, overLimit);
-    } catch (_) {
-      // خطأٌ غير متوقّع (لا ApiFailure): نفكّ التجميد كي لا تبقى الشاشةُ
-      // معلّقةً وزرُّ الرجوع مُعطّلاً. والرسالةُ تحذّر من إعادة الإرسال قبل
-      // التحقّق — فقد يكون المالُ خرج والفشلُ في قراءة الرد فقط.
-      if (!mounted) return;
-      setState(() {
-        _sending = false;
-        _error = 'تعذّر تأكيد نتيجة الحوالة. راجع قائمة الحوالات قبل إعادة المحاولة.';
-      });
-    }
+    // ⚠ يُفكّ التجميد عند العودة من المراجعة («تعديل البيانات»)، وإلّا عاد
+    // الوكيلُ إلى نموذجٍ مجمَّدٍ لا يقول لماذا.
+    await context.push('/send/external/review', extra: draft);
+    if (mounted) setState(() => _sending = false);
   }
 
   @override
@@ -578,37 +554,6 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
     );
     if (picked != null) onPicked(picked);
   }
-}
-
-class _DoneArgs {
-  const _DoneArgs({
-    required this.code,
-    required this.favoriteCode,
-    required this.name,
-    required this.phone,
-    required this.amount,
-    required this.commission,
-    required this.net,
-    required this.rate,
-    required this.currencyCode,
-  });
-
-  /// الرمز المعروض للوكيل والمستفيد.
-  final String code;
-
-  /// `ExternalEx.Code` — **وليس** رمز الموبايل. المفضّلة تُخزَّن به لأن
-  /// `Favorites_GetByUserID` يربط `code_Favorite` بعمود `Code` وحده، فحفظ
-  /// رمز الموبايل يعني صفّاً لا يظهر في القائمة أبداً.
-  final String favoriteCode;
-  final String name;
-  final String phone;
-  final double amount;
-  final double commission;
-
-  /// ما يستلمه المستفيد بعملة الوجهة — من الصف المُدرَج.
-  final double net;
-  final double rate;
-  final String currencyCode;
 }
 
 class _PickerCard extends StatelessWidget {
@@ -1011,7 +956,7 @@ class ExternalDoneScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final a = args as _DoneArgs?;
+    final a = args as ExternalDoneArgs?;
     return PopScope(
       canPop: false,
       child: Screen(
@@ -1083,46 +1028,57 @@ class ExternalDoneScreen extends StatelessWidget {
                           style: T.plex(13.5, FontWeight.w600)),
                     ],
                   ),
+                  /*
+                   * ══════════════════════════════════════════════════════
+                   *  الوجهةُ والخدمة — أمرُ المالك (11 سبتمبر 2026)
+                   * ══════════════════════════════════════════════════════
+                   *
+                   * «الخارجية تُظهر سعرَ الصرف والقيمةَ بالعملة المحلية وكم
+                   *  بالعملة المحوَّل لها، واسمَ الخدمة والدولة والمدينة».
+                   *
+                   * ⚠ وهي **من المسودّة كما اختارها المُرسِل**، لا من الصفّ
+                   * المُعاد: الصفُّ يحمل معرّفاتٍ لا أسماء، وترجمتُها هنا
+                   * تعني ثلاثةَ استعلاماتٍ على شاشةِ نجاح — والأسماءُ بين
+                   * يديه أصلاً منذ النموذج.
+                   *
+                   * ⚠ وكلُّ سطرٍ يغيب إن غاب بيانُه: سطرٌ فارغ على ورقةِ
+                   * نجاحٍ يُقرأ نقصاً في الحوالة لا نقصاً في العرض.
+                   */
+                  if ((a?.country ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _DoneRow('الدولة', a!.country),
+                  ],
+                  if ((a?.city ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _DoneRow('المدينة', a!.city),
+                  ],
+                  if ((a?.service ?? '').isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _DoneRow('نوع الخدمة', a!.service),
+                  ],
+
+                  const SizedBox(height: 14),
+                  Divider(color: R.inkA(.07), height: 1),
+                  const SizedBox(height: 14),
+
+                  _DoneMoney('المبلغ بالعملة المحلية', a?.amount ?? 0,
+                      currency: 'د.ل'),
+                  if ((a?.commission ?? 0) > 0) ...[
+                    const SizedBox(height: 12),
+                    _DoneMoney('العمولة', a!.commission, currency: 'د.ل'),
+                  ],
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Text('المخصوم منك',
-                          style: T.plex(12, FontWeight.w400,
-                              color: R.inkA(.55))),
-                      const Spacer(),
-                      Directionality(
-                        textDirection: TextDirection.ltr,
-                        child: Text(
-                            Fmt.money((a?.amount ?? 0) + (a?.commission ?? 0)),
-                            style: T.kufi(14, FontWeight.w700)),
-                      ),
-                    ],
-                  ),
+                  _DoneMoney('المخصوم منك', a?.total ?? 0,
+                      currency: 'د.ل', strong: true),
+
+                  if ((a?.rate ?? 0) > 0) ...[
+                    const SizedBox(height: 12),
+                    _DoneRow('سعر الصرف', Fmt.rate(a!.rate), ltr: true),
+                  ],
                   if ((a?.net ?? 0) > 0) ...[
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Text('يستلم المستفيد',
-                            style: T.plex(12, FontWeight.w400,
-                                color: R.inkA(.55))),
-                        const Spacer(),
-                        Directionality(
-                          textDirection: TextDirection.ltr,
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(Fmt.money(a!.net),
-                                  style: T.kufi(14, FontWeight.w700)),
-                              const SizedBox(width: 5),
-                              Text(a.currencyCode,
-                                  style: T.plex(10.5, FontWeight.w400,
-                                      color: R.inkA(.5))),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                    _DoneMoney('يستلم المستفيد', a!.net,
+                        currency: a.currencyCode, strong: true),
                   ],
                 ],
               ),
@@ -1140,13 +1096,106 @@ class ExternalDoneScreen extends StatelessWidget {
               onPressed: () => context.pushReplacement('/send/external'),
             ),
             const SizedBox(height: 10),
-            GlassButton(
-              label: 'العودة إلى الرئيسية',
-              onPressed: () => context.go('/'),
-            ),
+            /*
+             * ⚠ الوجهةُ تُحسب من الوضع لا تُفترض — القاعدةُ نفسُها المسجَّلة
+             * في شاشة المراجعة الداخلية.
+             *
+             * صارت هذه الشاشةُ مشتركةً بين الوكيل والموظف (11 سبتمبر 2026)،
+             * و`/` مسارُ الوكيل وحدَه. وإرسالُ الموظف إليه يجعله يمرّ بإعادة
+             * توجيهٍ في المُوجِّه قبل أن يستقرّ — أو يقف حيث لا شاشة له.
+             */
+            Consumer(builder: (_, r, _) {
+              final asEmployee = r.watch(employeeAuthProvider).status ==
+                  EmpSessionStatus.signedIn;
+              return GlassButton(
+                label: 'العودة إلى الرئيسية',
+                onPressed: () =>
+                    context.go(asEmployee ? '/employee/home' : '/'),
+              );
+            }),
           ],
         ),
       ),
     );
   }
+}
+
+/// سطرٌ في ورقة النجاح — تسميةٌ يميناً وقيمةٌ يساراً.
+///
+/// ⚠ عنصرٌ واحدٌ لكلّ السطور: ستّةُ صفوفٍ مكتوبةٍ يدوياً كانت ستفترق في
+/// الحجم واللون عند أوّل تعديل، فتبدو الورقةُ غيرَ مرتّبة.
+class _DoneRow extends StatelessWidget {
+  const _DoneRow(this.label, this.value, {this.ltr = false});
+
+  final String label;
+  final String value;
+
+  /// قيمةٌ لاتينيّة (سعرُ صرفٍ مثلاً) — يُفرض اتجاهُها وإلّا قلبتها الفقرة.
+  final bool ltr;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Text(label,
+              style: T.plex(12, FontWeight.w400, color: R.inkA(.55))),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: ltr
+                  ? Directionality(
+                      textDirection: TextDirection.ltr,
+                      child: Text(value,
+                          style: T.kufi(14, FontWeight.w700)),
+                    )
+                  : Text(value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: T.plex(13.5, FontWeight.w600)),
+            ),
+          ),
+        ],
+      );
+}
+
+/// سطرُ مبلغٍ في ورقة النجاح — العملةُ يسارَ الرقم كقاعدة التطبيق كلِّه.
+class _DoneMoney extends StatelessWidget {
+  const _DoneMoney(this.label, this.value,
+      {required this.currency, this.strong = false});
+
+  final String label;
+  final double value;
+  final String currency;
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Text(label,
+              style: T.plex(strong ? 12.5 : 12,
+                  strong ? FontWeight.w600 : FontWeight.w400,
+                  color: strong ? R.inkA(.72) : R.inkA(.55))),
+          const Spacer(),
+          Directionality(
+            // رقمٌ هو مقطعٌ لاتينيّ — يُفرض اتجاهُه، والعملةُ أوّلُ أطفاله
+            // فتقع يسارَه على الشاشة.
+            textDirection: TextDirection.ltr,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                if (currency.isNotEmpty) ...[
+                  Text(currency,
+                      style: T.plex(10.5, FontWeight.w400, color: R.inkA(.5))),
+                  const SizedBox(width: 5),
+                ],
+                Text(Fmt.money(value),
+                    style: T.kufi(strong ? 15 : 14,
+                        strong ? FontWeight.w800 : FontWeight.w700)),
+              ],
+            ),
+          ),
+        ],
+      );
 }

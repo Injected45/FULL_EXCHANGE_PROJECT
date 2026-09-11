@@ -39,6 +39,8 @@ import 'features/reports/commissions_screen.dart';
 import 'features/pos/pos_screen.dart';
 import 'features/send/accounts_repository.dart';
 import 'features/send/review_accounts_screen.dart';
+import 'features/send/external_repository.dart';
+import 'features/send/review_external_screen.dart';
 import 'features/send/review_screen.dart';
 import 'features/send/send_accounts_screen.dart';
 import 'features/send/send_external_screen.dart';
@@ -88,7 +90,9 @@ bool _sharedWithEmployee(String loc, bool canCreate, bool canExternal) {
    * على شاشةٍ ستُردّ عند أوّل نداء.
    */
   final external =
-      loc == '/send/external' || loc == '/send/external/done';
+      loc == '/send/external' ||
+          loc == '/send/external/review' ||
+          loc == '/send/external/done';
 
   return (shared && canCreate) || (external && canExternal);
 }
@@ -528,6 +532,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootKey,
         builder: (_, s) =>
             SendExternalScreen(prefill: s.extra as FavoriteCustomer?),
+      ),
+      GoRoute(
+        // مراجعةُ الحوالة الخارجية ورمزُها — نظيرةُ `/send/internal/review`.
+        path: '/send/external/review',
+        parentNavigatorKey: _rootKey,
+        builder: (_, s) =>
+            ReviewExternalScreen(draft: s.extra as ExternalDraft),
       ),
       GoRoute(
         path: '/send/external/done',
