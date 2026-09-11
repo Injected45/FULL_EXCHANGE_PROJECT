@@ -43,6 +43,7 @@ import 'features/send/external_repository.dart';
 import 'features/send/review_external_screen.dart';
 import 'features/send/review_screen.dart';
 import 'features/send/send_accounts_screen.dart';
+import 'features/send/currency_rates_screen.dart';
 import 'features/send/send_external_screen.dart';
 import 'features/send/send_internal_screen.dart';
 import 'features/send/send_repository.dart';
@@ -50,6 +51,7 @@ import 'features/send/success_screen.dart';
 import 'features/shell/app_shell.dart';
 import 'features/statement/statement_screen.dart';
 import 'features/reports/reports_screen.dart';
+import 'features/transfers/agent_incoming_repository.dart';
 import 'features/transfers/transfers_screen.dart';
 
 final _rootKey = GlobalKey<NavigatorState>();
@@ -350,6 +352,15 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const EmployeeExternalMineScreen(),
       ),
       GoRoute(
+        // أسعارُ العملات — الشاشةُ نفسُها في التطبيقين، والمختلفُ بابُ
+        // القراءة وحدَه (`TransfersMode`)، لأنّ رمز الموظف لا يفتح مسار
+        // الوكيل. والقراءةُ في الخادم واحدة.
+        path: '/employee/external/rates',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) =>
+            const CurrencyRatesScreen(mode: TransfersMode.employee),
+      ),
+      GoRoute(
         path: '/employee/balances',
         parentNavigatorKey: _rootKey,
         builder: (_, _) => const EmployeeBalancesScreen(),
@@ -544,6 +555,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/send/external/done',
         parentNavigatorKey: _rootKey,
         builder: (_, s) => ExternalDoneScreen(args: s.extra),
+      ),
+
+      GoRoute(
+        // أسعارُ العملات للوكيل — قراءةٌ فقط، فلا صلاحيةَ تحرسها ولا
+        // `_sharedSendAllowed`: ليس فيها إنشاءُ حوالةٍ ولا رصيد.
+        path: '/rates',
+        parentNavigatorKey: _rootKey,
+        builder: (_, _) => const CurrencyRatesScreen(),
       ),
 
       GoRoute(

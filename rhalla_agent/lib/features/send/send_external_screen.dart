@@ -248,6 +248,16 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
             title: 'حوالة خارجية',
             subtitle: 'خارج ليبيا · المبلغ بالـ$currency',
             onBack: _sending ? null : () => context.pop(),
+            // بابُ «أسعار العملات» — هنا لأنّ السؤال يُسأل هنا: الوكيلُ
+            // يسعّر لزبونٍ واقفٍ أمامه فيحتاج اللوحةَ في اللحظة نفسِها.
+            //
+            // ⚠ ولا يُسحب منها رقمٌ إلى هذه الشاشة: التسعيرُ يبقى من
+            // `externalQuote` وحدَه، واللوحةُ عرضٌ لا مصدرَ حساب.
+            trailing: CircleIconButton(
+              onPressed: _sending ? null : () => context.push('/rates'),
+              child: Icon(Icons.currency_exchange_rounded,
+                  size: 18, color: R.ink),
+            ),
           ),
           Expanded(
             child: countries.when(

@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\AgentIncomingTransfersController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\EmployeeChatController;
 use App\Http\Controllers\Api\CompanyBrandingController;
+use App\Http\Controllers\Api\CurrencyRatesController;
 use App\Http\Controllers\Api\EmployeeActivationController;
 use App\Http\Controllers\Api\EmployeeAdminController;
 use App\Http\Controllers\Api\EmployeeApprovalController;
@@ -233,6 +234,12 @@ Route::post('device/employee/external/create',
 Route::get ('device/employee/external/mine',
     [ EmployeeController::class , 'externalMine' ])
     ->middleware('employee:VIEW_OWN_TRANSFERS');
+
+/* أسعارُ العملات — عرضٌ فقط، ومن مصدر المنظومة نفسِه.
+   ⚠ بلا صلاحية: السعرُ معلومةٌ يراها الموظف أصلاً في شاشة التسعير. */
+Route::get ('device/employee/currency-rates',
+    [ CurrencyRatesController::class , 'employeeIndex' ])
+    ->middleware('employee');
 
 /* فاتورةُ حوالةٍ خارجية بالرقم — تُفتح بالضغط على صفِّها.
    ⚠ والرقمُ يحمل شَرطاتٍ (`13152-55-6`)، فالقيدُ يسمح بها صراحةً: القيدُ
@@ -620,6 +627,11 @@ Route::post('device/searchPayment',  [ MobiledepositController::class , 'searchP
       [ ChatController::class , 'typing' ])->whereNumber('id');
   Route::get ('chat/search',                   [ ChatController::class , 'search' ]);
   Route::get ('chat/starred',                  [ ChatController::class , 'starred' ]);
+
+  /* أسعارُ العملات للوكيل — القراءةُ نفسُها التي يقرؤها الموظف.
+     ⚠ لا نقطةَ كتابةٍ لها بحال: تغييرُ السعر فعلُ المكتب الخلفيّ وحدَه. */
+  Route::get('device/currency-rates',
+      [ CurrencyRatesController::class , 'index' ]);
 
   Route::get('agent/outgoing-transfers/pending',
       [ AgentIncomingTransfersController::class , 'pendingOutgoing' ]);

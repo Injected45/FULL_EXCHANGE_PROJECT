@@ -157,6 +157,21 @@ class EmployeeExternalHubScreen extends ConsumerWidget {
           subtitle: 'اليوم · أسبوع · شهر · الكل · من–إلى',
           onTap: () => context.push('/employee/statement/external'),
         ),
+
+      /*
+       * ⚠ بلا شرطِ صلاحية — وهو قرارٌ لا سهو.
+       *
+       * السعرُ معلومةٌ يراها الموظفُ أصلاً في شاشة إنشاء الحوالة حين يسعّر،
+       * فمفتاحٌ ثالثٌ لبيانٍ مكشوفٍ أصلاً يعني وكيلاً يمنع ما لا يُمنَع.
+       * والشاشةُ قراءةٌ خالصة: لا زرَّ تعديلٍ فيها، ولا نقطةَ كتابةٍ لها في
+       * الخادم أصلاً.
+       */
+      EmployeeTile(
+        icon: Icons.currency_exchange_rounded,
+        title: 'أسعار العملات',
+        subtitle: 'الأسعار المعتمدة — عرض فقط',
+        onTap: () => context.push('/employee/external/rates'),
+      ),
     ];
 
     return _Hub(
