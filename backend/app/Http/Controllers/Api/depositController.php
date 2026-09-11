@@ -3121,48 +3121,45 @@ public function transInsert(Request $request)
            *
            * ⚠ ولا يكتب هذا المسارُ شيئاً: قراءةٌ تُعرض على الوكيل قبل الإرسال.
            */
-          $rateRow = DB::selectOne("
-              SELECT ISNULL(a.SalePrice, 1) AS SalePrice
-              FROM NewCurrencyPriceOwnDetailsTb AS a
-              INNER JOIN NewCurrencyPricesOwnTb AS b ON a.CPID = b.ID
-              INNER JOIN CountiresTb AS c ON b.CountryID = c.ID AND a.CurrencyIDTo = c.DefualtCurrency
-              INNER JOIN AppBriceTB AS e ON b.CountryID   = e.CountryID
-                                        AND b.AccountType = e.AccountType
-                                        AND b.BranchID    = e.BranchID
-              WHERE a.CurrencyIDFrom = 1
-                AND b.PriceType = 2
-                AND b.CountryID = ?
-                AND b.BankID    = ?
-          ", [$countryTo, $service]);
+          $verdict = app(\App\Services\ExternalPricingGuard::class)
+              ->evaluate($countryTo, $service, $amount, $isPrivate);
 
           /*
-           * ⚠ وخدمةٌ بلا سعرٍ تُقال، ولا يُستعار لها سعرُ خدمةٍ أخرى.
+           * ⚠⚠ **والتسعيرةُ تُمنع حيث يُمنع التنفيذ — بالحكم نفسِه لا بحكمٍ ثانٍ.**
            *
-           * الاستعلامُ السابق كان يُعيد أوّلَ صفٍّ للدولة مهما كانت الخدمة،
-           * فخدمةٌ لم يُسعّرها المكتبُ الخلفيّ بعدُ كانت تُسعَّر بسعر جارتها
-           * في صمت. ومقيسٌ على القاعدة اليوم: «بنكك» في السودان وحدَها بلا
-           * صفِّ سعر — كانت تأخذ سعرَ «تسليم باليد» (555.555).
+           * أمرُ المالك: «يوقف الحارسُ الخدمةَ بأدبٍ ويُظهر رسالةً للمستخدم».
            *
-           * والوقوفُ هنا برسالةٍ صريحة يجعل النقصَ يُصلَح في المكتب الخلفيّ،
-           * لا أن يُدفن في تسعيرةٍ يظنّها الوكيل صحيحة.
+           * وهذا أوّلُ بابٍ يطرقه الوكيل: يملأ المبلغَ فيُسعَّر له. فإن كان
+           * السعرُ مختلاً، يُقال له هنا **قبل أن يُتمّ النموذج ويَعِد زبوناً**،
+           * لا عند الضغط على «إرسال» بعد أن صار الزبون ينتظر.
+           *
+           * ⚠ ولا يُعرض له رقمٌ مع الاعتذار: تسعيرةٌ مرفوضةٌ معروضةٌ تُغري
+           * بإعادة المحاولة بمبلغٍ آخر حتى يمرّ — وهو التفافٌ على الحارس لا
+           * إصلاحٌ للسعر.
            */
-          if (!$rateRow) {
+          if (!$verdict['ok']) {
+              \Illuminate\Support\Facades\Log::warning('external_pricing_blocked', [
+                  'stage'      => 'quote',
+                  'reason'     => $verdict['reason'],
+                  'country'    => $countryTo,
+                  'service'    => $service,
+                  'amount'     => $amount,
+                  'rate'       => $verdict['rate'],
+                  'delivered'  => $verdict['delivered'],
+                  'net'        => $verdict['net'],
+                  'margin'     => $verdict['margin'],
+              ]);
+
               return $this->sendError(
-                  'لا يوجد سعر تحويل معرَّف لهذه الخدمة في هذه الوجهة — راجع إدارة الرحالة.',
-                  ['CountryIDTo' => $countryTo, 'ServiceType' => $service],
+                  \App\Services\ExternalPricingGuard::REFUSAL,
+                  ['reason' => $verdict['reason']],
                   422
               );
           }
 
-          $rate      = floatval($rateRow->SalePrice);
-          $delivered = $amount * $rate;
-
-          $netRow = DB::selectOne(
-              "SELECT ISNULL(dbo.SalePrice_mo_Value(?, ?, ?, ?), 0) AS NetTotal",
-              [$countryTo, $amount, $service, $isPrivate]
-          );
-
-          $net = floatval($netRow->NetTotal);
+          $rate      = $verdict['rate'];
+          $delivered = $verdict['delivered'];
+          $net       = $verdict['net'];
 
           $currency = DB::selectOne("
               SELECT c.DefualtCurrency AS ID, m.CurCode, m.CuName
@@ -3505,6 +3502,74 @@ public function transInsertExternal(Request $request)
         ], 'رصيد غير كافي', 422);
     }
 
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     *  ⚠⚠ حارسُ الخسارة — لا حوالةَ بهامشٍ سالب
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * أمرُ المالك (11 سبتمبر 2026): «ننشئ شرطاً وحارساً يمنع أيَّ حوالةٍ
+     * بالسالب … حتى لو أخطأ الموظفُ في المنظومة الخلفية في إدراج الأسعار،
+     * ورأيتَ أنّ الحوالة لو نُفِّذت تسبّب خسارةً للشركة — يوقف الحارسُ الخدمةَ
+     * بأدب. وإذا كان فرقُ الأسعار في صالح الشركة والربح + يُنفَّذ دون مشاكل».
+     *
+     * ── ⚠ وموضعُه هنا قرارٌ لا ترتيب ───────────────────────────────────
+     *
+     * **قبل `DB::beginTransaction` وقبل توليد كود الموبايل، وبعد كلّ فحوص
+     * الرصيد والسقوف.** فثلاثةُ أشياء تتحقّق بهذا الموضع وحدَه:
+     *
+     *   ١) لا صفَّ يُدرَج فلا قيدَ يُكتب — والمنعُ بعد الإدراج كان سيعني
+     *      تراجعاً، والتراجعُ حركةٌ ماليةٌ ثانيةٌ في الدفتر لا عدمُ حركة.
+     *   ٢) لا كودَ موبايل يُحجز ثمّ يُحرق على حوالةٍ لم تقع.
+     *   ٣) والوكيلُ يسمع الاعتذارَ الواحد الذي يعنيه، لا رسالةَ رصيدٍ أو سقفٍ
+     *      عن مشكلةٍ ليست منه.
+     *
+     * ── ولماذا لا يُكتفى بحارس المحفّز ─────────────────────────────────
+     *
+     * ⚠ المحفّزُ يحرس أيضاً (طبقةٌ ثانية، وهي التي تحمي إدراجاً من خارج هذا
+     * المسار)، لكنّه يرفض بـ`rollback` داخل مُحفّز — فيُجهض الدفعةَ برسالة
+     * SQL Server العامّة، ويصل الوكيلَ خطأٌ تقنيٌّ لا اعتذارٌ مفهوم. ونصُّ
+     * الأمر على «يوقف الخدمة **بأدب** ويُظهر رسالةً للمستخدم»، وهذا هو
+     * البابُ الذي يملك الرسالة.
+     *
+     * ⚠ ولا حسابَ ثانياً هنا: [ExternalPricingGuard] يقرأ السعرَ باستعلام
+     * `SalePrice_mo_Value` نفسِه، ويأخذ الصافيَ من الدالّة نفسِها. فالحكمُ
+     * هنا هو حكمُ المحفّز، لا تقديرٌ يقاربه.
+     */
+    $verdict = app(\App\Services\ExternalPricingGuard::class)->evaluate(
+        (int) $request->CountryIDTo,
+        (int) $request->ServiceType,
+        floatval($request->CurrRecievedVal),
+        (int) ($request->IsPrivateAccount ?? 0)
+    );
+
+    if (!$verdict['ok']) {
+        /*
+         * ⚠ والسببُ يُسجَّل كاملاً هنا، ولا يُقال للوكيل.
+         *
+         * من يُصلح السعرَ هو المكتبُ الخلفيّ، وهذا السطرُ هو ما يدلّه على
+         * الاقتران المختلّ بالرقم. والوكيلُ يسمع الاعتذارَ وحدَه — رقمٌ
+         * داخليٌّ في يده أمام زبونٍ يجعله يساوم على ما لا يملك تغييره.
+         */
+        \Illuminate\Support\Facades\Log::warning('external_pricing_blocked', [
+            'stage'     => 'create',
+            'reason'    => $verdict['reason'],
+            'acc_from'  => $AccID,
+            'country'   => (int) $request->CountryIDTo,
+            'service'   => (int) $request->ServiceType,
+            'amount'    => floatval($request->CurrRecievedVal),
+            'rate'      => $verdict['rate'],
+            'delivered' => $verdict['delivered'],
+            'net'       => $verdict['net'],
+            'margin'    => $verdict['margin'],
+        ]);
+
+        return $this->sendError(
+            \App\Services\ExternalPricingGuard::REFUSAL,
+            ['reason' => $verdict['reason']],
+            422
+        );
+    }
+
     // ================= توليد كود فريد للموبايل =================
     $maxAttempts    = 5;
     $attempt        = 0;
@@ -3579,6 +3644,100 @@ public function transInsertExternal(Request $request)
 
         if ($transfer) {
             $transfer->Type_from = 3;
+        }
+
+        /*
+         * ══════════════════════════════════════════════════════════════════
+         *  ⚠⚠ الحارسُ الحاسم — يُقاس ما كُتب فعلاً، لا ما توقّعناه
+         * ══════════════════════════════════════════════════════════════════
+         *
+         * أمرُ المالك (11 سبتمبر 2026): «حتى نضمن عدم تنفيذ أيّ حوالاتٍ
+         * بخسائر».
+         *
+         * ── ولماذا لا يكفي الفحصُ القبليّ وحدَه ────────────────────────
+         *
+         * الفحصُ أعلاه يقيس بالسعر **الصحيح** (سعرِ الخدمة المُدرج). والذي
+         * يكتب `TransPrice` هو المحفّزُ، ونسخةُ استعلامه ينقصها شرطُ الخدمة —
+         * فقد يكتب سعراً آخر. فتمرّ الحوالةُ من الباب الأوّل بهامشٍ موجبٍ
+         * محسوبٍ على سعرٍ **لم يُستعمل**، ثمّ تُنفَّذ بهامشٍ سالب.
+         *
+         * وهذه ليست فرضية: تسعُ حوالاتٍ من عشرٍ في القاعدة وقعت هكذا.
+         *
+         * ── فهذا الحارسُ يقرأ الصفّ بعد كتابته ────────────────────────
+         *
+         * ⚠ **وقبل `DB::commit()`** — وهو موضعُه كلُّه. الإدراجُ والمحفّزُ
+         * بكامل قيوده داخل معاملةٍ واحدة، فالتراجعُ هنا **لا يُبقي أثراً**:
+         * لا صفَّ حوالة، ولا قيداً في `EX24AccSafeActivityTb`، ولا رصيداً
+         * تحرّك. وهو عدمُ حركةٍ لا حركةٌ عكسية — والفرقُ بينهما هو الفرقُ
+         * بين دفترٍ نظيفٍ ودفترٍ فيه قيدٌ وعكسُه.
+         *
+         * ⚠ ولا يحتاج هذا الحارسُ إلى تعديل المحفّز ليعمل. فحتى قبل تشغيل
+         * `database/sql/deploy/2026-09-11_external_price_service_filter.sql`
+         * لا تُعتمد حوالةٌ خاسرة — يُمنع تنفيذُها ويُقال للوكيل الاعتذار.
+         *
+         * ── وما يمرّ: الفرقُ في صالح الشركة ──────────────────────────
+         *
+         * ⚠ نصُّ الأمر: «وإذا كان فرقُ الأسعار هو من صالح الشركة والربح +
+         * يُنفَّذ التحويل دون أيّ مشاكل». فالموجبُ يمرّ ولو خالف السعرَ
+         * المعروض، ويُسجَّل الاختلافُ ليُصلحه المكتبُ الخلفيّ. والمستفيدُ
+         * يستلم `NetTotal` نفسَه في الحالين — فلا يُمَسّ.
+         */
+        $writtenMargin = $transfer ? (float) ($transfer->ServiceExVal ?? 0) : 0.0;
+        $writtenRate   = $transfer && $transfer->TransPrice !== null
+            ? (float) $transfer->TransPrice
+            : null;
+
+        $lossy = $transfer
+            && ($writtenRate === null
+                || $writtenMargin < -\App\Services\ExternalPricingGuard::EPSILON);
+
+        if ($lossy) {
+            DB::rollBack();
+
+            if (!empty($codeForMobile)) {
+                DB::table('MobileTransferCodes')
+                    ->where('codeForMobile', $codeForMobile)
+                    ->update(['status' => 'cancelled']);
+            }
+
+            \Illuminate\Support\Facades\Log::warning('external_pricing_blocked', [
+                'stage'         => 'post_insert_rollback',
+                'reason'        => $writtenRate === null ? 'NULL_RATE_WRITTEN' : 'NEGATIVE_MARGIN_WRITTEN',
+                'acc_from'      => $AccID,
+                'country'       => (int) $request->CountryIDTo,
+                'service'       => (int) $request->ServiceType,
+                'amount'        => floatval($request->CurrRecievedVal),
+                'rate_expected' => $verdict['rate'],
+                'rate_written'  => $writtenRate,
+                'margin_written' => $writtenMargin,
+            ]);
+
+            return $this->sendError(
+                \App\Services\ExternalPricingGuard::REFUSAL,
+                ['reason' => 'NEGATIVE_MARGIN_WRITTEN'],
+                422
+            );
+        }
+
+        /*
+         * ⚠ واختلافُ السعر المكتوب عن المعروض يُسجَّل ولو كان في صالحنا.
+         *
+         * لأنّ أمرَ المالك فيه شرطان لا واحد: «لا خسارة» — وهو ما مُنع
+         * أعلاه — و«السعرُ المعروض هو السعرُ المنفَّذ». والثاني لا يكتمل إلّا
+         * بإصلاح المحفّز، فيبقى هذا السطرُ شاهداً يُحصى ما دام الفرقُ قائماً
+         * بدل أن يمرّ بلا أثر.
+         */
+        if ($writtenRate !== null && $verdict['rate'] !== null
+            && abs($writtenRate - (float) $verdict['rate']) > \App\Services\ExternalPricingGuard::EPSILON) {
+            \Illuminate\Support\Facades\Log::warning('external_rate_mismatch', [
+                'code'          => $transfer->Code ?? null,
+                'country'       => (int) $request->CountryIDTo,
+                'service'       => (int) $request->ServiceType,
+                'rate_shown'    => $verdict['rate'],
+                'rate_written'  => $writtenRate,
+                'margin_written' => $writtenMargin,
+                'note'          => 'شغّل deploy/2026-09-11_external_price_service_filter.sql',
+            ]);
         }
 
         DB::commit();

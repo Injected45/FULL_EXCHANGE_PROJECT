@@ -45,6 +45,12 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
   bool _sending = false;
   String? _error;
 
+  /// رفضٌ تسعيريٌّ من الخادم (422) — يُغلق الإرسال. انظر [_refreshQuote].
+  ///
+  /// ⚠ منفصلٌ عن [_error] عمداً: انقطاعُ شبكةٍ يملأ [_error] أيضاً، ولا
+  /// يجوز أن يمنع حوالةً سليمة.
+  bool _priceBlocked = false;
+
   /// يملأ الاسم والهاتف من عميل مفضّل. الرقم هنا أجنبي، فلا يُوحَّد بصيغة
   /// ليبية — يُنظَّف من غير الأرقام فقط، مطابقةً لمرشِّح الحقل.
   void _applyFavorite(FavoriteCustomer? c) {
@@ -149,6 +155,7 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
     setState(() {
       _quoting = true;
       _error = null;
+      _priceBlocked = false;
     });
     try {
       final q = await ref.read(externalRepositoryProvider).quote(
@@ -158,7 +165,30 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
           );
       if (mounted) setState(() => _quote = q);
     } on ApiFailure catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      /*
+       * ⚠⚠ 422 ليست عطباً — هي **حكمُ الخادم** على هذا التسعير.
+       *
+       * أمرُ المالك (11 سبتمبر 2026): «يوقف الحارسُ الخدمةَ بأدبٍ ويُظهر
+       * رسالةً للمستخدم … حتى نضمن عدم تنفيذ أيّ حوالاتٍ بخسائر».
+       *
+       * ── والتمييزُ بين 422 وغيرِها هو كلُّ المسألة ────────────────────
+       *
+       * **422** = الخادمُ نظر وقرّر: لا سعرَ معتمداً، أو سعرٌ مكرَّر، أو
+       * هامشٌ سالب. فالإرسالُ يُغلق، لأنّ الخادم سيرفضه حتماً — وزرٌّ يُضغط
+       * ليُردّ يجعل الوكيل يظنّ التطبيق معطوباً بدل أن يراجع الشركة.
+       *
+       * **غيرُها** (انقطاعُ شبكة، 500، مهلة) = لم يُحكم على شيء. والإغلاقُ
+       * هنا كان سيمنع حوالةً سليمةً تماماً لأنّ الواي-فاي تعثّر لحظة. يُعرض
+       * الخطأُ ويبقى البابُ مفتوحاً؛ والخادمُ هو الحارسُ الأخير على أيّ حال،
+       * ويفحص مرّتين: قبل الإدراج، وبعده قبل الاعتماد.
+       */
+      if (mounted) {
+        setState(() {
+          _error = e.message;
+          _priceBlocked = e.statusCode == 422;
+          if (_priceBlocked) _quote = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _quoting = false);
     }
@@ -545,7 +575,7 @@ class _SendExternalScreenState extends ConsumerState<SendExternalScreen> {
           PrimaryButton(
             label: 'تأكيد وإرسال',
             loading: _sending,
-            onPressed: _valid && !_sending ? _send : null,
+            onPressed: _valid && !_sending && !_priceBlocked ? _send : null,
           ),
         ],
       );

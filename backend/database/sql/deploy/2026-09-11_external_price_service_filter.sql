@@ -1,80 +1,72 @@
 /* ══════════════════════════════════════════════════════════════════════════
- *  إصلاحُ سعرِ الحوالة الخارجية — سطرٌ واحد يُضاف، ولا حسابَ يتغيّر
+ *  سعرُ الحوالة الخارجية: شرطُ الخدمة + حارسُ الخسارة
+ *  11 سبتمبر 2026 — بأمرِ المالك
  * ══════════════════════════════════════════════════════════════════════════
  *
- *  ⚠⚠ هذا الملفّ داخلَ الخطّ الأحمر الماليّ. لا يُنفَّذ إلّا بأمرِ المالك.
- *
- *  ── العطب ──────────────────────────────────────────────────────────────
+ *  ── ما يُصلَح ───────────────────────────────────────────────────────────
  *
  *  نسخةُ استعلامِ السعر داخل المحفّز ينقصها شرطُ الخدمة (b.BankID)، وهو
  *  موجودٌ في دالّة المنظومة dbo.SalePrice_mo_Value التي تحسب NetTotal.
  *
  *  فلمصرَ خمسةُ صفوفٍ تتأهّل، و SELECT @SalePrice = … على مجموعةٍ متعدّدة
  *  تُبقي آخرَ صفٍّ يصله المنفّذ — سعراً اعتباطياً لا سعرَ الخدمة المختارة.
+ *  فيُحسب الطرفان بسعرين، ويخرج الهامشُ سالباً.
  *
- *  المقياسُ على القاعدة (11 سبتمبر 2026): تسعُ حوالاتٍ من عشرٍ كُتبت بـ5.300
- *  بينما سعرُ خدمتها المُدرج 5.550، وكلُّ واحدةٍ خرجت بعمولةِ خدمةٍ سالبة —
- *  أي أنّ الشركة سلّمت أكثر ممّا قيّدت، في كلّ حوالةٍ إلى مصر.
+ *  المقياسُ على القاعدة قبل الإصلاح: تسعُ حوالاتٍ من عشرٍ كُتبت بـ5.300
+ *  وسعرُ خدمتها المُدرج 5.550، وكلُّ واحدةٍ بهامشٍ سالب.
  *
- *  ── ما يتغيّر ──────────────────────────────────────────────────────────
+ *  ── وما يُضاف ──────────────────────────────────────────────────────────
  *
- *  سطرٌ واحدٌ يُضاف إلى شرطِ WHERE. لا معادلةَ تُمسّ، ولا عمودَ يُضاف، ولا
- *  قيدَ يُكتب، ولا صفَّ تاريخيٌّ يُعدَّل. والأثرُ على الإدراج الجديد وحدَه.
+ *  حارسان، كلاهما يرفض بالطريقة التي ترفض بها المنظومةُ نفسُها في هذا
+ *  المحفّز (print + rollback + return) — لا بطريقةٍ جديدة:
  *
- *  ── ⚠ شرطٌ قبل التنفيذ ─────────────────────────────────────────────────
+ *    (١) خدمةٌ بلا سعرٍ معرَّف          ⇒ لا تُنفَّذ
+ *    (٢) هامشٌ سالب (خسارةٌ محقّقة)     ⇒ لا تُنفَّذ
  *
- *  كلُّ خدمةٍ معروضةٍ في ExtTraServiceTypeTb يجب أن يكون لها صفُّ سعرٍ في
- *  نطاق AppBriceTB. فخدمةٌ بلا سعرٍ كانت تأخذ سعرَ جارتها، وبعد الإصلاح
- *  يبقى @SalePrice فارغاً (NULL) فتُكتب TransPrice فارغة.
+ *  ── ما لا يتغيّر ───────────────────────────────────────────────────────
  *
- *  والفحصُ أدناه يمنع التنفيذ إن وُجدت ثغرة. المعلومُ اليوم: «بنكك» في
- *  السودان (خدمة 10) بلا صفِّ سعر — تُسعَّر من المكتب الخلفيّ أوّلاً.
+ *  ⚠ لا معادلةَ تُمسّ، ولا عمودَ يُضاف، ولا قيدَ يُكتب، ولا صفَّ تاريخيٌّ
+ *  يُعدَّل. والأثرُ على الإدراج الجديد وحدَه.
+ *
+ *  ⚠ والحوالاتُ المنفَّذةُ سابقاً — بما فيها ذواتُ الهامش السالب — تبقى كما
+ *  هي بنصِّ أمرِ المالك: «ولا مساس بأي حوالة تم تنفيذها حتى وإن كانت بالسالب».
+ *
+ *  ── الرسالةُ المؤدّبة ──────────────────────────────────────────────────
+ *
+ *  المستخدمُ يسمعها من الـAPI (ExternalPricingGuard::REFUSAL) قبل أن يصل
+ *  الأمرُ إلى هنا أصلاً، لأنّ rollback داخلَ مُحفّزٍ يُجهض الدفعةَ برسالةِ
+ *  SQL Server العامّة. وهذان الحارسان طبقةٌ ثانية: تحمي إدراجاً يأتي من
+ *  خارج مسار التطبيق.
  * ══════════════════════════════════════════════════════════════════════════ */
 
 SET NOCOUNT ON;
 GO
 
-/* ── ١) لا خدمةَ معروضةٌ بلا سعر ─────────────────────────────────────── */
-IF EXISTS (
+/* ── فحصٌ قبليّ: لا خدمةَ معروضةٌ بلا سعر ────────────────────────────────
+ *
+ * ⚠ بعد إضافة شرط الخدمة، خدمةٌ بلا صفِّ سعرٍ يمنعها الحارسُ الأوّل. وهذا
+ * صحيحٌ أمنياً وخطأٌ تشغيلياً إن كانت الخدمةُ معروضةً للوكلاء: يفتحون الشاشة
+ * كلَّ يومٍ فتُرفض. فالسكربتُ يطبعها ويُنفَّذ رغم ذلك — الحارسُ يحمي المال،
+ * وهذه القائمةُ عملُ المكتب الخلفيّ. */
+SELECT s.ID AS ServiceID, s.ServiceName, s.CountryID,
+       N'⚠ معروضةٌ بلا سعر — سعّرها في المكتب الخلفيّ' AS Note
+FROM ExtTraServiceTypeTb AS s
+WHERE NOT EXISTS (
     SELECT 1
-    FROM ExtTraServiceTypeTb AS s
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM NewCurrencyPriceOwnDetailsTb AS a
-        INNER JOIN NewCurrencyPricesOwnTb AS b ON a.CPID = b.ID
-        INNER JOIN CountiresTb AS c ON b.CountryID = c.ID AND a.CurrencyIDTo = c.DefualtCurrency
-        INNER JOIN AppBriceTB AS e ON b.CountryID   = e.CountryID
-                                  AND b.AccountType = e.AccountType
-                                  AND b.BranchID    = e.BranchID
-        WHERE a.CurrencyIDFrom = 1
-          AND b.PriceType = 2
-          AND b.CountryID = s.CountryID
-          AND b.BankID    = s.ID
-    )
-)
-BEGIN
-    SELECT s.ID AS ServiceID, s.ServiceName, s.CountryID, N'بلا سعر معرَّف' AS Note
-    FROM ExtTraServiceTypeTb AS s
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM NewCurrencyPriceOwnDetailsTb AS a
-        INNER JOIN NewCurrencyPricesOwnTb AS b ON a.CPID = b.ID
-        INNER JOIN CountiresTb AS c ON b.CountryID = c.ID AND a.CurrencyIDTo = c.DefualtCurrency
-        INNER JOIN AppBriceTB AS e ON b.CountryID   = e.CountryID
-                                  AND b.AccountType = e.AccountType
-                                  AND b.BranchID    = e.BranchID
-        WHERE a.CurrencyIDFrom = 1
-          AND b.PriceType = 2
-          AND b.CountryID = s.CountryID
-          AND b.BankID    = s.ID
-    );
-
-    RAISERROR (N'توقّف: خدماتٌ معروضةٌ بلا سعر معرَّف. سعّرها من المكتب الخلفيّ ثمّ أعد التنفيذ.', 16, 1);
-    SET NOEXEC ON;
-END
+    FROM NewCurrencyPriceOwnDetailsTb AS a
+    INNER JOIN NewCurrencyPricesOwnTb AS b ON a.CPID = b.ID
+    INNER JOIN CountiresTb AS c ON b.CountryID = c.ID AND a.CurrencyIDTo = c.DefualtCurrency
+    INNER JOIN AppBriceTB AS e ON b.CountryID   = e.CountryID
+                              AND b.AccountType = e.AccountType
+                              AND b.BranchID    = e.BranchID
+    WHERE a.CurrencyIDFrom = 1
+      AND b.PriceType = 2
+      AND b.CountryID = s.CountryID
+      AND b.BankID    = s.ID
+);
 GO
 
-/* ── ٢) المحفّز، بالسطر المضاف ───────────────────────────────────────── */
+/* ── المحفّز ────────────────────────────────────────────────────────────── */
 ALTER TRIGGER [dbo].[ExternalEx_insert_Mobile] on  [dbo].[ExternalEx]
 for 
 insert 
@@ -190,10 +182,22 @@ select @IDCODE =  isnull (  max (a.IDCode )  ,0 ) + 1  from ExternalEx as a
 			  and b.AccountType =  E.AccountType
 			   AND b.CountryID=D.CountryIDTo 
                 AND b.BranchID=e.BranchID
-               /* ⚠ شرطُ الخدمة — أُضيف 11 سبتمبر 2026 بأمر المالك.
+               /* ⚠ شرطُ الخدمة — أُضيف 11 سبتمبر 2026 بأمرِ المالك.
                   كان ناقصاً هنا وهو موجودٌ في dbo.SalePrice_mo_Value،
-                  فكانت خمسةُ صفوفٍ تتأهّل لمصر ويبقى آخرُها اعتباطاً. */
+                  فكانت خمسةُ صفوفٍ تتأهّل لمصر ويبقى آخرُها اعتباطاً —
+                  سعراً لا يخصّ الخدمة المختارة. */
                and b.BankID = D.ServiceType
+
+/* ⚠ حارسٌ (١): خدمةٌ لم يُسعّرها المكتبُ الخلفيّ بعد.
+   قبل إضافة شرط الخدمة كانت تأخذ سعرَ خدمةٍ أخرى في صمت؛ وبعده يبقى
+   @SalePrice فارغاً فتُكتب TransPrice فارغة — حوالةٌ بلا سعرٍ في الدفتر.
+   فالمنعُ هنا، والرسالةُ المؤدّبة يقولها الـAPI قبل أن يصل الأمرُ إلى هنا. */
+if @SalePrice is null
+begin
+print (N'نأسف لعدم اتمام التحويل . الاسعار في طور التحديث عليك مراجعة الشركة')
+rollback transaction
+return
+end
                Declare @ACcform as int 
 if @type_ueser = 5 
 begin 
@@ -206,6 +210,30 @@ select @ACcform = 1
 end 
 -------------------------------------------------------------------------------------------
 SELECT @ServiceExVal = (A.[CurrRecievedVal] *  @SalePrice) - (isnull (dbo.SalePrice_mo_Value(A.CountryIDTo , A.[CurrRecievedVal] , A.ServiceType ,isnull( a.IsPrivateAccount,0)),0))  FROM inserted AS A 
+
+/* ⚠⚠ حارسٌ (٢): لا حوالةَ بهامشٍ سالب — أمرُ المالك 11 سبتمبر 2026.
+
+   @ServiceExVal = (المقبوضُ بالدينار × سعرِ البيع) − (ما يُسلَّم للمستفيد).
+   فسالبُه يعني: سلّمنا بعملة الوجهة أكثرَ ممّا يساويه ما قبضناه على
+   سعرِ بيعنا نحن. خسارةٌ محقّقةٌ لحظةَ التنفيذ، لا مخاطرةٌ محتملة.
+
+   ⚠ والعتبةُ -0.0005 لا صفر: @ServiceExVal من نوع decimal(18,3)، وضربُ
+   مبلغٍ في سعرٍ كـ555.555 يُخرج ضجيجَ فاصلةٍ عائمة (مقيس: -2.9e-13).
+   فالمقارنةُ الحرفية بالصفر كانت ستمنع كلَّ حوالةٍ إلى السودان بعجزٍ
+   وهميٍّ في الخانة الثالثة عشرة. وبهذا النوع فالعتبةُ تعني عملياً:
+   امنع من مِلّيمٍ واحدٍ فأكثر، ومرِّر ما دونه.
+
+   ⚠ والصفرُ يمرّ: نصُّ الأمر منعُ السالب وحدَه، وأكثرُ الخدمات اليوم
+   مسعَّرةٌ بلا حسمٍ فهامشُها صفر — ومنعُه كان سيوقف العملَ كلَّه.
+
+   ⚠ ولا مساسَ بما نُفِّذ: هذا حارسُ إدراجٍ جديد. الصفوفُ السابقةُ ذاتُ
+   الهامش السالب تبقى كما هي — أمرُ المالك صريح. */
+if @ServiceExVal < -0.0005
+begin
+print (N'نأسف لعدم اتمام التحويل . الاسعار في طور التحديث عليك مراجعة الشركة')
+rollback transaction
+return
+end
 select @Code = CONVERT(NVARCHAR,C.CountryID)  + CONVERT(NVARCHAR,C.CityID)+ CONVERT(NVARCHAR,A.BranchID) + '2' +'-' +'55'+'-'+  CONVERT(NVARCHAR,@IDCODE)
 from  AccountsTb as a inner join inserted as b on a.AccID = b .AccFrom 
 INNER JOIN CoBranch AS C ON A.BranchID = C.ID
@@ -343,12 +371,15 @@ end
 
 GO
 
-SET NOEXEC OFF;
-GO
+/* ── التحقّق بعد التنفيذ ────────────────────────────────────────────────── */
+DECLARE @d NVARCHAR(MAX) = OBJECT_DEFINITION(OBJECT_ID('dbo.ExternalEx_insert_Mobile'));
 
-/* ── ٣) التحقّق بعد التنفيذ ──────────────────────────────────────────── */
-IF OBJECT_DEFINITION(OBJECT_ID('dbo.ExternalEx_insert_Mobile')) LIKE '%b.BankID = D.ServiceType%'
-    PRINT N'PASS: شرطُ الخدمة مطبَّقٌ في المحفّز.';
-ELSE
-    PRINT N'FAIL: الشرط غير موجود — راجع.';
+IF @d LIKE N'%b.BankID = D.ServiceType%' PRINT N'PASS (1/3): شرطُ الخدمة مطبَّق.';
+ELSE                                     PRINT N'FAIL (1/3): شرطُ الخدمة غائب.';
+
+IF @d LIKE N'%@SalePrice is null%'       PRINT N'PASS (2/3): حارسُ «لا سعر» مطبَّق.';
+ELSE                                     PRINT N'FAIL (2/3): حارسُ «لا سعر» غائب.';
+
+IF @d LIKE N'%@ServiceExVal < -0.0005%'  PRINT N'PASS (3/3): حارسُ الهامش السالب مطبَّق.';
+ELSE                                     PRINT N'FAIL (3/3): حارسُ الهامش السالب غائب.';
 GO
