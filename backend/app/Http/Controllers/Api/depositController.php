@@ -3051,13 +3051,30 @@ public function transInsert(Request $request)
        * الصف الفعلي في ExternalEx يسجّل NetTotal = 19. عرضها للوكيل يعني
        * تسعير خاطئ للزبون، فلا تُستعمل.
        *
-       * هنا نكرّر منطق المُشغِّل حرفياً، قراءةً فقط:
-       *   SalePrice        ← NewCurrencyPriceOwnDetailsTb (PriceType=2, AccountType=3)
+       * قراءةً فقط:
+       *   SalePrice        ← NewCurrencyPriceOwnDetailsTb، بنطاق AppBriceTB
+       *                      وبشرطِ BankID = ServiceType (انظر أدناه)
        *   CurrDeliveredVal ← CurrRecievedVal × SalePrice
        *   NetTotal         ← SalePrice_mo_Value(CountryIDTo, ...)   ← ما يستلمه المستفيد
        *   ServiceExVal     ← CurrDeliveredVal − NetTotal
        *
-       * أي تعديل في المُشغِّل يجب أن يُنقل هنا وإلا انحرفت التسعيرة عن التنفيذ.
+       * ⚠⚠ **والمرجعُ هنا الدالّة، لا المحفّز — وهذا تصحيحٌ لما كُتب أوّلاً.**
+       *
+       * كان هذا التوثيق يقول «نكرّر منطق المُشغِّل حرفياً»، وهو ما لا يجوز
+       * فعلُه: **نسخةُ الاستعلام داخل المحفّز ينقصها شرطُ الخدمة**
+       * (`b.BankID`) الموجودُ في `dbo.SalePrice_mo_Value`. فخمسةُ صفوفٍ
+       * تتأهّل لمصر، و`SELECT @SalePrice = …` على مجموعةٍ متعدّدة تُبقي
+       * **آخرَ صفٍّ يصله المنفّذ** — أي سعراً اعتباطياً لا سعرَ الخدمة.
+       *
+       * ومقيسٌ على القاعدة: تسعُ حوالاتٍ من عشر كُتبت بـ٥٫٣٠٠ بينما سعرُ
+       * خدمتها المُدرج ٥٫٥٥٠، وكلُّ واحدةٍ منها خرجت بعمولةِ خدمةٍ **سالبة**.
+       *
+       * فمحاكاةُ المحفّز هنا كانت ستنسخ العطبَ وتعرضه على أنه صواب. والمرجعُ
+       * الآن دالّةُ المنظومة التي تحسب `NetTotal` — أي القائمةُ المعتمدة
+       * نفسُها التي تعرضها شاشةُ «أسعار العملات».
+       *
+       * ⚠ وإصلاحُ المحفّز نفسِه (سطرٌ واحد: `and b.BankID = D.ServiceType`)
+       * داخلَ الخطّ الأحمر الماليّ، ولا يُمسّ إلا بأمرِ المالك صراحةً.
        */
       public function externalQuote(Request $request)
       {
@@ -3077,21 +3094,62 @@ public function transInsert(Request $request)
           $service   = (int) $request->ServiceType;
           $isPrivate = (int) ($request->IsPrivateAccount ?? 0);
 
+          /*
+           * ══════════════════════════════════════════════════════════════
+           *  ⚠⚠ السعرُ يُقرأ بنطاق `AppBriceTB` **وبالخدمة** — لا بغيرهما
+           * ══════════════════════════════════════════════════════════════
+           *
+           * بلاغُ المالك (11 سبتمبر 2026): «التسعيرةُ المعروضة تخالف ما
+           * يُحتسب».
+           *
+           * وهذا الاستعلامُ كان أحدَ ثلاثة قرّاءٍ لا يتّفقون. وما كان فيه:
+           *
+           * ١) **`AccountType = 3` مكتوبةً باليد بلا `AppBriceTB`** — فيقرأ
+           *    قائمةَ فرعٍ آخر بالكامل. وقيسَ ذلك على مصر: هذا النطاق يعطي
+           *    ٥٫٥٠٠ / ٥٫٢٠٠ / ٥٫١٠٠، والقائمةُ التي يقرؤها التطبيق فعلاً
+           *    (AccountType=1, BranchID=23) تعطي ٥٫٥٥٠ / ٥٫٣٠٠. وقائمتان
+           *    مختلفتان يعني رقمين مختلفين لعمليةٍ واحدة.
+           *
+           * ٢) **ولا تصفيةَ بالخدمة** — فخمسةُ صفوفٍ تتأهّل لمصر، و`selectOne`
+           *    تأخذ أوّلَها. أي أنّ سعرَ «انستا باي» قد يُعرض لحوالةِ بريد.
+           *
+           * والمرجعُ هنا ليس اجتهاداً: هو **دالّةُ المنظومة نفسِها**
+           * `dbo.SalePrice_mo_Value` — التي تحسب `NetTotal`، أي ما يستلمه
+           * المستفيد. استعلامُها هو هذا حرفاً بحرف، بنطاق `AppBriceTB`
+           * وبشرطِ `b.BankID = @Type_ID_int`. فما هنا مطابقةٌ لها، لا رأيٌ
+           * جديد.
+           *
+           * ⚠ ولا يكتب هذا المسارُ شيئاً: قراءةٌ تُعرض على الوكيل قبل الإرسال.
+           */
           $rateRow = DB::selectOne("
               SELECT ISNULL(a.SalePrice, 1) AS SalePrice
               FROM NewCurrencyPriceOwnDetailsTb AS a
               INNER JOIN NewCurrencyPricesOwnTb AS b ON a.CPID = b.ID
               INNER JOIN CountiresTb AS c ON b.CountryID = c.ID AND a.CurrencyIDTo = c.DefualtCurrency
+              INNER JOIN AppBriceTB AS e ON b.CountryID   = e.CountryID
+                                        AND b.AccountType = e.AccountType
+                                        AND b.BranchID    = e.BranchID
               WHERE a.CurrencyIDFrom = 1
                 AND b.PriceType = 2
-                AND b.AccountType = 3
                 AND b.CountryID = ?
-          ", [$countryTo]);
+                AND b.BankID    = ?
+          ", [$countryTo, $service]);
 
+          /*
+           * ⚠ وخدمةٌ بلا سعرٍ تُقال، ولا يُستعار لها سعرُ خدمةٍ أخرى.
+           *
+           * الاستعلامُ السابق كان يُعيد أوّلَ صفٍّ للدولة مهما كانت الخدمة،
+           * فخدمةٌ لم يُسعّرها المكتبُ الخلفيّ بعدُ كانت تُسعَّر بسعر جارتها
+           * في صمت. ومقيسٌ على القاعدة اليوم: «بنكك» في السودان وحدَها بلا
+           * صفِّ سعر — كانت تأخذ سعرَ «تسليم باليد» (555.555).
+           *
+           * والوقوفُ هنا برسالةٍ صريحة يجعل النقصَ يُصلَح في المكتب الخلفيّ،
+           * لا أن يُدفن في تسعيرةٍ يظنّها الوكيل صحيحة.
+           */
           if (!$rateRow) {
               return $this->sendError(
-                  'لا يوجد سعر تحويل معرَّف لهذه الوجهة.',
-                  ['CountryIDTo' => $countryTo],
+                  'لا يوجد سعر تحويل معرَّف لهذه الخدمة في هذه الوجهة — راجع إدارة الرحالة.',
+                  ['CountryIDTo' => $countryTo, 'ServiceType' => $service],
                   422
               );
           }
