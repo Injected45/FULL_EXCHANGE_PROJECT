@@ -393,6 +393,43 @@ void main() {
   });
 
   /*
+   * ══════════════════════════════════════════════════════════════════════
+   *  ⚠⚠ بابٌ لم يُمنح يُعرض ويقول ما ينقصه — ولا يُحذف صامتاً
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * بلاغُ المالك (11 سبتمبر 2026): «تبويب حوالات خارجية، أريد منك إنشاء
+   * حوالة — لأنك نسيتَ تنفيذها».
+   *
+   * ولم تكن منسيّة: البابُ مبنيٌّ ومسارُه يعمل، لكنّ
+   * `CREATE_EXTERNAL_TRANSFER` مفتاحٌ جديد يبدأ ممنوعاً على الجميع، فكانت
+   * البلاطةُ تُحذف من الشاشة بلا كلمة — فقُرئ الصمتُ «لم تُبنَ».
+   *
+   * ⚠ وهذا الفحصُ هو ما يمنع عودتَه: مفتاحٌ جديد يُضاف غداً ويُنسى معه
+   * سببُ غيابه يسقط هنا، لا في يد المالك بعد شهر.
+   */
+  testWidgets('⚠ «إنشاء حوالة خارجية» يُعرض ولو لم يُمنح، ومعه سببُ غيابه',
+      (tester) async {
+    await _mount(tester, const ['VIEW_OWN_TRANSFERS'],
+        screen: EmployeeExternalHubScreen.new);
+
+    // البابُ معروضٌ — لا محذوف.
+    expect(find.text('إنشاء حوالة'), findsOneWidget);
+    // ومعه اسمُ الصلاحية كما يقرؤها الوكيل في شاشة المنح.
+    expect(find.textContaining('إنشاء حوالة خارجية'), findsOneWidget);
+    expect(find.textContaining('راجع وكيلك'), findsOneWidget);
+  });
+
+  testWidgets('⚠ وحين تُمنح يصير باباً يُفتح لا سطرَ شرح', (tester) async {
+    await _mount(tester,
+        const ['VIEW_OWN_TRANSFERS', 'CREATE_EXTERNAL_TRANSFER'],
+        screen: EmployeeExternalHubScreen.new);
+
+    expect(find.text('إنشاء حوالة'), findsOneWidget);
+    expect(find.text('حوالة خارجية باسم الوكيل'), findsOneWidget);
+    expect(find.textContaining('راجع وكيلك'), findsNothing);
+  });
+
+  /*
    * ⚠ والخزينةُ تبويبٌ بكشفين لا كشفٍ واحد — نصُّ أمر إعادة الهيكلة.
    *
    * والفرقُ بينهما ليس تجميلاً: الصادرةُ كاملةٌ أيّاً كانت حالتُها،

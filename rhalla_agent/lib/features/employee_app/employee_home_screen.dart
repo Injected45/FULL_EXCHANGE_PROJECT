@@ -87,9 +87,10 @@ class _EmployeeHomeScreenState extends ConsumerState<EmployeeHomeScreen> {
         EmployeeTile(
           icon: Icons.public_rounded,
           title: 'حوالات خارجية',
-          subtitle: canExternal
-              ? 'إنشاء حوالة · حوالاتي · كشف الحوالات'
-              : 'حوالاتي · كشف الحوالات',
+          // ⚠ الثلاثةُ تُذكر دائماً: القسمُ يعرضها كلَّها الآن — ما مُنح
+          // يُفتح، وما لم يُمنح يقول ما ينقصه. وسطرٌ يُخفي «إنشاء حوالة»
+          // كان جزءاً من الصمت الذي قُرئ «لم تُبنَ».
+          subtitle: 'إنشاء حوالة · حوالاتي · كشف الحوالات',
           onTap: () => context.push('/employee/external'),
         ),
 

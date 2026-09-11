@@ -42,12 +42,20 @@ class EmployeeLocalHubScreen extends ConsumerWidget {
        * وكيل لا كيانٌ ثانٍ، فنموذجُ الحوالة واحدٌ للاثنين. والمستودعُ وحده
        * يبدّل المسار إلى نظيره تحت `device/employee/`.
        */
+      // ⚠ والقاعدةُ نفسُها في المحلّية — القسمان يُعرضان بنفس المنطق، وإلّا
+      // بدا أحدُهما ناقصاً والآخرُ تامّاً لسببٍ لا يراه المستخدم.
       if (canCreate)
         EmployeeTile(
           icon: Icons.north_east_rounded,
           title: 'إنشاء حوالة',
           subtitle: 'حوالة محلية باسم الوكيل',
           onTap: () => context.push('/send/internal'),
+        )
+      else
+        const EmployeeLockedTile(
+          icon: Icons.north_east_rounded,
+          title: 'إنشاء حوالة',
+          permissionLabel: 'إنشاء حوالة',
         ),
 
       /*
@@ -107,12 +115,29 @@ class EmployeeExternalHubScreen extends ConsumerWidget {
     final canOwn    = p?.can('VIEW_OWN_TRANSFERS') ?? false;
 
     final tiles = <Widget>[
+      /*
+       * ⚠ الإنشاءُ يُعرض في الحالين — ممنوحاً فيُفتح، وممنوعاً فيقول ما ينقص.
+       *
+       * بلاغُ المالك (11 سبتمبر 2026): «نسيتَ تنفيذها». ولم تُنسَ — كانت
+       * البلاطةُ تُحذف صامتةً لأنّ `CREATE_EXTERNAL_TRANSFER` مفتاحٌ جديد
+       * يبدأ ممنوعاً على الجميع. والشاشةُ التي لا تقول شيئاً تُقرأ ناقصة.
+       * الشرحُ الكامل في [EmployeeLockedTile].
+       */
       if (canCreate)
         EmployeeTile(
           icon: Icons.flight_takeoff_rounded,
           title: 'إنشاء حوالة',
           subtitle: 'حوالة خارجية باسم الوكيل',
           onTap: () => context.push('/send/external'),
+        )
+      else
+        const EmployeeLockedTile(
+          icon: Icons.flight_takeoff_rounded,
+          title: 'إنشاء حوالة',
+          // ⚠ الاسمُ كما يقرؤه الوكيل في شاشة المنح حرفاً بحرف، لا وصفٌ
+          // مقارب: الموظف ينقل الطلبَ إلى وكيله، فاسمٌ لا يجده في الشاشة
+          // يجعل الطلبَ بلا وجهة.
+          permissionLabel: 'إنشاء حوالة خارجية',
         ),
 
       if (canOwn)

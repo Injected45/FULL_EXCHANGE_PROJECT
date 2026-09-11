@@ -152,6 +152,79 @@ class EmployeeTile extends StatelessWidget {
       );
 }
 
+/// بابٌ موجودٌ ولم يُمنح — يُعرض مطفأً ومعه سببُ إطفائه.
+///
+/// ══════════════════════════════════════════════════════════════════════════
+///  ⚠ لماذا يُعرض أصلاً بدل أن يُخفى
+/// ══════════════════════════════════════════════════════════════════════════
+///
+/// بلاغُ المالك (11 سبتمبر 2026): «تبويب حوالات خارجية، أريد منك إنشاء حوالة
+/// — لأنك نسيتَ تنفيذها في تطبيق الموظف».
+///
+/// **ولم تكن منسيّة**: البابُ مبنيٌّ ومساره في الخادم يعمل. لكنّ
+/// `CREATE_EXTERNAL_TRANSFER` مفتاحٌ جديد يبدأ ممنوعاً على الجميع — ولم يُمنح
+/// بعد — فكانت البلاطةُ **تُحذف من الشاشة بلا كلمة**. فقرأ المالكُ الصمتَ
+/// «لم تُبنَ»، وهو أصدقُ ما يمكن أن يُقرأ من شاشةٍ لا تقول شيئاً.
+///
+/// ونصُّ أمر إعادة الهيكلة يمنع ذلك حرفياً: «ما لا يملكه الموظف لا يُعرض له،
+/// **أو يُعرض ومعه سببُ غيابه بصراحة**». فالإخفاءُ الصامت خيارٌ صحيحٌ حين
+/// تكون الميزةُ غريبةً عن عمل الموظف، وخاطئٌ حين يكون البابُ جزءاً معلوماً
+/// من القسم الذي يقف فيه — عندها يبدو التطبيقُ ناقصاً لا مُقيَّداً.
+///
+/// ⚠ **ولا تُفتح بالنقر.** بابٌ يُفتح ثم يردّ 403 أسوأُ من بابٍ مغلق: الأوّل
+/// عطبٌ في نظر المستخدم، والثاني قرارٌ مفهوم. فهي تقول ما ينقص وتقف.
+class EmployeeLockedTile extends StatelessWidget {
+  const EmployeeLockedTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.permissionLabel,
+  });
+
+  final IconData icon;
+  final String title;
+
+  /// اسمُ الصلاحية كما يراها الوكيل في شاشة المنح — كي يعرف ما يطلبه بالضبط.
+  final String permissionLabel;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: R.whiteA(.42),
+          border: Border.all(color: R.inkA(.09)),
+          borderRadius: BorderRadius.circular(R.rCard),
+        ),
+        child: Row(
+          children: [
+            IconTile(
+              size: 38,
+              background: R.inkA(.06),
+              icon: Icon(icon, size: 19, color: R.inkA(.38)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style:
+                          T.kufi(14.5, FontWeight.w700, color: R.inkA(.5))),
+                  const SizedBox(height: 3),
+                  Text(
+                    'تحتاج صلاحية «$permissionLabel» — راجع وكيلك.',
+                    style:
+                        T.plex(11.5, FontWeight.w400, color: R.inkA(.45)),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.lock_outline_rounded, size: 19, color: R.inkA(.3)),
+          ],
+        ),
+      );
+}
+
 /// «لا شيء هنا» — رسالةٌ موحّدة لكل تبويبٍ فارغ أو ممنوع.
 class EmployeeEmpty extends StatelessWidget {
   const EmployeeEmpty({super.key, required this.icon, required this.text});
