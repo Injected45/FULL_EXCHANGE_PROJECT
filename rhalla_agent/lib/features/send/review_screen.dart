@@ -102,7 +102,10 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
 
   Future<void> _requestOtp() async {
     final user = ref.read(authControllerProvider).user;
-    if (user == null || _requesting) return;
+    // ⚠ الموظفُ بلا حساب وكيلٍ في جلسته، ورمزُه يُطلَب بلا هاتفٍ من الهاتف:
+    // نقطتُه تقرأ رقمَه من جلسته. فشرطُ `user == null` كان يمنع طلبَ الرمز
+    // عنه أصلاً — أي زرٌّ لا يفعل شيئاً.
+    if ((user == null && !_asEmployee) || _requesting) return;
 
     setState(() {
       _requesting = true;
@@ -110,7 +113,10 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
     });
 
     try {
-      await ref.read(authRepositoryProvider).requestOtp(user.phone);
+      await ref.read(authRepositoryProvider).requestTransferOtp(
+            asEmployee: _asEmployee,
+            agentPhone: user?.phone,
+          );
       if (!mounted) return;
       setState(() {
         _requesting = false;
@@ -147,7 +153,10 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
     if (_sending || _spent) return;
     final employee = _asEmployee;
     final user = ref.read(authControllerProvider).user;
-    if (!employee && (user == null || _code.length != _otpLength)) return;
+    // ⚠ الرمزُ شرطٌ على الاثنين الآن — أمرُ المالك (11 سبتمبر 2026). وحسابُ
+    // الوكيل يبقى شرطاً على الوكيل وحدَه: الموظفُ ليس له حسابٌ في جلسته.
+    if (_code.length != _otpLength) return;
+    if (!employee && user == null) return;
 
     setState(() {
       _sending = true;
@@ -155,12 +164,20 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
     });
     FocusScope.of(context).unfocus();
 
-    // 1) التحقّق من الرمز على الخادم. لا يُقارَن هنا — العميل لا يعرفه.
-    //    ويُتخطّى في وضع الموظف: الرمزُ يذهب إلى هاتف الوكيل.
+    /*
+     * 1) التحقّق من الرمز على الخادم. لا يُقارَن هنا — العميل لا يعرفه.
+     *
+     * ⚠ **ولم يعد يُتخطّى في وضع الموظف** — أمرُ المالك (11 سبتمبر 2026).
+     * كان يُتخطّى لأنّ الرمز يذهب إلى هاتف الوكيل وهو غائبٌ عن الشبّاك؛
+     * وصار يذهب إلى **هاتف الموظف المعتمد** — الرقمُ الذي فتح به التطبيق
+     * أصلاً. فالسياسةُ واحدةٌ للاثنين، والموظفُ لا ينتظر أحداً.
+     */
     try {
-      if (!employee) {
-        await ref.read(authRepositoryProvider).verifyOtp(user!.phone, _code);
-      }
+      await ref.read(authRepositoryProvider).verifyTransferOtp(
+            asEmployee: employee,
+            agentPhone: user?.phone,
+            code: _code,
+          );
     } on ApiFailure catch (e) {
       if (!mounted) return;
       setState(() {
@@ -277,23 +294,28 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
       ref.read(employeeAuthProvider).status == EmpSessionStatus.signedIn;
 
   /*
-   * ⚠ الموظف يؤكّد بلمسةٍ صريحة لا برمزٍ إلى هاتف الوكيل.
+   * ⚠⚠ الرمزُ شرطٌ على الاثنين — أمرُ المالك (11 سبتمبر 2026).
    *
-   * رمزُ هذه الشاشة يُرسَل إلى **هاتف الوكيل**، وهو حاضرٌ حين يرسل
-   * الوكيلُ بنفسه وغائبٌ حين يقف الموظف خلف الشبّاك. فاشتراطُه على
-   * الموظف يعني حوالةً لا تُنفَّذ حتى يردّ الوكيل على هاتفه — وهو ما
-   * يُبطل الميزة لا يحرسها.
+   * «حوالةٌ داخلية أو خارجية مُنفَّذة من تطبيق الموظف يُرسَل رمزُ التحقق
+   * على رقم الواتس المرخَّص به الوكيلُ لذلك الموظف — لأنّ كلّ موظفٍ له
+   * رقمٌ مخصَّصٌ معتمدٌ من الوكيل، وإلّا كيف فتح التطبيق أصلاً؟ …
+   * **الموظفُ لا ينتظر الوكيل**».
    *
-   * ⚠ ولا يضيع بذلك حارسٌ من الخادم: نقطةُ الإنشاء **لا تطلب رمزاً
-   * أصلاً** (انظر وصف هذه الشاشة أعلاه). الرمزُ ههنا مراسمُ عميلٍ
-   * تحمي من عبثٍ بهاتفٍ مفتوح — وحمايةُ الموظف من ذلك هي جلستُه
-   * المربوطة بجهازه وصلاحيتُه الممنوحة، ونسبةُ العملية إليه باسمه.
+   * ── وما كان قبله، ولماذا سقط ─────────────────────────────────────
    *
-   * ولو أُريد للموظف رمزٌ بالقوّة نفسِها فمحلُّه **هاتفُ الموظف** لا
-   * هاتفُ الوكيل — وهاتفُه موثَّقٌ عند التفعيل، فالبنيةُ قائمة.
+   * كان الموظف مُستثنى، وسببُه أنّ الرمز يُرسَل إلى **هاتف الوكيل** —
+   * حاضرٌ حين يرسل الوكيل بنفسه، غائبٌ حين يقف الموظف خلف الشبّاك. فكان
+   * اشتراطُه يعني حوالةً لا تُنفَّذ حتى يردّ الوكيل على هاتفه.
+   *
+   * وقال التوثيقُ يومَها بالحرف: «ولو أُريد للموظف رمزٌ بالقوّة نفسِها
+   * فمحلُّه **هاتفُ الموظف** لا هاتفُ الوكيل — وهاتفُه موثَّقٌ عند
+   * التفعيل، فالبنيةُ قائمة». وهو ما نُفِّذ: `device/employee/otp/send`
+   * تقرأ رقمَه من **جلسته** لا من الطلب.
+   *
+   * فالسياسةُ واحدةٌ الآن، والحمايةُ حقيقيةٌ لا صورية: الرمزُ يصل إلى من
+   * يقف أمام الزبون، لا إلى هاتفٍ في مكتبٍ آخر.
    */
-  bool get _ready => !_busy && !_spent &&
-      (_asEmployee || _code.length == _otpLength);
+  bool get _ready => !_busy && !_spent && _code.length == _otpLength;
 
   @override
   Widget build(BuildContext context) {
@@ -306,9 +328,8 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
         children: [
           RhallaAppBar(
             title: 'حوالة محلية',
-            subtitle: _asEmployee
-                ? 'راجع البيانات ثم أكّد الإرسال'
-                : 'راجع البيانات ثم أدخل رمز التحقّق',
+            // ⚠ الرمزُ صار شرطاً على الاثنين، فالسطرُ واحد.
+            subtitle: 'راجع البيانات ثم أدخل رمز التحقّق',
             onBack: _sending ? null : () => context.pop(),
           ),
           Expanded(
@@ -366,10 +387,33 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                 const SizedBox(height: kGap),
                 RiseIn.small(
                   delay: const Duration(milliseconds: 200),
-                  child: _asEmployee
-                      ? _employeeConfirmCard()
-                      : _otpCard(user?.phone ?? ''),
+                  /*
+                   * ⚠ بطاقةُ الرمز للاثنين — أمرُ المالك (11 سبتمبر 2026).
+                   *
+                   * والهاتفُ المعروض هاتفُ صاحب الجلسة: رقمُ الوكيل عنده،
+                   * ورقمُ الموظف عنده. وعرضُ رقم الوكيل لموظفٍ ينتظر رمزاً
+                   * على هاتفه هو كان سيجعله ينتظر رسالةً لن تصله.
+                   */
+                  child: _otpCard(_asEmployee
+                      ? (ref.watch(employeeAuthProvider).profile?.phone ?? '')
+                      : (user?.phone ?? '')),
                 ),
+
+                /*
+                 * ⚠ وسطرُ النسبة يبقى للموظف — **لم يُحذف بحذف بطاقته**.
+                 *
+                 * كان نصَّ البطاقة التي حلّت محلَّها بطاقةُ الرمز، وهو يقول
+                 * ما يحدث فعلاً: الحوالة تخرج باسم الوكيل وتُنسَب إلى الموظف
+                 * باسمه. وموظّفٌ لا يعرف أن العملية تُنسَب إليه يتصرّف كأنها
+                 * بلا أثر. فنُقل فوق الرمز بدل أن يسقط معها.
+                 */
+                if (_asEmployee) ...[
+                  const SizedBox(height: kGap),
+                  RiseIn.small(
+                    delay: const Duration(milliseconds: 240),
+                    child: _attributionNote(),
+                  ),
+                ],
                 const SizedBox(height: kGap),
                 const WarnBanner(
                   text:
@@ -423,12 +467,12 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
   }
 
 
-  /// تأكيدُ الموظف — بديلُ بطاقة الرمز في وضعه.
+  /// نسبةُ العملية — يُعرض للموظف مع بطاقة الرمز لا بدلاً منها.
   ///
   /// ⚠ يقول ما يحدث فعلاً: الحوالة تخرج **باسم الوكيل**، وتُنسَب إلى
   /// الموظف باسمه. وموظّفٌ لا يعرف أن العملية تُنسَب إليه يتصرّف كأنها بلا
   /// أثر.
-  Widget _employeeConfirmCard() => GlassCard(
+  Widget _attributionNote() => GlassCard(
         padding: kCardPad,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -438,7 +482,7 @@ class _ReviewTransferScreenState extends ConsumerState<ReviewTransferScreen> {
                 Icon(Icons.verified_user_outlined,
                     size: 18, color: R.primary),
                 const SizedBox(width: 8),
-                Text('تأكيد الإرسال', style: T.label),
+                Text('نسبةُ العملية', style: T.label),
               ],
             ),
             const SizedBox(height: 8),

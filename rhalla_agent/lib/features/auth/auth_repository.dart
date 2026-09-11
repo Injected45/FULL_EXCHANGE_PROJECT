@@ -145,6 +145,46 @@ class AuthRepository {
     });
   }
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   *  رمزُ تأكيد الحوالة — بابان، وشاشةٌ واحدة لا تعرف أيَّهما
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * أمرُ المالك (11 سبتمبر 2026): «حوالةٌ داخلية أو خارجية مُنفَّذة من تطبيق
+   * الموظف يُرسَل رمزُ التحقق على رقم الواتس المرخَّص به الوكيلُ لذلك الموظف …
+   * **الموظفُ لا ينتظر الوكيل**».
+   *
+   * ⚠ و**رقمُ الموظف لا يُرسَل من الهاتف**: نقطتُه تقرؤه من جلسته في القاعدة.
+   * إرسالُه من التطبيق كان يعني موظفاً يوجّه رمزَ تأكيد حوالته إلى أيّ هاتفٍ
+   * يكتبه — فيسقط الحارسُ كلُّه وهو يبدو قائماً.
+   *
+   * ⚠ والفرقُ محبوسٌ **هنا وحدَه**: الشاشاتُ تنادي هاتين الدالّتين ولا تعرف
+   * أيَّ بابٍ فُتح — القاعدةُ نفسُها في `SendRepository._path`.
+   */
+  Future<void> requestTransferOtp({
+    required bool asEmployee,
+    String? agentPhone,
+  }) async {
+    if (asEmployee) {
+      await _api.post('/device/employee/otp/send', body: const {});
+      return;
+    }
+    await requestOtp(agentPhone ?? '');
+  }
+
+  Future<void> verifyTransferOtp({
+    required bool asEmployee,
+    String? agentPhone,
+    required String code,
+  }) async {
+    if (asEmployee) {
+      await _api.post('/device/employee/otp/verify',
+          body: {'CodeOtp': int.tryParse(code) ?? code});
+      return;
+    }
+    await verifyOtp(agentPhone ?? '', code);
+  }
+
   /// 2) استبدال الرمز برمز Sanctum — نقطة واحدة تتحقّق وتستهلك وتُصدر.
   ///
   /// الخادم هو من يتحقّق من الـ OTP هنا، لا العميل — وهذا ما يميّزها عن
