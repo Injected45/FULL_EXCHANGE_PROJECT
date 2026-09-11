@@ -113,7 +113,9 @@ class EmployeeTransferViews
                         ->whereIn('Code', $chunk)
                         ->select('Code', 'RecievedName', 'RPhone1',
                                  'SenderName', 'CurrRecievedVal', 'ExVal',
-                                 'CountryIDTo', 'CityIDTo', 'InsertDate')
+                                 'CountryIDTo', 'CityIDTo', 'InsertDate',
+                                 // أعلامُ المرحلة — انظر [externalStage].
+                                 'IsConfirmed', 'IsDelivered', 'IsCanceled')
                         ->get() as $c) {
                 $core[$c->Code] = $c;
             }
@@ -147,13 +149,14 @@ class EmployeeTransferViews
                 'branch'            => $c !== null && !empty($c->CountryIDTo)
                     ? ($countries[(int) $c->CountryIDTo] ?? null) : null,
                 /*
-                 * ⚠ بلا `status_label`: `ExternalEx` لا تحمل جدولَ حالاتٍ
-                 * نظيرَ `InternalEx_Stautes`. واختلاقُ وصفٍ لها («مرسلة»،
-                 * «قيد التنفيذ») ادّعاءٌ عن حالةٍ لا تقولها القاعدة — وهو
-                 * أسوأُ من غيابه، لأن الموظف يبني عليه كلامَه للزبون.
+                 * ⚠ المرحلةُ من [externalStage] — القاعدةُ الواحدة. وبها
+                 * تُعرض الخارجيةُ بشرائح الداخلية نفسِها وألوانها، فتتوحّد
+                 * القناتان كما أمر المالك (11 سبتمبر 2026).
                  */
-                'status_label'      => null,
-                'core_confirm_type' => null,
+                'status_label'      => $c !== null
+                    ? self::externalStage($c)['label'] : null,
+                'core_confirm_type' => $c !== null
+                    ? self::externalStage($c)['confirm_type'] : null,
                 'date'              => (string) ($c->InsertDate ?? $r->occurred_at),
                 'occurred_at'       => (string) $r->occurred_at,
                 'missing_in_core'   => $c === null,
@@ -194,6 +197,54 @@ class EmployeeTransferViews
         }
 
         return $this->externalRow($code);
+    }
+
+    /**
+     * مرحلةُ الحوالة الخارجية — **قاعدةٌ واحدة يقرؤها كلُّ بابٍ يعرضها**.
+     *
+     * ══════════════════════════════════════════════════════════════════════
+     *  أمرُ المالك (11 سبتمبر 2026): وحِّد الخارجية مثل الداخلية
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * «الكل · بانتظار الاعتماد · في الطريق — وبعد أن تُعتمد تظهر مسلَّمة
+     *  مباشرة. وبهذا نوحّد عمليات الحوالات الخارجية مثل الداخلية».
+     *
+     * ── ولماذا «الاعتمادُ» هو المحطّةُ الأخيرة، قياساً لا رأياً ──────────
+     *
+     * `ExternalEx` **لا جدولَ حالاتٍ لها** نظيرَ `InternalEx_Stautes` (مفحوص:
+     * لا وجودَ لجدولٍ كهذا في المخطّط). وأعلامُها قُرئت على كلّ الصفوف الحيّة:
+     *
+     *   · `IsConfirmed`  ⇦ **العلَمُ الوحيد الذي يتحرّك**: 0 ثمّ 1 عند
+     *     الاعتماد، ومعه `ConfirmDate`.
+     *   · `IsDelivered`  ⇦ **صفرٌ في كلّ صفّ**، حتى المعتمدةِ منذ أيام.
+     *   · `ConfirmedType` ⇦ 1 دائماً، يكتبه المحفّز ولا يتغيّر.
+     *   · `Confirm_stautes` ⇦ صفرٌ دائماً.
+     *
+     * فلو جُعل الاعتمادُ «في الطريق» لبقيت كلُّ حوالةٍ خارجية عالقةً هناك
+     * **إلى الأبد**، لأنّ لا علَمَ بعده يتحرّك. فالمحطّةُ الأخيرةُ المرصودة
+     * هي الاعتماد، وهي ما يُعرض.
+     *
+     * ⚠ و`IsDelivered` تُقرأ رغم ذلك: إن كُتبت يوماً من المكتب الخلفي فُهمت
+     * على وجهها. قراءةُ علَمٍ لا يُكتب اليوم أرخصُ من نسيانه يومَ يُكتب.
+     *
+     * ⚠ والقيمُ المُعادة هي قيمُ `InternalEx.ConfirmType` نفسُها (0 · 2 ·
+     * 5) — لا اصطلاحٌ ثانٍ: التطبيقُ يترجمها بـ`CoreStage` الواحدة، فتُعرض
+     * الخارجيةُ بالشرائح نفسِها والألوان نفسِها بلا سطرِ شيفرةٍ إضافيّ.
+     *
+     * @return array{confirm_type:int,label:string}
+     */
+    public static function externalStage(object $r): array
+    {
+        if (((int) ($r->IsCanceled ?? 0)) !== 0) {
+            return ['confirm_type' => 5, 'label' => 'ملغاة'];
+        }
+
+        if (((int) ($r->IsDelivered ?? 0)) !== 0
+            || ((int) ($r->IsConfirmed ?? 0)) !== 0) {
+            return ['confirm_type' => 2, 'label' => 'مسلَّمة'];
+        }
+
+        return ['confirm_type' => 0, 'label' => 'بانتظار الاعتماد'];
     }
 
     /**
@@ -254,13 +305,15 @@ class EmployeeTransferViews
             'currency_code'      => $currency,
             'notes'              => $r->Notes,
             /*
-             * ⚠ الحالةُ تُعاد **كما تقولها القاعدة** بأعلامها الثلاثة، ولا
-             * تُترجَم هنا إلى نصّ: `ExternalEx` لا جدولَ حالاتٍ لها نظيرَ
-             * `InternalEx_Stautes`، واختلاقُ وصفٍ («قيد التنفيذ») ادّعاءٌ عن
-             * حالةٍ لا تقولها القاعدة — والموظف يبني عليه كلامَه للزبون.
+             * ⚠ الحالةُ تُشتقّ من [externalStage] — القاعدةُ الواحدة التي
+             * يقرؤها كلُّ بابٍ يعرض الخارجية. وحسابُها هنا على حدة كان
+             * سيُنتج فاتورةً تقول غيرَ ما تقوله القائمةُ التي فُتحت منها.
              */
             'is_canceled'        => (int) ($r->IsCanceled ?? 0),
             'is_delivered'       => (int) ($r->IsDelivered ?? 0),
+            'is_confirmed'       => (int) ($r->IsConfirmed ?? 0),
+            'status_label'       => self::externalStage($r)['label'],
+            'confirm_type'       => self::externalStage($r)['confirm_type'],
             'confirmed_type'     => $r->ConfirmedType !== null ? (int) $r->ConfirmedType : null,
             'at'                 => (string) $r->InsertDate,
         ];

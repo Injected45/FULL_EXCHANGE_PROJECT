@@ -384,11 +384,19 @@ class AgentIncomingTransfersController extends BaseController
      * وهي بعينها الحالةُ التي فُتحت لها [pendingOutgoing] في الحوالة
      * الداخلية. فهذه نظيرتُها، بدفترها هي.
      *
-     * ── ولا ازدواج ─────────────────────────────────────────────────────
+     * ── ولماذا صارت تُعيدها **كلَّها** لا غيرَ المعتمدة (11 سبتمبر 2026) ──
      *
-     * ⚠ `IsConfirmed = 0` وحدَها: ما اعتُمد له قيدٌ في الكشف، وإدراجُه هنا
-     * يعرضه **مرّتين** في القائمة نفسها — وهو أسوأُ من غيابه، لأنّ الوكيل
-     * يقرأ حوالتين حيث واحدة.
+     * كانت تُعيد `IsConfirmed = 0` وحدَها اتّقاءَ الازدواج مع كشف الحساب،
+     * فترتّب على ذلك عيبٌ رآه المالك: الحوالةُ تُعرض «بانتظار الاعتماد»
+     * ثمّ **تفقد مرحلتَها** بعد الاعتماد — لأنّ كشف الحساب يعيد
+     * `CoreConfirmType = null` (مقيس)، فتسقط من الشرائح إلى «الكل» وحدَها.
+     *
+     * فصارت هذه النقطةُ **المصدرَ الوحيد** للخارجية بمراحلها الحقيقية، ومنعُ
+     * الازدواج انتقل إلى التطبيق: يُسقط من صفوف الكشف ما رقمُه هنا.
+     *
+     * ⚠ والمطابقةُ **بالرقم لا بنصّ نوع الحركة**: «حوالة خارجية صادرة» اسمٌ
+     * يُقرأ من `OperationTypeTb` في قاعدةٍ يشاركها تطبيقُ سطح المكتب، وقد
+     * يُحرَّر فيها. والرقمُ عقدٌ لا يُحرَّر.
      *
      * ── والشكلُ شكلُ الكشف حرفاً ────────────────────────────────────────
      *
@@ -408,10 +416,6 @@ class AgentIncomingTransfersController extends BaseController
         }
 
         $rows = \Illuminate\Support\Facades\DB::table('ExternalEx as t')
-            ->where(function ($w) {
-                // ⚠ غيرُ المعتمدة وحدَها — انظر الشرح أعلاه.
-                $w->whereNull('t.IsConfirmed')->orWhere('t.IsConfirmed', 0);
-            })
             ->where(function ($w) use ($user) {
                 $w->where('t.uesrID_forminsertmobile', $user->id);
                 if (!empty($user->AccID)) {
@@ -420,22 +424,32 @@ class AgentIncomingTransfersController extends BaseController
             })
             ->orderByDesc('t.ID')
             ->limit(100)
-            ->selectRaw("
-                'حوالة خارجية صادرة'                                  AS MovementType,
-                'خصم'                                                 AS Type_from,
-                (ISNULL(t.CurrRecievedVal, 0) + ISNULL(t.ExVal, 0))   AS Values_to,
-                0                                                     AS Balnce,
-                t.InsertDate                                          AS InsertDate,
-                t.Code                                                AS Code,
-                t.InsertDate                                          AS TransTime,
-                NULL                                                  AS DeliveryStatus,
-                0                                                     AS CoreConfirmType,
-                0                                                     AS IsCommission,
-                0                                                     AS CommissionAmount
-            ")
-            ->get();
+            ->get([
+                't.Code', 't.InsertDate', 't.CurrRecievedVal', 't.ExVal',
+                't.IsConfirmed', 't.IsDelivered', 't.IsCanceled',
+            ]);
 
-        return $this->sendResponse($rows, 'Success');
+        $items = $rows->map(function ($t) {
+            $stage = \App\Services\Employees\EmployeeTransferViews::externalStage($t);
+
+            return [
+                // ⚠ بمفاتيح كشف الحساب نفسِها — يقرؤها `Movement` وتُعرض
+                // ببطاقته: لا نموذجَ ثانٍ ولا بطاقةَ ثانية.
+                'MovementType'     => 'حوالة خارجية صادرة',
+                'Type_from'        => 'خصم',
+                'Values_to'        => (float) (($t->CurrRecievedVal ?? 0) + ($t->ExVal ?? 0)),
+                'Balnce'           => 0,
+                'InsertDate'       => $t->InsertDate,
+                'Code'             => $t->Code,
+                'TransTime'        => $t->InsertDate,
+                'DeliveryStatus'   => $stage['label'],
+                'CoreConfirmType'  => $stage['confirm_type'],
+                'IsCommission'     => 0,
+                'CommissionAmount' => 0,
+            ];
+        })->all();
+
+        return $this->sendResponse($items, 'Success');
     }
 
     /**

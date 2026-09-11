@@ -468,12 +468,15 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
         : (ref.watch(pendingOutgoingProvider).valueOrNull ?? const []);
 
     /*
-     * ⚠ والخارجيةُ غيرُ المعتمدة كذلك — أمرُ المالك (11 سبتمبر 2026):
-     * «الحوالات الخارجية الصادرة من تطبيق الوكيل، اجعلها تظهر ضمن الصادرة».
+     * ⚠ والخارجيةُ كلُّها من نقطتها هي — أمرُ المالك (11 سبتمبر 2026):
+     * «وحِّد عمليات الحوالات الخارجية مثل الداخلية».
      *
-     * والمعتمدةُ منها تصل مع الكشف أصلاً باسم «حوالة خارجية صادرة»، فلا
-     * تُجلب هنا — وجلبُها كان سيعرضها **مرّتين**. والفصلُ في الخادم:
-     * `IsConfirmed = 0` وحدَها.
+     * وكانت تُجلب غيرُ المعتمدة وحدَها اتّقاءَ الازدواج مع الكشف، فترتّب على
+     * ذلك أنّ الحوالة **تفقد مرحلتَها** بعد الاعتماد: الكشفُ يعيدها بلا
+     * `CoreConfirmType`، فتسقط من الشرائح إلى «الكل» وحدَها.
+     *
+     * فصارت نقطتُها هي **المصدرَ الوحيد** لها بمراحلها الحقيقية، ومنعُ
+     * الازدواج هنا: تُسقَط من صفوف الكشف كلُّ حوالةٍ رقمُها في هذه القائمة.
      */
     final external = widget.mode.isEmployee
         ? const <Movement>[]
@@ -495,11 +498,21 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
         // سطراً داخل بطاقة حوالتها لا بطاقةً مستقلّة (قرار 3 سبتمبر 2026).
         // غير المعتمدة أوّلاً: هي الأحدث دائماً، وهي ما يبحث عنه الوكيل
         // فور إنشائه حوالة.
+        /*
+         * ⚠ الإسقاطُ **بالرقم** لا بنصّ نوع الحركة: «حوالة خارجية صادرة»
+         * اسمٌ يُقرأ من `OperationTypeTb` في قاعدةٍ يشاركها تطبيقُ سطح
+         * المكتب وقد يُحرَّر فيها، والرقمُ عقدٌ لا يُحرَّر.
+         */
+        final externalCodes = {for (final m in external) m.code};
+
         final all = [
           ...pending,
           ...external,
-          ...rowsAll
-              .where((m) => m.isTransfer && !m.isCommission && !m.isCredit),
+          ...rowsAll.where((m) =>
+              m.isTransfer &&
+              !m.isCommission &&
+              !m.isCredit &&
+              !externalCodes.contains(m.code)),
         ];
 
         if (all.isEmpty) return const _NoOutgoing();
@@ -528,7 +541,7 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
                 physics: const ClampingScrollPhysics(),
                 child: Row(
                   children: [
-                    _StageChip(
+                    StageChip(
                       label: 'الكل',
                       count: all.length,
                       on: _stage == null,
@@ -537,7 +550,7 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
                     for (final st in _stages)
                       if ((counts[st] ?? 0) > 0) ...[
                         const SizedBox(width: 8),
-                        _StageChip(
+                        StageChip(
                           label: st.label,
                           count: counts[st]!,
                           on: _stage == st,
@@ -593,8 +606,12 @@ class _OutgoingListState extends ConsumerState<_OutgoingList> {
 ///
 /// العدد ليس زينة: الوكيل يريد أن يعرف كم حوالةً عالقة «في الطريق» قبل أن
 /// يفتحها، والرقم بجانب الاسم يجيب عن ذلك بلا ضغطة.
-class _StageChip extends StatelessWidget {
-  const _StageChip({
+/// ⚠ عامّةٌ لا خاصّة: تستعملها «حوالاتي الخارجية» عند الموظف كذلك — أمرُ
+/// المالك (11 سبتمبر 2026) أن تُعرض الخارجيةُ بشرائح الداخلية نفسِها.
+/// وشريحةٌ ثانية منسوخة تفترق عن الأولى عند أوّل تعديل في اللون أو الحجم.
+class StageChip extends StatelessWidget {
+  const StageChip({
+    super.key,
     required this.label,
     required this.count,
     required this.on,

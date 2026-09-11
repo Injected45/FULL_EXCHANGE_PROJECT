@@ -352,6 +352,9 @@ class ExternalReceipt {
     required this.notes,
     required this.isCancelled,
     required this.isDelivered,
+    required this.isConfirmed,
+    required this.serverLabel,
+    required this.confirmType,
     required this.confirmedType,
     required this.at,
   });
@@ -379,28 +382,47 @@ class ExternalReceipt {
 
   final bool isCancelled;
   final bool isDelivered;
+  final bool isConfirmed;
+
+  /// الوصفُ كما كتبه الخادم — المصدرُ الأوّل للحالة.
+  final String? serverLabel;
+
+  /// رقمُ المرحلة بقيم `InternalEx.ConfirmType` نفسِها.
+  final int? confirmType;
   final int? confirmedType;
   final String at;
 
   /*
-   * ⚠ الحالةُ تُشتقّ من أعلام القاعدة الثلاثة، ولا تُختلَق.
+   * ⚠ **الوصفُ من الخادم، لا يُشتقّ هنا** — أمرُ المالك (11 سبتمبر 2026):
+   * «وحِّد الخارجية مثل الداخلية».
    *
-   * `ExternalEx` لا جدولَ حالاتٍ لها نظيرَ `InternalEx_Stautes` — والصفُّ
-   * يحمل `IsCanceled` و`IsDelivered` و`ConfirmedType` وحدَها. فيُقال ما تقوله
-   * هذه الثلاثة لا أكثر: «قيد التنفيذ» عن حوالةٍ لا تُعرف حالتُها ادّعاءٌ
-   * يبني عليه الموظف كلامَه للزبون.
+   * كان يُشتقّ في هذه الشاشة من الأعلام مباشرةً، فقالت الفاتورةُ «قيد
+   * المعالجة» عن حوالةٍ تقول عنها القائمةُ التي فُتحت منها «مسلَّمة» — اشتقاقان
+   * لسؤالٍ واحد يفترقان عند أوّل حالة. والقاعدةُ الآن واحدةٌ في الخادم
+   * (`EmployeeTransferViews::externalStage`) يقرؤها كلُّ بابٍ يعرض الخارجية.
+   *
+   * والاحتياطيُّ هنا ليس اشتقاقاً ثانياً بل ترجمةُ نفس القيمة حين يسبق
+   * التطبيقُ الخادمَ في التحديث.
    */
   String get statusLabel {
+    if (serverLabel != null && serverLabel!.isNotEmpty) return serverLabel!;
     if (isCancelled) return 'ملغاة';
-    if (isDelivered) return 'مسلَّمة';
-    return 'قيد المعالجة';
+    if (isDelivered || isConfirmed) return 'مسلَّمة';
+    return 'بانتظار الاعتماد';
   }
 
-  Color get statusColor {
-    if (isCancelled) return R.error;
-    if (isDelivered) return R.primaryGradEnd;
-    return R.primaryDark;
-  }
+  /// اللونُ يتبع **المرحلة** بقيمها المشتركة مع الداخلية — فالوسمُ الأخضر
+  /// يعني الشيءَ نفسَه في القناتين.
+  Color get statusColor => switch (confirmType) {
+        2 => R.primaryGradEnd,
+        3 || 4 || 5 || 6 || 10 => R.error,
+        0 => R.warnIcon,
+        _ => isCancelled
+            ? R.error
+            : ((isDelivered || isConfirmed)
+                ? R.primaryGradEnd
+                : R.warnIcon),
+      };
 
   static String _s(dynamic v) => '${v ?? ''}'.trim();
 
@@ -419,8 +441,11 @@ class ExternalReceipt {
         netTotal: j['net_total'] == null ? null : Fmt.num_(j['net_total']),
         currencyCode: _s(j['currency_code']),
         notes: _s(j['notes']),
-        isCancelled: '${j['is_canceled'] ?? 0}' != '0',
-        isDelivered: '${j['is_delivered'] ?? 0}' != '0',
+        isCancelled: "${j["is_canceled"] ?? 0}" != "0",
+        isDelivered: "${j["is_delivered"] ?? 0}" != "0",
+        isConfirmed: "${j["is_confirmed"] ?? 0}" != "0",
+        serverLabel: _s(j["status_label"]),
+        confirmType: int.tryParse("${j["confirm_type"] ?? ""}"),
         confirmedType: int.tryParse('${j['confirmed_type'] ?? ''}'),
         at: _s(j['at']),
       );

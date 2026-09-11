@@ -9,7 +9,9 @@ import '../../core/theme/tokens.dart';
 import '../../ui/widgets/controls.dart';
 import '../../ui/widgets/glass.dart';
 import '../chat/chat_screen.dart';
+import '../home/home_repository.dart';
 import '../transfers/agent_incoming_repository.dart';
+import '../transfers/transfers_screen.dart';
 import '../transfers/external_receipt_screen.dart';
 import 'employee_header.dart';
 import 'employee_session.dart';
@@ -222,6 +224,8 @@ class ExternalMovement {
     required this.destination,
     required this.date,
     required this.missingInCore,
+    required this.statusLabel,
+    required this.confirmType,
   });
 
   final String code;
@@ -235,6 +239,24 @@ class ExternalMovement {
   final String date;
   final bool missingInCore;
 
+  /// وصفُ المرحلة كما يكتبه الخادم — «بانتظار الاعتماد» · «مسلَّمة» · «ملغاة».
+  final String? statusLabel;
+
+  /// رقمُ المرحلة بقيم `InternalEx.ConfirmType` نفسِها، فتُترجَم بـ[CoreStage]
+  /// الواحدة وتُعرض الخارجيةُ بشرائح الداخلية وألوانها. انظر
+  /// `EmployeeTransferViews::externalStage`.
+  final int? confirmType;
+
+  /// المرحلةُ كما تفهمها شاشاتُ الحوالات كلُّها — لا اصطلاحٌ ثانٍ للخارجية.
+  CoreStage get stage => switch (confirmType) {
+        0 => CoreStage.pending,
+        1 || 7 || 8 || 9 => CoreStage.onWay,
+        2 => CoreStage.delivered,
+        3 || 4 || 10 => CoreStage.cancelling,
+        5 || 6 => CoreStage.cancelled,
+        _ => CoreStage.unknown,
+      };
+
   static ExternalMovement fromJson(Map<String, dynamic> j) => ExternalMovement(
         code: '${j['transfer_number'] ?? ''}',
         amount: j['amount'] == null ? null : Fmt.num_(j['amount']),
@@ -245,6 +267,10 @@ class ExternalMovement {
         destination: (j['branch'] as String?)?.trim(),
         date: '${j['date'] ?? ''}',
         missingInCore: j['missing_in_core'] == true,
+        statusLabel: (j['status_label'] as String?)?.trim(),
+        confirmType: j['core_confirm_type'] == null
+            ? null
+            : int.tryParse('${j['core_confirm_type']}'),
       );
 }
 
@@ -260,11 +286,43 @@ final employeeExternalMineProvider =
       .toList();
 });
 
-class EmployeeExternalMineScreen extends ConsumerWidget {
+class EmployeeExternalMineScreen extends ConsumerStatefulWidget {
   const EmployeeExternalMineScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<EmployeeExternalMineScreen> createState() =>
+      _EmployeeExternalMineScreenState();
+}
+
+class _EmployeeExternalMineScreenState
+    extends ConsumerState<EmployeeExternalMineScreen> {
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   *  شرائحُ المراحل — نظيرُ شرائح «صادرة» عند الوكيل حرفاً بحرف
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * أمرُ المالك (11 سبتمبر 2026): «وحِّد عمليات الحوالات الخارجية مثل
+   * الداخلية — الكل · بانتظار الاعتماد · في الطريق، وبعد أن تُعتمد تظهر
+   * مسلَّمة».
+   *
+   * ⚠ والترتيبُ يتبع رحلةَ الحوالة لا الأبجدية، والشريحةُ **لا تظهر إن لم
+   * يكن لها حوالةٌ فعلاً**: شريحةٌ فارغة تَعِد الموظف بشيءٍ ثمّ تُريه لا
+   * شيء. فـ«في الطريق» لا تظهر في الخارجية اليوم — لأنّ لا صفَّ يقف عندها
+   * (`IsConfirmed` ينقل من «بانتظار الاعتماد» إلى «مسلَّمة» مباشرة) —
+   * وتظهر من تلقاء نفسها يومَ يقف عندها صفّ.
+   */
+  CoreStage? _stage;
+
+  static const _stages = [
+    CoreStage.pending,
+    CoreStage.onWay,
+    CoreStage.delivered,
+    CoreStage.cancelling,
+    CoreStage.cancelled,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
     final async = ref.watch(employeeExternalMineProvider);
 
     return Screen(
@@ -290,19 +348,70 @@ class EmployeeExternalMineScreen extends ConsumerWidget {
                       icon: Icons.wifi_off_rounded,
                       text: 'تعذّر تحميل القائمة.\n$e'),
                 ]),
-                data: (items) => items.isEmpty
-                    ? ListView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        children: const [
-                          EmployeeEmpty(
-                            icon: Icons.public_off_rounded,
-                            text: 'لم تُنشئ حوالةً خارجيةً بعد.',
-                          ),
-                        ],
-                      )
-                    : ListView.separated(
+                data: (all) {
+                  if (all.isEmpty) {
+                    return ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        EmployeeEmpty(
+                          icon: Icons.public_off_rounded,
+                          text: 'لم تُنشئ حوالةً خارجيةً بعد.',
+                        ),
+                      ],
+                    );
+                  }
+
+                  // ⚠ الأعدادُ تُحسب على **كلّ** الحوالات لا على المعروض،
+                  // وإلّا صار كلُّ عددٍ صفراً إلّا عددَ الشريحة المختارة.
+                  final counts = <CoreStage, int>{};
+                  for (final m in all) {
+                    counts[m.stage] = (counts[m.stage] ?? 0) + 1;
+                  }
+
+                  final items = _stage == null
+                      ? all
+                      : all.where((m) => m.stage == _stage).toList();
+
+                  return Column(
+                    children: [
+                      Padding(
                         padding: const EdgeInsets.fromLTRB(
-                            R.padScreen, 14, R.padScreen, 30),
+                            R.padScreen, 12, R.padScreen, 2),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const ClampingScrollPhysics(),
+                          child: Row(
+                            children: [
+                              StageChip(
+                                label: 'الكل',
+                                count: all.length,
+                                on: _stage == null,
+                                onTap: () => setState(() => _stage = null),
+                              ),
+                              for (final st in _stages)
+                                if ((counts[st] ?? 0) > 0) ...[
+                                  const SizedBox(width: 8),
+                                  StageChip(
+                                    label: st.label,
+                                    count: counts[st]!,
+                                    on: _stage == st,
+                                    onTap: () =>
+                                        setState(() => _stage = st),
+                                  ),
+                                ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: items.isEmpty
+                            ? const EmployeeEmpty(
+                                icon: Icons.filter_alt_off_outlined,
+                                text: 'لا حوالة في هذه المرحلة.',
+                              )
+                            : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(
+                            R.padScreen, 12, R.padScreen, 30),
                         itemCount: items.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 8),
                         itemBuilder: (_, i) => _ExternalRow(
@@ -327,6 +436,10 @@ class EmployeeExternalMineScreen extends ConsumerWidget {
                                 )),
                         ),
                       ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
